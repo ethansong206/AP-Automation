@@ -1,5 +1,8 @@
 import re
 from datetime import datetime, timedelta
+import csv
+import json
+import os
 
 def clean_currency(value):
     return value.replace("$", "").replace(",", "").strip()
@@ -38,3 +41,54 @@ def try_parse_date(raw):
         except ValueError:
             continue
     return None
+
+def load_vendor_list():
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    csv_path = os.path.join(base_dir, "data", "vendors.csv")
+
+    vendor_set = set()
+    if not os.path.exists(csv_path):
+        print(f"[WARN] Vendor file not found: {csv_path}")
+        return vendor_set
+
+    with open(csv_path, newline='', encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = row.get("Vendor Name")
+            if name:
+                vendor_set.add(name.lower().strip())
+
+    print(f"[INFO] Loaded {len(vendor_set)} known vendors")
+    return vendor_set
+
+def get_vendor_list():
+    path = os.path.join("data", "vendors.csv")
+    with open(path, newline='', encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        return [row["Vendor Name"] for row in reader if row.get("Vendor Name")]
+
+def normalize_vendor_name(name):
+    name = name.lower()
+    name = re.sub(r"\b(llc|inc|co|corp|ltd|company|corporation)\b", "", name)
+    return re.sub(r"[^a-z0-9]", "", name)
+
+def normalize_string(text):
+    text = text.lower()
+    return re.sub(r"[^a-z0-9\s]", "", text).strip()
+
+def load_manual_mapping():
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    json_path = os.path.join(base_dir, "data", "manual_vendor_map.json")
+
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                print(f"[INFO] Loaded {len(data)} manual vendor mappings")
+                return {normalize_string(k): v.strip() for k, v in data.items()}
+        except Exception as e:
+            print(f"[ERROR] Failed to load manual map: {e}")
+            return {}
+    else:
+        print(f"[WARN] Manual map not found at {json_path}")
+        return {}

@@ -2,7 +2,7 @@ from extractors import (
     extract_invoice_number,
     extract_invoice_date,
     extract_total_amount,
-    extract_vendor,
+    extract_vendor_name,
     extract_discount_terms
 )
 
@@ -14,7 +14,7 @@ def extract_fields(documents):
         file_name = doc.get("file_name", "Unknown")
 
         row = {
-            "Vendor Name": extract_vendor(words),
+            "Vendor Name": extract_vendor_name(words),
             "Invoice Number": extract_invoice_number(words),
             "Invoice Date": extract_invoice_date(words),
             "Discount Terms": extract_discount_terms(words),
