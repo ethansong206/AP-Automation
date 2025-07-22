@@ -3,6 +3,16 @@ from datetime import datetime, timedelta
 import csv
 import json
 import os
+import sys
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and PyInstaller bundle."""
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 def clean_currency(value):
     return value.replace("$", "").replace(",", "").strip()
@@ -43,8 +53,7 @@ def try_parse_date(raw):
     return None
 
 def load_vendor_list():
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    csv_path = os.path.join(base_dir, "data", "vendors.csv")
+    csv_path = resource_path("data/vendors.csv")
 
     vendor_set = set()
     if not os.path.exists(csv_path):
@@ -62,7 +71,7 @@ def load_vendor_list():
     return vendor_set
 
 def get_vendor_list():
-    path = os.path.join("data", "vendors.csv")
+    path = resource_path("data/vendors.csv")
     with open(path, newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         return [row["Vendor Name"] for row in reader if row.get("Vendor Name")]
@@ -77,8 +86,7 @@ def normalize_string(text):
     return re.sub(r"[^a-z0-9\s]", "", text).strip()
 
 def load_manual_mapping():
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    json_path = os.path.join(base_dir, "data", "manual_vendor_map.json")
+    json_path = resource_path("data/manual_vendor_map.json")
 
     if os.path.exists(json_path):
         try:
