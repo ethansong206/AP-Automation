@@ -1,3 +1,5 @@
+# Fully operational as of 7/22/25
+
 import re
 from datetime import datetime
 from .utils import try_parse_date

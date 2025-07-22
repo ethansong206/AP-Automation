@@ -1,3 +1,5 @@
+# Fully operational as of 7/22/25
+
 import re
 
 def extract_invoice_number(words):
