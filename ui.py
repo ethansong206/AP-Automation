@@ -4,15 +4,17 @@ import fitz  # PyMuPDF
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QMessageBox,
-    QHBoxLayout, QComboBox, QDialog, QDialogButtonBox, QSplitter, QScrollArea, QLineEdit
+    QHBoxLayout, QComboBox, QDialog, QDialogButtonBox, QSplitter, QScrollArea, QLineEdit,
+    QItemDelegate, QDateEdit
 )
 from PyQt5.QtGui import QFont, QColor, QBrush, QCursor, QPixmap, QImage
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QDate
 from pdf_reader import extract_text_data_from_pdfs
 from extractor import extract_fields
 from utils import validate_row_data, write_to_csv
 from extractors.utils import get_vendor_list, load_manual_mapping
 from extractors.vendor_name import save_manual_mapping
+from datetime import datetime
 
 class InteractivePDFViewer(QScrollArea):
     def __init__(self, pdf_path, parent=None):
@@ -359,6 +361,28 @@ class VendorSelectDialog(QDialog):
     def get_identifier(self):
         return self.identifier_input.text().strip()
 
+class DateDelegate(QItemDelegate):
+    def createEditor(self, parent, option, index):
+        editor = QDateEdit(parent)
+        editor.setCalendarPopup(True)
+        editor.setDisplayFormat("MM/dd/yy")
+        editor.setDate(QDate.currentDate())
+        return editor
+
+    def setEditorData(self, editor, index):
+        text = index.model().data(index, Qt.EditRole)
+        try:
+            date = QDate.fromString(text, "MM/dd/yy")
+            if not date.isValid():
+                date = QDate.currentDate()
+        except Exception:
+            date = QDate.currentDate()
+        editor.setDate(date)
+
+    def setModelData(self, editor, model, index):
+        date = editor.date()
+        model.setData(index, date.toString("MM/dd/yy"), Qt.EditRole)
+
 class InvoiceApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -379,10 +403,21 @@ class InvoiceApp(QWidget):
         self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
             "Vendor Name", "Invoice Number", "Invoice Date",
-            "Discount Terms", "Discount Due Date",
+            "Discount Terms", "Disc. Due Date",  # Abbreviated
             "Discounted Total", "Total Amount",
             "Source File", "Delete"
         ])
+        # Set column widths (adjust as needed for your data)
+        self.table.setColumnWidth(0, 140)  # Vendor Name
+        self.table.setColumnWidth(1, 110)  # Invoice Number
+        self.table.setColumnWidth(2, 100)  # Invoice Date
+        self.table.setColumnWidth(3, 110)  # Discount Terms
+        self.table.setColumnWidth(4, 110)  # Disc. Due Date
+        self.table.setColumnWidth(5, 120)  # Discounted Total
+        self.table.setColumnWidth(6, 100)  # Total Amount
+        self.table.setColumnWidth(7, 120)  # Source File
+        self.table.setColumnWidth(8, 60)   # Delete
+
         self.table.setEditTriggers(QAbstractItemView.AllEditTriggers)
         self.table.cellClicked.connect(self.handle_table_click)
         self.layout.addWidget(self.table)
@@ -394,6 +429,10 @@ class InvoiceApp(QWidget):
         self.setLayout(self.layout)
         self.setAcceptDrops(True)
         self.loaded_files = set()
+
+        self.date_delegate = DateDelegate(self.table)
+        self.table.setItemDelegateForColumn(2, self.date_delegate)  # Invoice Date
+        self.table.setItemDelegateForColumn(4, self.date_delegate)  # Discount Due Date
 
     # --- File browsing ---
     def browse_files(self):
