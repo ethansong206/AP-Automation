@@ -434,13 +434,17 @@ class InvoiceApp(QWidget):
         row_position = self.table.rowCount()
         self.table.insertRow(row_position)
 
+        # Check if this file had no OCR words (all fields empty except file and delete)
+        is_no_ocr = all((not value or value == "") for value in row_data[:7])
+
         for col, value in enumerate(row_data):
             if col == 0 and not value:
-                item = QTableWidgetItem("Add Vendor")
-                item.setForeground(QBrush(QColor("white")))
-                item.setBackground(QBrush(QColor("red")))
+                item = QTableWidgetItem("ADD VENDOR")
+                item.setForeground(QBrush(QColor("blue")))
+                item.setBackground(QBrush(QColor("#CC6666")) if is_no_ocr else QBrush(QColor("#CC6666")))
                 font = QFont()
                 font.setBold(True)
+                font.setUnderline(True)
                 item.setFont(font)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
             else:
@@ -470,16 +474,18 @@ class InvoiceApp(QWidget):
         empty_count = sum(
             1 for col in range(7)
             if not self.table.item(row_position, col).text().strip()
-            or self.table.item(row_position, col).text() == "Add Vendor"
+            or self.table.item(row_position, col).text().strip().upper() == "ADD VENDOR"
         )
 
+        # Highlight the row light red if Vendor Name is missing or "ADD VENDOR"
         for col in range(7):
             current_item = self.table.item(row_position, col)
-            if current_item.text() != "Add Vendor":
-                if empty_count >= 4:
-                    current_item.setBackground(Qt.yellow)
-                else:
-                    current_item.setBackground(QColor(220, 255, 220))  # light green
+            if current_item.text().strip().upper() == "ADD VENDOR":
+                current_item.setBackground(QColor("#CC6666"))  # pastel light red
+            elif empty_count >= 4:
+                current_item.setBackground(QColor("#F0F099"))  # pastel yellow
+            else:
+                current_item.setBackground(QColor("#98DDBB"))  # pastel green
 
         if empty_count >= 4:
             print(f"[WARN] Row {row_position + 1} flagged for having {empty_count} empty fields.")
