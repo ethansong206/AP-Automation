@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('data/vendors.csv', 'data'), ('data/manual_vendor_map.json', 'data')],
+    datas=[('data/*', 'data/'), ('assets/*', 'assets/')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
