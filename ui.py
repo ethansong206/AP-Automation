@@ -434,6 +434,12 @@ class InvoiceApp(QWidget):
         self.table.setItemDelegateForColumn(2, self.date_delegate)  # Invoice Date
         self.table.setItemDelegateForColumn(4, self.date_delegate)  # Discount Due Date
 
+        self.original_values = {}  # (row, col): value
+        self.manually_edited = set()  # Track (row, col) of manually edited cells
+
+        # After setting up self.table:
+        self.table.cellChanged.connect(self.handle_cell_changed)
+
     # --- File browsing ---
     def browse_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select PDF files", "", "PDF Files (*.pdf)")
@@ -509,6 +515,10 @@ class InvoiceApp(QWidget):
         delete_item.setBackground(QColor(230, 230, 230))  # light grey
         self.table.setItem(row_position, 8, delete_item)
 
+        # --- Track original values for editable columns (0-6)
+        for col, value in enumerate(row_data):
+            self.original_values[(row_position, col)] = str(value) if value is not None else ""
+
         # --- Highlight incomplete rows ---
         empty_count = sum(
             1 for col in range(7)
@@ -535,7 +545,98 @@ class InvoiceApp(QWidget):
         current_width = self.table.columnWidth(vendor_col)
         self.table.setColumnWidth(vendor_col, current_width + 50)
 
-    # --- Cell click handling ---
+    def handle_cell_changed(self, row, col):
+        # Only track editable columns (0-6)
+        if col > 6:
+            return
+            
+        item = self.table.item(row, col)
+        if not item:
+            return
+            
+        # Check if cell was cleared (empty)
+        if not item.text().strip():
+            # Restore original value
+            original_value = self.original_values.get((row, col), "")
+            # Temporarily disconnect to avoid recursion
+            self.table.cellChanged.disconnect(self.handle_cell_changed)
+            item.setText(original_value)
+            self.table.cellChanged.connect(self.handle_cell_changed)
+            # Remove from manually edited if it matches original
+            if (row, col) in self.manually_edited:
+                self.manually_edited.remove((row, col))
+        else:
+            # Check if value is different from original
+            original_value = self.original_values.get((row, col), "")
+            current_value = item.text().strip()
+            
+            if current_value != original_value:
+                # Mark as manually edited
+                self.manually_edited.add((row, col))
+                # Set blue background for manually edited cells
+                item.setBackground(QColor("#A8D1FF"))  # light blue
+            else:
+                # Value matches original, remove from manually edited
+                if (row, col) in self.manually_edited:
+                    self.manually_edited.remove((row, col))
+                    
+        self.rehighlight_row(row)
+
+    def restore_original_color(self, row, col):
+        item = self.table.item(row, col)
+        if not item:
+            return
+        
+        # Always keep manually edited cells blue
+        if (row, col) in self.manually_edited:
+            item.setBackground(QColor("#A8D1FF"))  # light blue
+            return
+            
+        # Find empty/"ADD VENDOR" cells in editable columns
+        empty_cells = [
+            c for c in range(7)
+            if (
+                not self.table.item(row, c) or
+                not self.table.item(row, c).text().strip() or
+                self.table.item(row, c).text().strip().upper() == "ADD VENDOR"
+            )
+        ]
+        row_is_full = len(empty_cells) == 0
+        if item.text().strip().upper() == "ADD VENDOR":
+            item.setBackground(QColor("#CC6666"))  # red
+        elif row_is_full:
+            item.setBackground(QColor("#98DDBB"))  # green for complete
+        else:
+            item.setBackground(QColor("#F0F099"))  # yellow for missing
+
+    def rehighlight_row(self, row):
+        # Find empty/"ADD VENDOR" cells in editable columns
+        empty_cells = [
+            c for c in range(7)
+            if (
+                not self.table.item(row, c) or
+                not self.table.item(row, c).text().strip() or
+                self.table.item(row, c).text().strip().upper() == "ADD VENDOR"
+            )
+        ]
+        row_is_full = len(empty_cells) == 0
+        
+        for c in range(7):
+            item = self.table.item(row, c)
+            if not item:
+                continue
+                
+            # Always keep manually edited cells blue
+            if (row, c) in self.manually_edited:
+                item.setBackground(QColor("#A8D1FF"))  # light blue
+            elif item.text().strip().upper() == "ADD VENDOR":
+                item.setBackground(QColor("#CC6666"))  # red
+            elif row_is_full:
+                item.setBackground(QColor("#98DDBB"))  # green for complete
+            else:
+                item.setBackground(QColor("#F0F099"))  # yellow for missing
+
+        # --- Cell click handling ---
     def handle_table_click(self, row, col):
         header = self.table.horizontalHeaderItem(col).text()
 
@@ -570,7 +671,7 @@ class InvoiceApp(QWidget):
 
         elif header == "Vendor Name":
             value = self.table.item(row, col).text()
-            if value == "Add Vendor":
+            if value.strip().upper() == "ADD VENDOR":
                 self.open_vendor_dialog(row, col)
 
     # --- Vendor input dialog ---
