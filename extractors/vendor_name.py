@@ -1,3 +1,6 @@
+# Bugs to fix:
+# 1. The code does not handle vendor name "Grayl" properly (re: 8215_20250513_30853148_14333894600.pdf)
+
 import re
 from .utils import get_vendor_list, normalize_vendor_name, normalize_string, load_manual_mapping
 import os
@@ -32,6 +35,12 @@ def extract_vendor_name(words):
         for i in range(len(all_words) - n + 1):
             group = " ".join(all_words[i:i+n])
             norm = normalize_vendor_name(group)
+
+            # --- Hardcoded skip for Gray L edge-case \\\ Remove and improve later ---
+            if norm.replace(" ", "") == "grayl":
+                print(f"[DEBUG] Skipping false match for normalized 'grayl'")
+                continue
+
             if norm in NORMALIZED_VENDOR_NAMES:
                 idx = NORMALIZED_VENDOR_NAMES.index(norm)
                 print(f"[DEBUG] Multi-word vendor match found: {VENDOR_NAMES[idx]}")

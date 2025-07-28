@@ -1,4 +1,7 @@
-# Fully operational as of 7/22/25
+# Bugs to fix:
+# 1. The code does not handle invoice numbers that are Customer Copy Note (re: #019383163.pdf)
+# 2. The code does not handle invoice numbers with alphabetical characters in the middle of the number (re: Yakima invoice / 250430_25CI0543356_3379_R3379_3379.pdf)
+# 3. The code does not handle invoice numbers that are labeled "Transaction Number" (re: NiteIze / )
 
 import re
 

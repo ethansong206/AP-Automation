@@ -1,4 +1,5 @@
-# Fully operational as of 7/22/25
+# Bugs to fix:
+# 1. The code does not handle invoice dates well in multiple-unique-dates cases. (re: Dapper Ink, Yakima)
 
 import re
 from datetime import datetime
