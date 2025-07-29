@@ -8,23 +8,6 @@ REQUIRED_FIELDS = [
     "Discounted Total", "Total Amount"
 ]
 
-def validate_row_data(row):
-    """
-    Returns False if any required field is empty or clearly invalid.
-    Used to trigger yellow highlight.
-    """
-    for i, value in enumerate(row):
-        if not value or value.strip() == "":
-            print(f"[WARN] Missing value for '{REQUIRED_FIELDS[i]}'")
-            return False
-        if "total" in REQUIRED_FIELDS[i].lower():
-            try:
-                float(value.replace("$", "").replace(",", ""))
-            except ValueError:
-                print(f"[WARN] Invalid number format in '{REQUIRED_FIELDS[i]}': {value}")
-                return False
-    return True
-
 def write_to_csv(filename, rows):
     """
     Appends a list of rows to an existing CSV file (creates file with headers if needed).

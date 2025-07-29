@@ -22,16 +22,8 @@ def extract_vendor_name(words):
             print(f"[DEBUG] Manual match found for '{key}' → {value}")
             return value
 
-    # --- Direct exact match: single words ---
-    for word in all_words:
-        norm = normalize_vendor_name(word)
-        if norm in NORMALIZED_VENDOR_NAMES:
-            idx = NORMALIZED_VENDOR_NAMES.index(norm)
-            print(f"[DEBUG] Exact vendor match found: {VENDOR_NAMES[idx]}")
-            return VENDOR_NAMES[idx]
-
     # --- Direct exact match: consecutive multi-word groups (2 to 6) ---
-    for n in range(2, 7):
+    for n in range(6, 1, -1):  # Start with longest chains first
         for i in range(len(all_words) - n + 1):
             group = " ".join(all_words[i:i+n])
             norm = normalize_vendor_name(group)
@@ -45,6 +37,14 @@ def extract_vendor_name(words):
                 idx = NORMALIZED_VENDOR_NAMES.index(norm)
                 print(f"[DEBUG] Multi-word vendor match found: {VENDOR_NAMES[idx]}")
                 return VENDOR_NAMES[idx]
+
+    # --- Fallback: Direct exact match for single words ---
+    for word in all_words:
+        norm = normalize_vendor_name(word)
+        if norm in NORMALIZED_VENDOR_NAMES:
+            idx = NORMALIZED_VENDOR_NAMES.index(norm)
+            print(f"[DEBUG] Single-word vendor match found: {VENDOR_NAMES[idx]}")
+            return VENDOR_NAMES[idx]
 
     print("[DEBUG] No vendor match found.")
     return ""

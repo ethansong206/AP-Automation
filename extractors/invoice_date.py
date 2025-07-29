@@ -29,7 +29,7 @@ def extract_invoice_date(words):
         print(" -", m)
 
     today = datetime.today().date()
-    MIN_VALID_DATE = datetime(today.year - 1, 1, 1).date()
+    MIN_VALID_DATE = datetime(today.year, max(1, today.month - 3), 1).date() # Only consider dates within the last 3 months
     date_matches = []
 
     for raw in matches:
@@ -48,8 +48,10 @@ def extract_invoice_date(words):
         print("[DEBUG] No valid dates found.")
         return ""
 
+    # Remove duplicates by converting to set and back to list
+    date_matches = list(set(date_matches))
     sorted_dates = sorted(date_matches)
-    print("[DEBUG] Final valid dates (sorted):", [d.strftime("%m/%d/%y") for d in sorted_dates])
+    print("[DEBUG] Final valid dates (de-duped & sorted):", [d.strftime("%m/%d/%y") for d in sorted_dates])
 
     # --- Apply your 4-case logic ---
     if len(sorted_dates) == 1:
