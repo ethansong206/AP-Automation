@@ -43,6 +43,15 @@ class InvoiceApp(QWidget):
         self.export_button.clicked.connect(self.export_to_csv)
         self.layout.addWidget(self.export_button)
 
+        # Add total amount display
+        self.total_label = QLabel("Total Amount: $0.00")
+        self.total_label.setAlignment(Qt.AlignRight)
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(12)
+        self.total_label.setFont(font)
+        self.layout.addWidget(self.total_label)
+
         self.setLayout(self.layout)
         self.setAcceptDrops(True)
         self.loaded_files = set()
@@ -151,6 +160,8 @@ class InvoiceApp(QWidget):
         
         # Auto-size vendor column
         self.resize_vendor_column()
+
+        self.update_total_amount()
 
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
         """Populate the cells of a row with data."""
@@ -335,7 +346,7 @@ class InvoiceApp(QWidget):
                 self.table.removeRow(row)
                 if file_path in self.loaded_files:
                     self.loaded_files.remove(file_path)
-                    print(f"[DEBUG] Removed '{file_path}' from loaded_files.")
+                self.update_total_amount()  # Update total after deletion
 
         elif header == "Vendor Name":
             value = self.table.item(row, col).text()
@@ -373,6 +384,18 @@ class InvoiceApp(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Error: {e}")
             print(f"[ERROR] Failed to export: {e}")
+
+    def update_total_amount(self):
+        """Update the total amount display."""
+        total = 0.0
+        for row in range(self.table.rowCount()):
+            amount_item = self.table.item(row, 6)  # Total Amount column
+            if amount_item and amount_item.text():
+                try:
+                    total += float(amount_item.text())
+                except ValueError:
+                    continue
+        self.total_label.setText(f"Total Amount: ${total:,.2f}")
 
     # --- Helper methods for cell handling ---
     def is_cell_empty(self, row, col):
