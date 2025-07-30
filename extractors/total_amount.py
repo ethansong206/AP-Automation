@@ -1,7 +1,7 @@
 import re
 from .utils import clean_currency
 
-def extract_total_amount(words):
+def extract_total_amount(words, vendor_name):
     """Extract the total amount from OCR words, returns a float or empty string."""
     # Pattern matches numbers with decimal points, including negative amounts: -$1,234.56 or $1,234.56
     amount_pattern = r'^-?\$?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$'

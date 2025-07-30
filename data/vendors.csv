@@ -31,7 +31,7 @@ Vendor No. (Sage),Vendor Name
 0000107,Hickory Brands Inc.
 0000108,BearVault Inc.
 0000109,Deckers
-0000109,Deckers (TEVA)
+0000109,TEVA
 0000112,Feelfree US LLC
 0000114,Duck Head LLC
 0000115,TOPO ATHLETIC
@@ -72,7 +72,8 @@ Vendor No. (Sage),Vendor Name
 0000222,Badfish
 0000227,Newport Vessels
 0000230,Thread Wallets
-0000231,Gear Aid (McNett)
+0000231,Gear Aid
+0000231,McNett
 0000232,NOCS Provisions
 0000234,"Socksmith Design, Inc"
 0000236,Trailex Inc.
@@ -105,7 +106,8 @@ Vendor No. (Sage),Vendor Name
 0000366,Tilley Endurables Corp
 0000370,National Geographic Maps
 0000372,"High N Dry Fishing Products, LLC"
-0000377,"Industrial Revolution/UCO, Inc"
+0000377,"Industrial Revolution, Inc"
+0000377,UCO
 0000378,Umpqua Feather Merchants
 0000379,Long Leaf Services
 0000382,Elder & Co
@@ -177,7 +179,8 @@ Vendor No. (Sage),Vendor Name
 0000713,Sherrill Inc dba Sterling Rope Company Inc
 0000713,Sterling Rope Company Inc
 0000714,Columbia River
-0000714,Columbia River Knife & Tool (CRKT)
+0000714,Columbia River Knife & Tools
+0000714,CRKT
 0000722,Waterworks-Lamson
 0000735,Osprey
 0000741,Hydrapak
@@ -195,7 +198,8 @@ Vendor No. (Sage),Vendor Name
 0000828,"Osprey Packs, Inc"
 0000842,Angler's Book Supply
 0000845,"BIG Adventures, LLC"
-0000850,Lacrosse Footwear Inc (Danner)
+0000850,Lacrosse Footwear Inc
+0000850,Danner
 0000862,Grayl
 0000864,Pyranha
 0000871,Nite Ize Inc
@@ -243,7 +247,7 @@ Vendor No. (Sage),Vendor Name
 0001131,Olukai LLC
 0001142,Education Outdoors
 0001151,Cliff Outdoors
-0001171,Black Diamond Equipment Ltd (B.D.E.L.)
+0001171,Black Diamond Equipment Ltd
 0001172,Petzl Pro
 0001178,Pistil
 0001178,Pistil/Totes Isotoner

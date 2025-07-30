@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from .utils import try_parse_date
 
-def extract_invoice_date(words):
+def extract_invoice_date(words, vendor_name):
     text_blob = " ".join([w["text"] for w in words])
     print("\n[DEBUG] Combined text_blob:\n", text_blob)
 

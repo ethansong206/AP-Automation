@@ -13,14 +13,16 @@ def extract_fields(documents):
         words = doc["words"]
         file_name = doc.get("file_name", "Unknown")
 
+        vendor_name = extract_vendor_name(words)
+
         row = {
-            "Vendor Name": extract_vendor_name(words),
-            "Invoice Number": extract_invoice_number(words),
-            "Invoice Date": extract_invoice_date(words),
-            "Discount Terms": extract_discount_terms(words),
+            "Vendor Name": vendor_name,
+            "Invoice Number": extract_invoice_number(words, vendor_name),
+            "Invoice Date": extract_invoice_date(words, vendor_name),
+            "Discount Terms": extract_discount_terms(words, vendor_name),
             "Discount Due Date": "",
             "Discounted Total": "",
-            "Total Amount": extract_total_amount(words)
+            "Total Amount": extract_total_amount(words, vendor_name)
         }
 
         if row["Discount Terms"] and row["Invoice Date"] and row["Total Amount"]:

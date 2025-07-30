@@ -1,6 +1,6 @@
 import re
 
-def extract_discount_terms(words):
+def extract_discount_terms(words, vendor_name):
     for i, word in enumerate(words):
         if "terms" in word["text"].lower():
             for offset in range(1, 5):
