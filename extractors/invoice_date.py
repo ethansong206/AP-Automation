@@ -7,7 +7,6 @@ from .utils import try_parse_date
 
 def extract_invoice_date(words, vendor_name):
     text_blob = " ".join([w["text"] for w in words])
-    print("\n[DEBUG] Combined text_blob:\n", text_blob)
 
     MONTH_NAMES = [
         "Jan(?:uary)?", "Feb(?:ruary)?", "Mar(?:ch)?", "Apr(?:il)?", "May", "Jun(?:e)?",
