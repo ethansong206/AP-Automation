@@ -213,9 +213,15 @@ class InvoiceApp(QWidget):
             or self.table.item(row_position, col).text().strip().upper() == "ADD VENDOR"
         )
 
-        # Highlight the row based on conditions
         for col in range(7):
             current_item = self.table.item(row_position, col)
+            # Pink for Discount Terms column if it does NOT contain 'NET'
+            if col == 3:
+                cell_text = current_item.text().strip().upper()
+                if "NET" not in cell_text:
+                    current_item.setBackground(QColor("#FFC0CB"))  # Pink
+                    continue  # Skip all other color logic for this cell
+
             if is_no_ocr:
                 current_item.setBackground(QColor(COLORS['RED']))  # red for no OCR
             elif current_item.text().strip().upper() == "ADD VENDOR":
@@ -441,7 +447,12 @@ class InvoiceApp(QWidget):
 
     def determine_cell_color(self, row, col):
         """Determine the appropriate color for a cell based on conditions."""
-        # Priority order matters here
+        # Pink for Discount Terms column if it does NOT contain 'NET'
+        if col == 3:
+            cell_text = self.get_cell_text(row, col).upper()
+            if "NET" not in cell_text:
+                return "#FFC0CB"  # Pink
+
         if self.is_add_vendor_cell(row, col):
             return COLORS['RED']
         elif (row, col) in self.manually_edited:

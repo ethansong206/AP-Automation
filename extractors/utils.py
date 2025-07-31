@@ -60,7 +60,9 @@ def try_parse_date(raw):
     for fmt in (
         "%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d",
         "%B %d %Y", "%b %d %Y", "%d %B %Y", "%d %b %Y",
-        "%B %d %y", "%b %d %y", "%d %B %y", "%d %b %y"
+        "%B %d %y", "%b %d %y", "%d %B %y", "%d %b %y",
+        # New formats with dashes between components
+        "%d-%b-%y", "%d-%b-%Y", "%d-%B-%y", "%d-%B-%Y",
     ):
         try:
             return datetime.strptime(raw, fmt).date()

@@ -2,8 +2,27 @@ import re
 
 def extract_discount_terms(words, vendor_name):
     all_text = " ".join([w["text"] for w in words]).upper()
+    
+    # Check for special word groups in the first 100 words only
+    all_text_words = all_text.split()
+    first_100_words = " ".join(all_text_words[:100])
+    
+    special_terms = [
+        "STATEMENT",
+        "CREDIT MEMO",
+        "CREDIT NOTE",
+        "WARRANTY",
+        "RETURN AUTHORIZATION",
+        "DEFECTIVE",
+        "NO CHARGE",
+        "NO TERMS"
+    ]
+    for term in special_terms:
+        if term in first_100_words:
+            print(f"[DEBUG] Found Discount Terms: {term}")
+            return term
 
-    # Special cases first
+    # Special cases of terms
     # 1. "90 DAYS NET" -> "NET 90"
     match = re.search(r"\b(\d{1,3})\s+DAYS\s+NET\b", all_text)
     if match:
@@ -89,21 +108,5 @@ def extract_discount_terms(words, vendor_name):
                 return result
             print(f"[DEBUG] Found Discount Terms: {value}")
             return value
-
-    # Check for special word groups
-    special_terms = [
-        "STATEMENT",
-        "CREDIT MEMO",
-        "CREDIT NOTE",
-        "WARRANTY",
-        "RETURN AUTHORIZATION",
-        "DEFECTIVE",
-        "NO CHARGE",
-        "NO TERMS"
-    ]
-    for term in special_terms:
-        if term in all_text:
-            print(f"[DEBUG] Found Discount Terms: {term}")
-            return term
 
     return ""
