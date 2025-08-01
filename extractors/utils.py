@@ -60,7 +60,7 @@ def calculate_discount_due_date(terms, invoice_date):
 
 
 # --- Calculate discounted total based on percentage in terms ---
-def calculate_discounted_total(terms, total_amount):
+def calculate_discounted_total(terms, total_amount, vendor_name):
     """
     Calculates the discounted total based on discount percentage in terms.
     
@@ -74,9 +74,28 @@ def calculate_discounted_total(terms, total_amount):
     # Check for discount percentage
     discount_match = re.search(r"(\d+)%", terms)
     if not discount_match:
-        return None
+        if vendor_name == "TOPO ATHLETIC":
+            discount_percent = float(.07)   # Special Case for Topo Athletic
+            return discount_total(discount_percent, total_amount)
+        if vendor_name == "Ruffwear":
+            discount_percent = float(.05)
+            return discount_total(discount_percent, total_amount)
+        if vendor_name == "ON Running":
+            discount_percent = float(.12)
+            return discount_total(discount_percent, total_amount)
+        if vendor_name == "Free Fly Apparel" or vendor_name == "Hadley Wren":
+            discount_percent = float(.1)
+            return discount_total(discount_percent, total_amount)
+        if vendor_name == "Gregory Mountain Products":
+            discount_percent = float(.08)
+            return discount_total(discount_percent, total_amount)
+        else:
+            return None
     
     discount_percent = float(discount_match.group(1)) / 100
+    return discount_total(discount_percent, total_amount)
+
+def discount_total(discount_percent, total_amount):
     total = float(total_amount)
     discounted_total = round(total * (1 - discount_percent), 2)
     return f"{discounted_total:.2f}"
@@ -184,19 +203,11 @@ def load_manual_mapping():
         print(f"[WARN] Manual map not found at {json_path}")
         return {}
 
-# --- For backward compatibility ---
-def calculate_discount_fields(terms, invoice_date, total_amount):
-    """
-    Legacy function that combines the two separate functions.
-    
-    Args:
-        terms (str): Payment terms string (e.g., "2% 10 NET 30", "NET 30")
-        invoice_date (str): Invoice date string in supported format
-        total_amount (str): Total invoice amount (used for discount calculation)
-        
-    Returns:
-        tuple: (due_date, discounted_total) or (None, None) if no NET term found
-    """
-    due_date = calculate_discount_due_date(terms, invoice_date)
-    discounted_total = calculate_discounted_total(terms, total_amount)
-    return due_date, discounted_total
+# Check if Credit Memo amount is Negative, Flip Sign if Not
+def check_negative_total(total_amount, discount_terms):
+    total = float(total_amount)
+    if discount_terms in ["CREDIT MEMO", "CREDIT NOTE", "WARRANTY", "RETURN AUTHORIZATION", "DEFECTIVE"]:
+        if total > 0:
+            return float(total * -1)
+    else:
+        return total_amount

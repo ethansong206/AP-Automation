@@ -72,6 +72,13 @@ def extract_discount_terms(words, vendor_name):
         print(f"[DEBUG] Found Discount Terms: {result}")
         return result
     
+    # 7. "x/x/NET xx or x/xx/NET xx" -> "x% xx NET xx" (National Geographic Maps)
+    match = re.search(r"\b(\d{1,2})\s*\/\s*(\d{1,3})\s*\/\s*NET\s*(\d{1,3})\b", all_text)
+    if match:
+        result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
+        print(f"[DEBUG] Found Discount Terms: {result}")
+        return result
+    
     if vendor_name == "Badfish":
         return "NET 30"  # Special case for Badfish
     

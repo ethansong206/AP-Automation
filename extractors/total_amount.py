@@ -4,12 +4,13 @@ from .utils import clean_currency
 def extract_total_amount(words, vendor_name):
     """Extract the total amount from OCR words, returns a float or empty string."""
     # Pattern matches numbers with decimal points, including negative amounts: -$1,234.56 or $1,234.56
-    amount_pattern = r'^-?\$?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$'
+    amount_pattern = r'^-?\$?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
     
     candidates = []
     
     for word in words:
         value = word["text"].strip()
+        value = preprocess_currency_text(value)
         if re.match(amount_pattern, value):
             cleaned = clean_currency(value)
             try:
@@ -40,3 +41,14 @@ def extract_total_amount(words, vendor_name):
     print(f"[DEBUG] Selected amount: {result['raw']} → {result['amount']:.2f}")
     
     return f"{result['amount']:.2f}"
+
+def preprocess_currency_text(text):
+    """Handle specific currency-related CIDs and symbols"""
+    # Only handle known currency CIDs
+    currency_cid_map = {
+        "(cid:36)": "$",  # Dollar sign
+        # Add others as needed
+    }
+    for cid, symbol in currency_cid_map.items():
+        text = text.replace(cid, symbol)
+    return text
