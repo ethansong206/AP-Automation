@@ -2,6 +2,7 @@
 import os
 import subprocess
 from datetime import datetime
+import csv
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog,
@@ -373,23 +374,134 @@ class InvoiceApp(QWidget):
 
     # --- Export to CSV ---
     def export_to_csv(self):
-        """Export table data to CSV file."""
+        """Export table data to CSV file in the accounting system format."""
+        # First, prepare the data to export
+        vendor_mapping = self.load_vendor_mapping()
         rows_to_export = []
 
+        # Check if there's data to export
+        if self.table.rowCount() == 0:
+            QMessageBox.warning(self, "No Data", "There is no data to export.")
+            return
+
         for row in range(self.table.rowCount()):
-            row_data = []
-            for col in range(7):
-                item = self.table.item(row, col)
-                row_data.append(item.text() if item else "")
-            rows_to_export.append(row_data)
+            # Get data from table cells
+            vendor_name = self.get_cell_text(row, 0)
+            invoice_number = self.get_cell_text(row, 1)
+            invoice_date = self.get_cell_text(row, 2)
+            discount_terms = self.get_cell_text(row, 3)
+            due_date = self.get_cell_text(row, 4)
+            discounted_total = self.get_cell_text(row, 5)
+            total_amount = self.get_cell_text(row, 6)
+            
+            # Skip incomplete rows
+            if not vendor_name or not invoice_number or not invoice_date or not total_amount:
+                print(f"[WARN] Skipping incomplete row {row+1}")
+                continue
+                
+            # Look up vendor number
+            vendor_number = vendor_mapping.get(vendor_name, "")
+            if not vendor_number:
+                print(f"[WARN] No vendor number found for: {vendor_name}")
+                
+            # Use discounted total if available, otherwise use regular total
+            final_amount = discounted_total if discounted_total else total_amount
+            
+            # Clean up formatting from amount (remove asterisks and extra spaces)
+            final_amount = final_amount.replace("***", "").strip()
+            
+            # Create row in accounting system format
+            accounting_row = [
+                vendor_number,                    # VCHR_VEND_NO
+                self.format_date(invoice_date),   # VCHR_INVC_DAT
+                invoice_number,                   # VCHR_INVC_NO
+                vendor_name,                      # VEND_NAM
+                self.format_date(due_date),       # DUE_DAT
+                "",                               # PO_NO (skipped for now)
+                "0697-099",                       # ACCT_NO (fixed value)
+                "0697-099",                       # CP_ACCT_NO (fixed value)
+                final_amount                      # AMT
+            ]
+            
+            rows_to_export.append(accounting_row)
+        
+        # Skip export if no valid rows
+        if not rows_to_export:
+            QMessageBox.warning(self, "No Valid Data", "No valid rows to export.")
+            return
+        
+        # Open file dialog for user to select destination
+        options = QFileDialog.Options()
+        default_name = "accounting_import.csv"
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export to CSV",
+            default_name,
+            "CSV Files (*.csv);;All Files (*)",
+            options=options
+        )
+        
+        if not filename:  # User canceled
+            return
+        
+        # Ensure .csv extension
+        if not filename.lower().endswith('.csv'):
+            filename += '.csv'
 
         try:
-            write_to_csv("invoice_data.csv", rows_to_export)
-            QMessageBox.information(self, "Export Successful", "Data exported to invoice_data.csv")
-            print(f"[INFO] Exported {len(rows_to_export)} rows to invoice_data.csv")
+            write_to_csv(filename, rows_to_export)
+            QMessageBox.information(
+                self, 
+                "Export Successful", 
+                f"Data successfully exported to:\n{filename}"
+            )
+            print(f"[INFO] Exported {len(rows_to_export)} rows to {filename}")
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Error: {e}")
             print(f"[ERROR] Failed to export: {e}")
+
+    def format_date(self, date_str):
+        """Format date for accounting system."""
+        if not date_str:
+            return ""
+        
+        try:
+            # Try to parse the date
+            if "/" in date_str:
+                parts = date_str.split("/")
+                if len(parts) == 3:
+                    return date_str  # Already in MM/DD/YY format
+            
+            # If not in correct format, try to convert
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            return dt.strftime("%m/%d/%y")
+        except:
+            return date_str  # Return as-is if parsing fails
+
+    def load_vendor_mapping(self):
+        """Load vendor numbers from vendors.csv."""
+        vendor_mapping = {}
+        
+        try:
+            # Use resource_path to find the file in PyInstaller bundle
+            from utils import resource_path
+            vendors_csv_path = resource_path(os.path.join("data", "vendors.csv"))
+            
+            print(f"[DEBUG] Looking for vendors file at: {vendors_csv_path}")
+            
+            with open(vendors_csv_path, 'r', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    vendor_number = row.get("Vendor No. (Sage)", "").strip()
+                    vendor_name = row.get("Vendor Name", "").strip()
+                    if vendor_number and vendor_name:
+                        vendor_mapping[vendor_name] = vendor_number
+                        
+            print(f"[INFO] Loaded {len(vendor_mapping)} vendors from vendors.csv")
+        except Exception as e:
+            print(f"[ERROR] Failed to load vendor mapping: {e}")
+        
+        return vendor_mapping
 
     def update_total_amount(self):
         """Update the total amount display."""
