@@ -5,6 +5,7 @@ from extractors import (
     extract_vendor_name,
     extract_discount_terms
 )
+from extractors.utils import calculate_discount_due_date, calculate_discounted_total
 
 def extract_fields(documents):
     extracted_rows = []
@@ -25,16 +26,17 @@ def extract_fields(documents):
             "Total Amount": extract_total_amount(words, vendor_name)
         }
 
-        if row["Discount Terms"] and row["Invoice Date"] and row["Total Amount"]:
+        if row["Discount Terms"] and row["Invoice Date"]:
             try:
-                discounted_due, discounted_total = calculate_discount_fields(
-                    row["Discount Terms"], row["Invoice Date"], row["Total Amount"]
+                discounted_due = calculate_discount_due_date(
+                    row["Discount Terms"], row["Invoice Date"]
                 )
                 row["Discount Due Date"] = discounted_due
-                row["Discounted Total"] = discounted_total
+                if vendor_name == "Dapper Ink LLC":
+                    row["Discount Due Date"] = row["Invoice Date"] # Special case for Dapper Ink
             except Exception as e:
-                print(f"[WARN] Could not compute discount fields: {e}")
-
+                print(f"[WARN] Could not compute discount due date: {e}")
+    
         extracted_rows.append([
             row["Vendor Name"], row["Invoice Number"], row["Invoice Date"],
             row["Discount Terms"], row["Discount Due Date"],

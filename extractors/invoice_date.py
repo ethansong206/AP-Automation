@@ -1,6 +1,3 @@
-# Bugs to fix:
-# 1. The code does not handle invoice dates well in multiple-unique-dates cases. (re: Dapper Ink, Yakima)
-
 import re
 from datetime import datetime, timedelta
 from .utils import try_parse_date
@@ -23,11 +20,6 @@ def extract_invoice_date(words, vendor_name):
         r"\b(?:0?[1-9]|[12][0-9]|3[01])[-](?:{month})[-](?:\d{{2}}|\d{{4}})\b".format(month="|".join(MONTH_NAMES))
     ]
     combined_pattern = "|".join(patterns)
-
-    # DEBUG: Print all words to see how they're split
-    print("\n[DEBUG] All words:")
-    for i, w in enumerate(words):
-        print(f"Word {i}: '{w['text']}'")
     
     # Add a search on the combined text blob
     print("\n[DEBUG] Searching in combined text blob")

@@ -23,19 +23,30 @@ def clean_currency(value):
     return value.replace("$", "").replace(",", "").strip()
 
 
-# --- Parse discount terms like "2% 10 NET 30" and calculate due/discounted total ---
-def calculate_discount_fields(terms, invoice_date, total_amount):
+# --- Calculate due date based on NET terms ---
+def calculate_discount_due_date(terms, invoice_date):
     """
-    Parses discount terms and calculates discount due date and discounted total.
+    Parses discount terms and calculates due date based on NET terms.
+    
+    Args:
+        terms (str): Payment terms string (e.g., "2% 10 NET 30", "NET 30")
+        invoice_date (str): Invoice date string in supported format
+        
+    Returns:
+        str: Due date in MM/DD/YY format or None if no NET term found
     """
-    m = re.match(r"(\d+)%\s*(\d+)\s*NET\s*(\d+)", terms)
-    if not m:
-        raise ValueError("Could not parse discount terms")
-
-    discount_percent = float(m.group(1)) / 100
-    discount_days = int(m.group(2))
-
-    # Try parsing invoice date in multiple formats
+    # Extract discount due date
+    disc_match = re.search(r"(\d{2,3})\s*NET", terms, re.IGNORECASE)
+    if not disc_match:
+        net_match = re.search(r"NET\s*(\d+)", terms, re.IGNORECASE)
+        if not net_match:
+            return None
+    if disc_match:
+        net_days = int(disc_match.group(1))
+    else:
+        net_days = int(net_match.group(1))
+    
+    # Parse invoice date in multiple formats
     try:
         inv_date = datetime.strptime(invoice_date, "%Y-%m-%d")
     except ValueError:
@@ -43,12 +54,32 @@ def calculate_discount_fields(terms, invoice_date, total_amount):
             inv_date = datetime.strptime(invoice_date, "%m/%d/%y")
         except ValueError:
             raise ValueError("Invalid invoice date format")
+    
+    due_date = inv_date + timedelta(days=net_days)
+    return due_date.strftime("%m/%d/%y")
 
-    discount_due = inv_date + timedelta(days=discount_days)
+
+# --- Calculate discounted total based on percentage in terms ---
+def calculate_discounted_total(terms, total_amount):
+    """
+    Calculates the discounted total based on discount percentage in terms.
+    
+    Args:
+        terms (str): Payment terms string (e.g., "2% 10 NET 30", "NET 30")
+        total_amount (str): Total invoice amount
+        
+    Returns:
+        str: Formatted discounted total or None if no discount percentage found
+    """
+    # Check for discount percentage
+    discount_match = re.search(r"(\d+)%", terms)
+    if not discount_match:
+        return None
+    
+    discount_percent = float(discount_match.group(1)) / 100
     total = float(total_amount)
     discounted_total = round(total * (1 - discount_percent), 2)
-
-    return discount_due.strftime("%Y-%m-%d"), f"{discounted_total:.2f}"
+    return f"{discounted_total:.2f}"
 
 
 # --- Try parsing a raw date string with multiple common formats ---
@@ -152,3 +183,20 @@ def load_manual_mapping():
     else:
         print(f"[WARN] Manual map not found at {json_path}")
         return {}
+
+# --- For backward compatibility ---
+def calculate_discount_fields(terms, invoice_date, total_amount):
+    """
+    Legacy function that combines the two separate functions.
+    
+    Args:
+        terms (str): Payment terms string (e.g., "2% 10 NET 30", "NET 30")
+        invoice_date (str): Invoice date string in supported format
+        total_amount (str): Total invoice amount (used for discount calculation)
+        
+    Returns:
+        tuple: (due_date, discounted_total) or (None, None) if no NET term found
+    """
+    due_date = calculate_discount_due_date(terms, invoice_date)
+    discounted_total = calculate_discounted_total(terms, total_amount)
+    return due_date, discounted_total

@@ -1,6 +1,3 @@
-# Bugs to fix:
-# 1. The code does not handle vendor name "Grayl" properly (re: 8215_20250513_30853148_14333894600.pdf)
-
 import re
 from .utils import get_vendor_list, normalize_vendor_name, normalize_string, load_manual_mapping
 import os

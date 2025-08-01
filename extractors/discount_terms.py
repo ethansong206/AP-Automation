@@ -5,8 +5,11 @@ def extract_discount_terms(words, vendor_name):
     
     # Check for special word groups in the first 100 words only
     all_text_words = all_text.split()
-    first_100_words = " ".join(all_text_words[:100])
-    
+    if vendor_name == "Cotopaxi":
+        first_n_words = " ".join(all_text_words[:25])
+    else:
+        first_n_words = " ".join(all_text_words[:100])
+
     special_terms = [
         "STATEMENT",
         "CREDIT MEMO",
@@ -18,7 +21,7 @@ def extract_discount_terms(words, vendor_name):
         "NO TERMS"
     ]
     for term in special_terms:
-        if term in first_100_words:
+        if term in first_n_words:
             print(f"[DEBUG] Found Discount Terms: {term}")
             return term
 

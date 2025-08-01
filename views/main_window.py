@@ -64,7 +64,7 @@ class InvoiceApp(QWidget):
         self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
             "Vendor Name", "Invoice Number", "Invoice Date",
-            "Discount Terms", "Disc. Due Date",  # Abbreviated
+            "Discount Terms", "Due Date",  # Abbreviated
             "Discounted Total", "Total Amount",
             "Source File", "Delete"
         ])
@@ -73,7 +73,7 @@ class InvoiceApp(QWidget):
         self.table.setColumnWidth(1, 110)  # Invoice Number
         self.table.setColumnWidth(2, 100)  # Invoice Date
         self.table.setColumnWidth(3, 110)  # Discount Terms
-        self.table.setColumnWidth(4, 110)  # Disc. Due Date
+        self.table.setColumnWidth(4, 100)  # Due Date
         self.table.setColumnWidth(5, 120)  # Discounted Total
         self.table.setColumnWidth(6, 100)  # Total Amount
         self.table.setColumnWidth(7, 120)  # Source File
