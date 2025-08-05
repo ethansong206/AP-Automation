@@ -70,6 +70,31 @@ def extract_invoice_number(words, vendor_name):
                     print(f"[DEBUG] Invoice Number (below 'Invoice' for Prism Designs): {best['orig']}")
                     return best["orig"].lstrip("#:").strip()
     
+    # Nite Ize Inc-specific logic: look for "Order Number" label
+    if vendor_name == "Nite Ize Inc":
+        print("[DEBUG] Checking for 'Order Number' label for Nite Ize Inc")
+        for idx, w in enumerate(normalized_words):
+            # Look for "order" word followed by "number" word
+            if w["text"] == "order" and idx < len(normalized_words) - 1 and normalized_words[idx + 1]["text"] == "number":
+                order_label = w
+                number_label = normalized_words[idx + 1]
+                print(f"[DEBUG] Found 'Order Number' at index={idx}, x0={order_label['x0']}, x1={number_label['x1']}")
+                
+                # Look for values to the right of this label
+                candidates = [
+                    cand for cand in normalized_words
+                    if (cand["x0"] > number_label["x1"]) and
+                       abs(cand["top"] - order_label["top"]) < 20 and
+                       is_potential_invoice_number(cand["text"], vendor_name)
+                ]
+                
+                print(f"[DEBUG] Candidates found next to 'Order Number': {[c['orig'] for c in candidates]}")
+                if candidates:
+                    # Get the closest candidate to the right
+                    best = sorted(candidates, key=lambda x: x["x0"] - number_label["x1"])[0]
+                    print(f"[DEBUG] Invoice Number (from 'Order Number' for Nite Ize Inc): {best['orig']}")
+                    return best["orig"].lstrip("#:").strip()
+    
     # Look for value to the right of any invoice label (strict)
     invoice_right_match = find_value_to_right(
         normalized_words, 

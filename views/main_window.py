@@ -157,6 +157,9 @@ class InvoiceApp(QWidget):
     # --- Populate table row ---
     def add_row(self, row_data, file_path):
         """Add a new row to the table."""
+        # Ensure row_data has at least 9 elements (for Source File column)
+        while len(row_data) < 9:
+            row_data.append("")
         row_position = self.table.rowCount()
         self.table.insertRow(row_position)
 
@@ -164,10 +167,11 @@ class InvoiceApp(QWidget):
         is_no_ocr = all((not value or value == "") for value in row_data[:7])
 
         # Add each cell in the row
-        self.populate_row_cells(row_position, row_data, is_no_ocr)
+        self.populate_row_cells(row_position, row_data, is_no_ocr, file_path)
         
-        # Add source file and delete columns
-        self.add_source_file_cell(row_position, file_path)
+        # Only add source file cell if not no OCR (so button is not overwritten)
+        if not is_no_ocr:
+            self.add_source_file_cell(row_position, file_path)
         self.add_delete_cell(row_position)
         
         # Track original values
@@ -181,10 +185,25 @@ class InvoiceApp(QWidget):
 
         self.update_total_amount()
 
-    def populate_row_cells(self, row_position, row_data, is_no_ocr):
+    def populate_row_cells(self, row_position, row_data, is_no_ocr, file_path=None):
         """Populate the cells of a row with data."""
+        print(f"[DEBUG] Row {row_position} data: {row_data}, is_no_ocr: {is_no_ocr}")
         for col, value in enumerate(row_data):
-            if col == 0 and not value:
+            print(f"[DEBUG] col={col}, value={repr(value)}, is_no_ocr={is_no_ocr}")
+            if col == 8 and is_no_ocr:
+                # Show MANUAL ENTRY button for no OCR rows in Source File column
+                button = QPushButton("MANUAL ENTRY")
+                button.setProperty("file_path", file_path)  # Store the file path on the button
+                button.clicked.connect(lambda _, r=row_position, b=button: self.open_manual_entry_dialog(r, b))
+                # Style: red background, black bold all-caps text
+                button.setStyleSheet("background-color: #FFC0CB; color: black; font-weight: bold; text-transform: uppercase;")
+                self.table.setCellWidget(row_position, col, button)
+                print(f"[DEBUG] Set MANUAL ENTRY button at row {row_position}, col {col}")
+                continue  # Prevents overwriting the button with a QTableWidgetItem
+            elif col == 0 and is_no_ocr:
+                # For no OCR rows, leave Vendor Name cell empty (no ADD VENDOR)
+                self.table.setItem(row_position, col, QTableWidgetItem(""))
+            elif col == 0 and not value:
                 item = QTableWidgetItem("ADD VENDOR")
                 item.setForeground(QBrush(QColor("blue")))
                 item.setBackground(QBrush(QColor(COLORS['RED'])))
@@ -193,9 +212,10 @@ class InvoiceApp(QWidget):
                 font.setUnderline(True)
                 item.setFont(font)
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                self.table.setItem(row_position, col, item)
             else:
                 item = QTableWidgetItem(str(value) if value is not None else "")
-            self.table.setItem(row_position, col, item)
+                self.table.setItem(row_position, col, item)
 
     def add_source_file_cell(self, row_position, file_path):
         """Add the source file cell with a clickable link."""
@@ -227,12 +247,18 @@ class InvoiceApp(QWidget):
         """Highlight the row based on its content."""
         empty_count = sum(
             1 for col in range(8)
-            if not self.table.item(row_position, col).text().strip()
-            or self.table.item(row_position, col).text().strip().upper() == "ADD VENDOR"
+            if (
+                not self.table.item(row_position, col) or
+                not self.table.item(row_position, col).text().strip() or
+                self.table.item(row_position, col).text().strip().upper() == "ADD VENDOR"
+            )
         )
 
         for col in range(8):
             current_item = self.table.item(row_position, col)
+            if not current_item:
+                continue  # Skip cells with no QTableWidgetItem (e.g., "Manual Entry" button)
+
             # Pink for Discount Terms column if it does NOT contain 'NET'
             if col == 4:
                 cell_text = current_item.text().strip().upper()
@@ -622,8 +648,27 @@ class InvoiceApp(QWidget):
         if confirm == QMessageBox.Yes:
             # Sort rows in descending order to avoid shifting issues
             for row in sorted(selected_rows, reverse=True):
+                file_item = self.table.item(row, 8)
+                file_path = file_item.data(Qt.UserRole) if file_item else None
                 self.table.removeRow(row)
-            
-            # Update loaded files and total amount
-            self.loaded_files = self.filter_new_files(self.loaded_files)
+                if file_path in self.loaded_files:
+                    self.loaded_files.remove(file_path)
             self.update_total_amount()
+
+    def open_manual_entry_dialog(self, row, button=None):
+        """Open the manual entry dialog for a no OCR row."""
+        file_path = ""
+        if button is not None:
+            file_path = button.property("file_path")
+        else:
+            # fallback: try to get from table item (for other usages)
+            file_item = self.table.item(row, 8)
+            file_path = file_item.toolTip() if file_item else ""
+        from views.manual_entry_dialog import ManualEntryDialog
+        dialog = ManualEntryDialog(file_path, self)
+        if dialog.exec_() == QDialog.Accepted:
+            data = dialog.get_data()
+            for col, value in enumerate(data):
+                item = QTableWidgetItem(str(value) if value is not None else "")
+                self.table.setItem(row, col, item)
+            self.highlight_row(row, is_no_ocr=False)
