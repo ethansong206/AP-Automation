@@ -3,7 +3,8 @@ from extractors import (
     extract_invoice_date,
     extract_total_amount,
     extract_vendor_name,
-    extract_discount_terms
+    extract_discount_terms,
+    extract_po_number
 )
 from extractors.utils import calculate_discount_due_date, calculate_discounted_total, check_negative_total
 
@@ -19,6 +20,7 @@ def extract_fields(documents):
         row = {
             "Vendor Name": vendor_name,
             "Invoice Number": extract_invoice_number(words, vendor_name),
+            "PO Number": extract_po_number(words, vendor_name),
             "Invoice Date": extract_invoice_date(words, vendor_name),
             "Discount Terms": extract_discount_terms(words, vendor_name),
             "Discount Due Date": "",
@@ -49,7 +51,7 @@ def extract_fields(documents):
         row["Total Amount"] = check_negative_total(row["Total Amount"], row["Discount Terms"])
 
         extracted_rows.append([
-            row["Vendor Name"], row["Invoice Number"], row["Invoice Date"],
+            row["Vendor Name"], row["Invoice Number"], row["PO Number"], row["Invoice Date"],
             row["Discount Terms"], row["Discount Due Date"],
             row["Discounted Total"], row["Total Amount"]
         ])

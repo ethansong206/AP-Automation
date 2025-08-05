@@ -62,31 +62,32 @@ class InvoiceApp(QWidget):
     def setup_table(self):
         """Set up the data table."""
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(10)  # Increased from 9 to 10
         self.table.setHorizontalHeaderLabels([
-            "Vendor Name", "Invoice Number", "Invoice Date",
-            "Discount Terms", "Due Date",  # Abbreviated
+            "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
+            "Discount Terms", "Due Date",
             "Discounted Total", "Total Amount",
             "Source File", "Delete"
         ])
         # Set column widths
         self.table.setColumnWidth(0, 140)  # Vendor Name
         self.table.setColumnWidth(1, 110)  # Invoice Number
-        self.table.setColumnWidth(2, 100)  # Invoice Date
-        self.table.setColumnWidth(3, 110)  # Discount Terms
-        self.table.setColumnWidth(4, 100)  # Due Date
-        self.table.setColumnWidth(5, 120)  # Discounted Total
-        self.table.setColumnWidth(6, 100)  # Total Amount
-        self.table.setColumnWidth(7, 120)  # Source File
-        self.table.setColumnWidth(8, 60)   # Delete
+        self.table.setColumnWidth(2, 110)  # PO Number
+        self.table.setColumnWidth(3, 100)  # Invoice Date
+        self.table.setColumnWidth(4, 110)  # Discount Terms
+        self.table.setColumnWidth(5, 100)  # Due Date
+        self.table.setColumnWidth(6, 120)  # Discounted Total
+        self.table.setColumnWidth(7, 100)  # Total Amount
+        self.table.setColumnWidth(8, 120)  # Source File
+        self.table.setColumnWidth(9, 60)   # Delete
 
         self.table.setEditTriggers(QAbstractItemView.AllEditTriggers)
         self.table.cellClicked.connect(self.handle_table_click)
         
         # Set date delegate for date columns
         self.date_delegate = DateDelegate(self.table)
-        self.table.setItemDelegateForColumn(2, self.date_delegate)  # Invoice Date
-        self.table.setItemDelegateForColumn(4, self.date_delegate)  # Discount Due Date
+        self.table.setItemDelegateForColumn(3, self.date_delegate)  # Invoice Date (now column 3)
+        self.table.setItemDelegateForColumn(5, self.date_delegate)  # Discount Due Date (now column 5)
 
         # After setting up table:
         self.table.cellChanged.connect(self.handle_cell_changed)
@@ -191,7 +192,7 @@ class InvoiceApp(QWidget):
         font = QFont()
         font.setUnderline(True)
         file_item.setFont(font)
-        self.table.setItem(row_position, 7, file_item)
+        self.table.setItem(row_position, 8, file_item)
 
     def add_delete_cell(self, row_position):
         """Add the delete cell with a delete icon."""
@@ -199,7 +200,7 @@ class InvoiceApp(QWidget):
         delete_item.setTextAlignment(Qt.AlignCenter)
         delete_item.setFlags(Qt.ItemIsEnabled)
         delete_item.setBackground(QColor(COLORS['LIGHT_GREY']))
-        self.table.setItem(row_position, 8, delete_item)
+        self.table.setItem(row_position, 9, delete_item)
 
     def store_original_values(self, row_position, row_data):
         """Store the original values of the row for tracking changes."""
@@ -209,15 +210,15 @@ class InvoiceApp(QWidget):
     def highlight_row(self, row_position, is_no_ocr):
         """Highlight the row based on its content."""
         empty_count = sum(
-            1 for col in range(7)
+            1 for col in range(8)
             if not self.table.item(row_position, col).text().strip()
             or self.table.item(row_position, col).text().strip().upper() == "ADD VENDOR"
         )
 
-        for col in range(7):
+        for col in range(8):
             current_item = self.table.item(row_position, col)
             # Pink for Discount Terms column if it does NOT contain 'NET'
-            if col == 3:
+            if col == 4:
                 cell_text = current_item.text().strip().upper()
                 if "NET" not in cell_text:
                     current_item.setBackground(QColor("#FFC0CB"))  # Pink
@@ -244,8 +245,8 @@ class InvoiceApp(QWidget):
 
     def handle_cell_changed(self, row, col):
         """Handle when a cell's content is changed by the user."""
-        # Only track editable columns (0-6)
-        if col > 6:
+        # Only track editable columns (0-7)
+        if col > 7: 
             return
             
         item = self.table.item(row, col)
@@ -314,7 +315,7 @@ class InvoiceApp(QWidget):
         self.table.cellChanged.disconnect(self.handle_cell_changed)
         
         try:
-            for col in range(7):
+            for col in range(8):
                 color = self.determine_cell_color(row, col)
                 self.set_cell_color(row, col, color)
         finally:
@@ -388,11 +389,12 @@ class InvoiceApp(QWidget):
             # Get data from table cells
             vendor_name = self.get_cell_text(row, 0)
             invoice_number = self.get_cell_text(row, 1)
-            invoice_date = self.get_cell_text(row, 2)
-            discount_terms = self.get_cell_text(row, 3)
-            due_date = self.get_cell_text(row, 4)
-            discounted_total = self.get_cell_text(row, 5)
-            total_amount = self.get_cell_text(row, 6)
+            po_number = self.get_cell_text(row, 2)
+            invoice_date = self.get_cell_text(row, 3)
+            discount_terms = self.get_cell_text(row, 4) 
+            due_date = self.get_cell_text(row, 5) 
+            discounted_total = self.get_cell_text(row, 6)  
+            total_amount = self.get_cell_text(row, 7) 
             
             # Skip incomplete rows
             if not vendor_name or not invoice_number or not invoice_date or not total_amount:
@@ -417,7 +419,7 @@ class InvoiceApp(QWidget):
                 invoice_number,                   # VCHR_INVC_NO
                 vendor_name,                      # VEND_NAM
                 self.format_date(due_date),       # DUE_DAT
-                "",                               # PO_NO (skipped for now)
+                po_number,                        # PO_NO (now using actual PO number)
                 "0697-099",                       # ACCT_NO (fixed value)
                 "0697-099",                       # CP_ACCT_NO (fixed value)
                 final_amount                      # AMT
@@ -533,7 +535,7 @@ class InvoiceApp(QWidget):
 
     def is_row_no_ocr(self, row):
         """Check if a row has no OCR content (all empty or ADD VENDOR)."""
-        for col in range(7):
+        for col in range(8): 
             text = self.get_cell_text(row, col)
             if text and text.upper() != "ADD VENDOR":
                 return False
@@ -542,7 +544,7 @@ class InvoiceApp(QWidget):
     def count_empty_cells(self, row):
         """Count empty cells in a row."""
         count = 0
-        for col in range(7):
+        for col in range(8):
             if self.is_cell_empty(row, col) or self.is_add_vendor_cell(row, col):
                 count += 1
         return count
@@ -560,7 +562,7 @@ class InvoiceApp(QWidget):
     def determine_cell_color(self, row, col):
         """Determine the appropriate color for a cell based on conditions."""
         # Pink for Discount Terms column if it does NOT contain 'NET'
-        if col == 3:
+        if col == 4:
             cell_text = self.get_cell_text(row, col).upper()
             if "NET" not in cell_text:
                 return "#FFC0CB"  # Pink

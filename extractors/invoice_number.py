@@ -1,70 +1,40 @@
 import re
+from .common_extraction import (
+    normalize_words,
+    find_label_positions,
+    find_value_to_right,
+    find_value_below,
+    search_for_pattern
+)
 
 def extract_invoice_number(words, vendor_name):
-    first_page_words = [w for w in words if w.get("page_num", 0) == 0]
-
-    print(f"[DEBUG] Using page_num == 0 to restrict to first page")
-    print(f"[DEBUG] Retained {len(first_page_words)} words for first-page invoice check")
-
-    normalized_words = [
-        {
-            "index": i,
-            "text": w["text"].strip().lower().replace(":", "").replace("#", ""),
-            "orig": w["text"],
-            "x0": w["x0"],
-            "x1": w["x1"],
-            "top": w["top"],
-            "bottom": w["bottom"]
-        }
-        for i, w in enumerate(first_page_words)
-    ]
-
-    label_positions = []
-
-    for i in range(len(normalized_words) - 1):
-        first = normalized_words[i]
-        second = normalized_words[i + 1]
-        if first["text"] == "invoice" and second["text"] in ["#", "no", "number"]:
-            label_positions.append((first["x0"], second["x1"], second["top"]))
-
-    # Existing single-word label
-    for idx, w in enumerate(normalized_words):
-        if w["text"] == "invoice":
-            # Skip if "original" is directly before "invoice"
-            if idx > 0 and normalized_words[idx - 1]["text"] == "original":
-                continue
-            # Skip if "date" or "date:" is directly after "invoice" and "invoice" is not "invoice:"
-            # But do NOT skip for Prism Designs
-            if (
-                vendor_name != "Prism Designs" and
-                idx < len(normalized_words) - 1 and
-                normalized_words[idx + 1]["text"] in ["date", "date:"] and
-                w["orig"].strip().lower() not in ["invoice:", "invoice:"]  # check original text for colon
-            ):
-                continue
-            label_positions.append((w["x0"], w["x1"], w["top"]))
-
-    # Oboz-specific: add "number" as a label
+    """
+    Extract invoice number from document
+    """
+    normalized_words = normalize_words(words)
+    
+    # Find invoice label positions
+    label_positions = find_label_positions(normalized_words, label_type="invoice")
+    
+    # Vendor-specific: Add "number" as a label for Oboz
     if vendor_name == "Oboz Footwear LLC":
         for idx, w in enumerate(normalized_words):
             if w["text"] == "number":
                 label_positions.append((w["x0"], w["x1"], w["top"]))
-
-    # New: Check for "credit memo" and "credit note" as two-word labels
+    
+    # Add credit memo/note labels
     for i in range(len(normalized_words) - 1):
         first = normalized_words[i]
         second = normalized_words[i + 1]
         if (first["text"] == "credit" and second["text"] in ["memo", "note"]):
             # Combine their bounding boxes for the label position
             label_positions.append((first["x0"], second["x1"], first["top"]))
-
+    
     # Prana-specific logic: check under the label "Reference"
     if vendor_name == "Prana Living LLC":
         print("[DEBUG] Checking for all 'reference' labels for Prana Living LLC")
-        found_reference = False
         for idx, w in enumerate(normalized_words):
             if w["text"] == "reference":
-                found_reference = True
                 print(f"[DEBUG] Reference label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
                 # Allow vertical overlap or small positive distance
                 candidates = [
@@ -80,33 +50,47 @@ def extract_invoice_number(words, vendor_name):
                     return best["orig"].lstrip("#:").strip()
                 else:
                     print("[DEBUG] No valid invoice number found below this 'reference' label.")
-        if not found_reference:
-            print("[DEBUG] No 'reference' label found for Prana Living LLC.")
-
-    for label_x0, label_x1, label_y in label_positions:
-        candidates = [
-            w for w in normalized_words
-            if w["x0"] > label_x1 and abs(w["top"] - label_y) <= 5 and is_potential_invoice_number(w["text"], vendor_name)
-        ]
-        if candidates:
-            best = sorted(candidates, key=lambda x: abs(x["top"] - label_y))[0]
-            print(f"[DEBUG] Invoice Number (direct right match): {best['orig']}")
-            return best["orig"].lstrip("#:").strip()
-
-    for label_x0, label_x1, label_y in label_positions:
-        candidates = [
-            w for w in normalized_words
-            if w["x0"] > label_x1 and abs(w["top"] - label_y) <= 20 and is_potential_invoice_number(w["text"], vendor_name)
-        ]
-        if candidates:
-            best = sorted(candidates, key=lambda x: abs(x["top"] - label_y))[0]
-            label_word = next(
-                (w["text"] for w in words if abs(w["x0"] - label_x0) < 2 and abs(w["x1"] - label_x1) < 2 and abs(w["top"] - label_y) < 2),
-                f"coords=({label_x0:.1f}, {label_y:.1f})"
-            )
-            print(f"[DEBUG] Invoice Number (loose right match from label '{label_word}'): {best['orig']}")
-            return best["orig"].lstrip("#:").strip()
-
+    
+    # Prism Designs-specific logic: look for "Invoice" label and check directly below it
+    if vendor_name == "Prism Designs":
+        print("[DEBUG] Checking for 'Invoice' label for Prism Designs")
+        for idx, w in enumerate(normalized_words):
+            if w["text"] == "invoice":
+                print(f"[DEBUG] Found 'invoice' label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
+                # Look for values directly below this label with relaxed horizontal alignment
+                candidates = [
+                    cand for cand in normalized_words
+                    if (cand["x0"] >= w["x0"] - 50 and cand["x1"] <= w["x1"] + 100) and
+                       5 <= (cand["top"] - w["bottom"]) <= 100 and
+                       is_potential_invoice_number(cand["text"], vendor_name)
+                ]
+                print(f"[DEBUG] Candidates found below 'invoice': {[c['orig'] for c in candidates]}")
+                if candidates:
+                    best = sorted(candidates, key=lambda x: abs(x["top"] - w["bottom"]))[0]
+                    print(f"[DEBUG] Invoice Number (below 'Invoice' for Prism Designs): {best['orig']}")
+                    return best["orig"].lstrip("#:").strip()
+    
+    # Look for value to the right of any invoice label (strict)
+    invoice_right_match = find_value_to_right(
+        normalized_words, 
+        label_positions,
+        lambda text: is_potential_invoice_number(text, vendor_name),
+        strict=True
+    )
+    if invoice_right_match:
+        return invoice_right_match
+    
+    # Look with looser tolerances
+    invoice_right_loose = find_value_to_right(
+        normalized_words, 
+        label_positions,
+        lambda text: is_potential_invoice_number(text, vendor_name),
+        strict=False
+    )
+    if invoice_right_loose:
+        return invoice_right_loose
+    
+    # Look below labels
     max_distance_below = 150
     best_candidate = None
     best_score = float("inf")
@@ -148,12 +132,6 @@ def extract_invoice_number(words, vendor_name):
     print("[DEBUG] No label match or fallback for Invoice Number.")
     return ""
 
-"""
-def is_potential_invoice_number(text):
-    print(f"[DEBUG] Testing invoice candidate: '{text}'")
-    return re.match(r"^#?(?:[a-zA-Z]{1,4}-?)?[0-9]{3,}[a-zA-Z0-9\-]*$", text.strip(), re.IGNORECASE)
-"""
-    
 def is_potential_invoice_number(text, vendor_name=None):
     print(f"[DEBUG] Testing invoice candidate: '{text}' for vendor '{vendor_name}'")
     # Outdoor Research: match US.SI- followed by digits
