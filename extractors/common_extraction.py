@@ -24,12 +24,24 @@ def normalize_words(words, first_page_only=True):
         for i, w in enumerate(filtered_words)
     ]
 
-def find_label_positions(normalized_words, label_type="invoice"):
+def find_label_positions(normalized_words, label_type="invoice", custom_label=None):
     """
-    Find positions of specified label type (invoice or po)
+    Find positions of specified label type (invoice or po) or a custom label.
+    Returns a list of (x0, x1, top, bottom) tuples.
     """
     label_positions = []
-    
+
+    def normalize_label(text):
+        import string
+        return "".join(c for c in text.lower() if c not in string.punctuation).strip()
+
+    if custom_label:
+        custom_label_norm = normalize_label(custom_label)
+        for w in normalized_words:
+            if normalize_label(w["orig"]) == custom_label_norm:
+                label_positions.append((w["x0"], w["x1"], w["top"], w["bottom"]))
+        return label_positions
+
     # Two-word labels (e.g., "invoice #", "po number")
     for i in range(len(normalized_words) - 1):
         first = normalized_words[i]

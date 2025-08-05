@@ -206,7 +206,6 @@ def load_manual_mapping():
 # Check if Credit Memo amount is Negative, Flip Sign if Not
 def check_negative_total(total_amount, discount_terms):
     total = float(total_amount)
-    print("HERE")
     for term in ["CREDIT MEMO", "CREDIT NOTE", "WARRANTY", "RETURN AUTHORIZATION", "DEFECTIVE"]:
         if term == discount_terms:
             if total > 0:

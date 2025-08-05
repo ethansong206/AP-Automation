@@ -48,7 +48,8 @@ def extract_fields(documents):
             except Exception as e:
                 print(f"[WARN] Could not compute discounted total: {e}")
 
-        row["Total Amount"] = check_negative_total(row["Total Amount"], row["Discount Terms"])
+        if row["Total Amount"]:
+            row["Total Amount"] = check_negative_total(row["Total Amount"], row["Discount Terms"])
 
         extracted_rows.append([
             row["Vendor Name"], row["Invoice Number"], row["PO Number"], row["Invoice Date"],

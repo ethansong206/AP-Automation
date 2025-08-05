@@ -21,6 +21,7 @@ class InteractivePDFViewer(QScrollArea):
         self._drag_start_pos = None
         self._dragged = False
 
+        print(f"Trying to open PDF at: {pdf_path}")
         if os.path.isfile(pdf_path):
             try:
                 doc = fitz.open(pdf_path)
@@ -44,6 +45,8 @@ class InteractivePDFViewer(QScrollArea):
             self.label.setText("[Error] PDF file not found")
 
     def _update_normal_pixmap(self):
+        if not hasattr(self, "original_pixmap"):
+            return
         container_width = self.viewport().width()
         target_width = min(container_width, self.original_pixmap.width())
         # Only rescale if width changes by more than 20px

@@ -7,7 +7,7 @@ import csv
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog,
     QTableWidget, QTableWidgetItem, QAbstractItemView, 
-    QMessageBox, QDialog
+    QMessageBox, QDialog, QHBoxLayout
 )
 from PyQt5.QtGui import QFont, QColor, QBrush
 from PyQt5.QtCore import Qt
@@ -53,6 +53,20 @@ class InvoiceApp(QWidget):
         self.total_label.setFont(font)
         self.layout.addWidget(self.total_label)
 
+        # --- Button layout ---
+        button_row = QHBoxLayout()
+        self.clear_all_button = QPushButton("Clear All")
+        self.clear_all_button.clicked.connect(self.clear_all_rows)
+        button_row.addWidget(self.clear_all_button)
+
+        # New button to delete selected rows
+        self.delete_selected_button = QPushButton("Delete Selected")
+        self.delete_selected_button.clicked.connect(self.delete_selected_rows)
+        button_row.addWidget(self.delete_selected_button)
+
+        button_row.addStretch()  # Pushes buttons to the left
+        self.layout.addLayout(button_row)
+
         self.setLayout(self.layout)
         self.setAcceptDrops(True)
         self.loaded_files = set()
@@ -91,6 +105,8 @@ class InvoiceApp(QWidget):
 
         # After setting up table:
         self.table.cellChanged.connect(self.handle_cell_changed)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
     # --- File browsing ---
     def browse_files(self):
@@ -344,7 +360,7 @@ class InvoiceApp(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to open file:\n{e}")
 
         elif header == "Delete":
-            file_item = self.table.item(row, 7)
+            file_item = self.table.item(row, 8)
             file_path = file_item.data(Qt.UserRole) if file_item else None
             confirm = QMessageBox.question(
                 self, "Delete Row", f"Are you sure you want to delete row {row + 1}?",
@@ -364,7 +380,7 @@ class InvoiceApp(QWidget):
     # --- Vendor input dialog ---
     def open_vendor_dialog(self, row, col):
         """Open dialog for vendor selection."""
-        file_item = self.table.item(row, 7)
+        file_item = self.table.item(row, 8)
         file_path = file_item.toolTip() if file_item else ""
 
         dialog = VendorSelectDialog(file_path, self)
@@ -577,3 +593,37 @@ class InvoiceApp(QWidget):
             return COLORS['GREEN']
         else:
             return COLORS['YELLOW']
+
+    def clear_all_rows(self):
+        """Clear all rows from the table after confirmation."""
+        if self.table.rowCount() == 0:
+            return
+        confirm = QMessageBox.question(
+            self, "Clear All", "Are you sure you want to delete all rows?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            self.table.setRowCount(0)
+            self.loaded_files.clear()
+            self.original_values.clear()
+            self.manually_edited.clear()
+            self.update_total_amount()
+
+    def delete_selected_rows(self):
+        """Delete the selected rows from the table."""
+        selected_rows = set(index.row() for index in self.table.selectedIndexes())
+        if not selected_rows:
+            return
+        
+        confirm = QMessageBox.question(
+            self, "Delete Selected Rows", "Are you sure you want to delete the selected rows?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            # Sort rows in descending order to avoid shifting issues
+            for row in sorted(selected_rows, reverse=True):
+                self.table.removeRow(row)
+            
+            # Update loaded files and total amount
+            self.loaded_files = self.filter_new_files(self.loaded_files)
+            self.update_total_amount()
