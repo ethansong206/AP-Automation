@@ -85,7 +85,10 @@ def find_value_to_right(normalized_words, label_positions, validation_func, stri
     Find a value to the right of any label in label_positions
     """
     # Strict matching (very close horizontally)
-    for label_x0, label_x1, label_y in label_positions:
+    for pos in label_positions:
+        # Extract only the needed values using slicing
+        label_x0, label_x1, label_y = pos[0], pos[1], pos[2]
+        
         candidates = [
             w for w in normalized_words
             if w["x0"] > label_x1 and abs(w["top"] - label_y) <= 5 and validation_func(w["text"])
@@ -97,7 +100,9 @@ def find_value_to_right(normalized_words, label_positions, validation_func, stri
     
     # Looser matching if strict didn't find anything
     if not strict:
-        for label_x0, label_x1, label_y in label_positions:
+        for pos in label_positions:
+            label_x0, label_x1, label_y = pos[0], pos[1], pos[2]
+            
             candidates = [
                 w for w in normalized_words
                 if w["x0"] > label_x1 and abs(w["top"] - label_y) <= 20 and validation_func(w["text"])

@@ -72,6 +72,7 @@ class InvoiceApp(QWidget):
         self.loaded_files = set()
         self.original_values = {}  # (row, col): value
         self.manually_edited = set()  # Track (row, col) of manually edited cells
+        self.auto_calculated = set()  # Track (row, col) of auto-calculated cells
 
     def setup_table(self):
         """Set up the data table."""
@@ -144,7 +145,16 @@ class InvoiceApp(QWidget):
         
     def filter_new_files(self, files):
         """Filter out already processed files."""
-        return [f for f in files if f not in self.loaded_files]
+        # Normalize paths for comparison
+        normalized_loaded = {os.path.normpath(f) for f in self.loaded_files}
+        new_files = []
+        
+        for file in files:
+            norm_path = os.path.normpath(file)
+            if norm_path not in normalized_loaded:
+                new_files.append(file)
+        
+        return new_files
         
     def process_and_add_rows(self, files):
         """Process files and add rows to the table."""
@@ -187,9 +197,7 @@ class InvoiceApp(QWidget):
 
     def populate_row_cells(self, row_position, row_data, is_no_ocr, file_path=None):
         """Populate the cells of a row with data."""
-        print(f"[DEBUG] Row {row_position} data: {row_data}, is_no_ocr: {is_no_ocr}")
         for col, value in enumerate(row_data):
-            print(f"[DEBUG] col={col}, value={repr(value)}, is_no_ocr={is_no_ocr}")
             if col == 8 and is_no_ocr:
                 # Show MANUAL ENTRY button for no OCR rows in Source File column
                 button = QPushButton("MANUAL ENTRY")
@@ -294,34 +302,43 @@ class InvoiceApp(QWidget):
         item = self.table.item(row, col)
         if not item:
             return
-            
-        # Check if cell was cleared (empty)
-        if not item.text().strip():
-            # Restore original value
-            original_value = self.original_values.get((row, col), "")
-            # Temporarily disconnect to avoid recursion
-            self.table.cellChanged.disconnect(self.handle_cell_changed)
-            item.setText(original_value)
-            self.table.cellChanged.connect(self.handle_cell_changed)
-            # Remove from manually edited if it matches original
-            if (row, col) in self.manually_edited:
-                self.manually_edited.remove((row, col))
-        else:
-            # Check if value is different from original
-            original_value = self.original_values.get((row, col), "")
-            current_value = item.text().strip()
-            
-            if current_value != original_value:
-                # Mark as manually edited
-                self.manually_edited.add((row, col))
-                # Set blue background for manually edited cells
-                item.setBackground(QColor(COLORS['LIGHT_BLUE']))
-            else:
-                # Value matches original, remove from manually edited
+    
+        # Temporarily disconnect to prevent recursion during our processing
+        self.table.cellChanged.disconnect(self.handle_cell_changed)
+    
+        try:
+            # Check if cell was cleared (empty)
+            if not item.text().strip():
+                # Restore original value
+                original_value = self.original_values.get((row, col), "")
+                item.setText(original_value)
+                # Remove from manually edited if it matches original
                 if (row, col) in self.manually_edited:
                     self.manually_edited.remove((row, col))
+            else:
+                # Check if value is different from original
+                original_value = self.original_values.get((row, col), "")
+                current_value = item.text().strip()
+                
+                if current_value != original_value:
+                    # Mark as manually edited
+                    self.manually_edited.add((row, col))
+                    # Set blue background for manually edited cells
+                    item.setBackground(QColor(COLORS['LIGHT_BLUE']))
+                else:
+                    # Value matches original, remove from manually edited
+                    if (row, col) in self.manually_edited:
+                        self.manually_edited.remove((row, col))
+            
+            # If discount terms column changed, recalculate dependent fields
+            if col == 4:  # Discount Terms
+                self.recalculate_dependent_fields(row)
                     
-        self.rehighlight_row(row)
+            self.rehighlight_row(row)
+            
+        finally:
+            # Reconnect the signal after all changes are done
+            self.table.cellChanged.connect(self.handle_cell_changed)
 
     def restore_original_color(self, row, col):
         """Restore the original color of a cell based on content state."""
@@ -353,16 +370,22 @@ class InvoiceApp(QWidget):
 
     def rehighlight_row(self, row):
         """Rehighlight a row after changes."""
-        # Temporarily disconnect to avoid recursion
-        self.table.cellChanged.disconnect(self.handle_cell_changed)
+        # Safely disconnect to avoid recursion
+        try:
+            self.table.cellChanged.disconnect(self.handle_cell_changed)
+            was_connected = True
+        except TypeError:
+            # Signal was not connected
+            was_connected = False
         
         try:
             for col in range(8):
                 color = self.determine_cell_color(row, col)
                 self.set_cell_color(row, col, color)
         finally:
-            # Reconnect the signal after all changes are done
-            self.table.cellChanged.connect(self.handle_cell_changed)
+            # Only reconnect if it was connected before
+            if was_connected:
+                self.table.cellChanged.connect(self.handle_cell_changed)
 
     # --- Cell click handling ---
     def handle_table_click(self, row, col):
@@ -386,18 +409,37 @@ class InvoiceApp(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to open file:\n{e}")
 
         elif header == "Delete":
+            # Get file path from either the Source File cell or the MANUAL ENTRY button
+            file_path = None
+            
+            # Check Source File column first (column 8)
             file_item = self.table.item(row, 8)
-            file_path = file_item.data(Qt.UserRole) if file_item else None
+            if file_item:
+                file_path = file_item.toolTip() or file_item.data(Qt.UserRole)
+            
+            # If no path found and this is a non-OCR row, check for MANUAL ENTRY button
+            if not file_path:
+                for col_idx in range(self.table.columnCount()):
+                    cell_widget = self.table.cellWidget(row, col_idx)
+                    if cell_widget and isinstance(cell_widget, QPushButton) and cell_widget.text() == "MANUAL ENTRY":
+                        file_path = cell_widget.property("file_path")
+                        break
+            
             confirm = QMessageBox.question(
                 self, "Delete Row", f"Are you sure you want to delete row {row + 1}?",
                 QMessageBox.Yes | QMessageBox.No
             )
             if confirm == QMessageBox.Yes:
+                print(f"[DEBUG] Removing file from loaded_files: {file_path}")
+                
+                # Clean up all data structures that store information about this row
+                self.cleanup_row_data(row)
                 self.table.removeRow(row)
-                if file_path in self.loaded_files:
+                
+                if file_path and file_path in self.loaded_files:
                     self.loaded_files.remove(file_path)
-                self.update_total_amount()  # Update total after deletion
-
+                self.update_total_amount()
+        
         elif header == "Vendor Name":
             value = self.table.item(row, col).text()
             if value.strip().upper() == "ADD VENDOR":
@@ -606,13 +648,15 @@ class InvoiceApp(QWidget):
         # Pink for Discount Terms column if it does NOT contain 'NET'
         if col == 4:
             cell_text = self.get_cell_text(row, col).upper()
-            if "NET" not in cell_text:
+            if "NET" not in cell_text and cell_text:
                 return "#FFC0CB"  # Pink
 
         if self.is_add_vendor_cell(row, col):
             return COLORS['RED']
         elif (row, col) in self.manually_edited:
             return COLORS['LIGHT_BLUE']
+        elif (row, col) in self.auto_calculated:
+            return COLORS['LIGHT_BLUE']  # Same color for auto-calculated
         elif self.is_row_no_ocr(row):
             return COLORS['RED']
         elif self.is_row_complete(row):
@@ -633,6 +677,7 @@ class InvoiceApp(QWidget):
             self.loaded_files.clear()
             self.original_values.clear()
             self.manually_edited.clear()
+            self.auto_calculated.clear()  # Also clear auto-calculated
             self.update_total_amount()
 
     def delete_selected_rows(self):
@@ -664,11 +709,162 @@ class InvoiceApp(QWidget):
             # fallback: try to get from table item (for other usages)
             file_item = self.table.item(row, 8)
             file_path = file_item.toolTip() if file_item else ""
+        
         from views.manual_entry_dialog import ManualEntryDialog
         dialog = ManualEntryDialog(file_path, self)
+    
         if dialog.exec_() == QDialog.Accepted:
-            data = dialog.get_data()
-            for col, value in enumerate(data):
-                item = QTableWidgetItem(str(value) if value is not None else "")
-                self.table.setItem(row, col, item)
-            self.highlight_row(row, is_no_ocr=False)
+            # Temporarily disconnect cell change signals
+            try:
+                self.table.cellChanged.disconnect(self.handle_cell_changed)
+                was_connected = True
+            except TypeError:
+                was_connected = False
+            
+            try:
+                data = dialog.get_data()
+            
+                # Update the table with the new data
+                for col, value in enumerate(data):
+                    # Create table item
+                    item = QTableWidgetItem(str(value) if value is not None else "")
+                    self.table.setItem(row, col, item)
+                
+                    # Update original values dictionary
+                    self.original_values[(row, col)] = str(value) if value is not None else ""
+                
+                # Make sure to add source file cell if it doesn't exist
+                if file_path and not self.table.item(row, 8):
+                    self.add_source_file_cell(row, file_path)
+                
+                # Make sure to add delete cell if it doesn't exist
+                if not self.table.item(row, 9):
+                    self.add_delete_cell(row)
+                
+                # Add to loaded_files to prevent reprocessing
+                if file_path:
+                    self.loaded_files.add(file_path)
+                
+                # Update row coloring and recalculate fields
+                self.highlight_row(row, is_no_ocr=False)
+            
+                # Recalculate any dependent fields (due date & discount)
+                self.recalculate_dependent_fields(row)
+                
+            finally:
+                # Reconnect signals if they were connected
+                if was_connected:
+                    self.table.cellChanged.connect(self.handle_cell_changed)
+
+    def recalculate_dependent_fields(self, row):
+        """Recalculate due date and discounted total when terms change."""
+        from extractors.utils import calculate_discount_due_date, calculate_discounted_total
+        import re
+        
+        # Get the required values
+        terms = self.get_cell_text(row, 4)
+        invoice_date = self.get_cell_text(row, 3)
+        total_amount = self.get_cell_text(row, 7)
+        vendor_name = self.get_cell_text(row, 0)
+        
+        # Only proceed if we have valid input data
+        if not terms or not invoice_date or not total_amount or vendor_name == "ADD VENDOR":
+            return
+            
+        try:
+            # Calculate new due date
+            due_date = calculate_discount_due_date(terms, invoice_date)
+            if due_date:
+                # Update due date cell
+                due_date_item = QTableWidgetItem(due_date)
+                due_date_item.setBackground(QColor(COLORS['LIGHT_BLUE']))
+                
+                # Add a visual indicator that this is calculated
+                font = due_date_item.font()
+                font.setItalic(True)
+                due_date_item.setFont(font)
+                
+                self.table.setItem(row, 5, due_date_item)
+                # Track as auto-calculated
+                self.auto_calculated.add((row, 5))
+        
+            # Check if terms contains a percentage
+            has_discount = re.search(r"(\d+)%", terms) is not None
+            special_vendors = ["TOPO ATHLETIC", "Ruffwear", "ON Running", "Free Fly Apparel", 
+                               "Hadley Wren", "Gregory Mountain Products"]
+            is_special_vendor = vendor_name in special_vendors
+            
+            if not has_discount and not is_special_vendor:
+                # No discount percentage found, clear the discounted total
+                empty_item = QTableWidgetItem("")
+                self.table.setItem(row, 6, empty_item)
+                # Remove from auto-calculated if it was there
+                if (row, 6) in self.auto_calculated:
+                    self.auto_calculated.remove((row, 6))
+            else:
+                # Calculate discounted total - Handle None case
+                discounted_total = calculate_discounted_total(terms, total_amount, vendor_name)
+                if discounted_total is not None and discounted_total:  # Check for None and empty string
+                    # Update discounted total cell with visual distinction
+                    disc_total_item = QTableWidgetItem(f"***  {discounted_total}  ***")
+                    disc_total_item.setBackground(QColor(COLORS['LIGHT_BLUE']))
+                    
+                    # Add a visual indicator that this is calculated
+                    font = disc_total_item.font()
+                    font.setItalic(True)
+                    disc_total_item.setFont(font)
+                    
+                    self.table.setItem(row, 6, disc_total_item)
+                    # Track as auto-calculated
+                    self.auto_calculated.add((row, 6))
+                
+        except Exception as e:
+            # Handle calculation errors with user feedback
+            print(f"[ERROR] Calculation failed: {e}")
+            # Optional: Display a message to the user
+            QMessageBox.warning(
+                self, 
+                "Calculation Error", 
+                f"Could not recalculate fields from terms: {terms}\nError: {str(e)}"
+            )
+
+    def cleanup_row_data(self, row):
+        """Clean up all data associated with a row."""
+        # Remove from original_values
+        keys_to_remove = [key for key in self.original_values if key[0] == row]
+        for key in keys_to_remove:
+            del self.original_values[key]
+    
+        # Remove from manually_edited
+        keys_to_remove = [(r, c) for r, c in self.manually_edited if r == row]
+        for key in keys_to_remove:
+            self.manually_edited.remove(key)
+        
+        # Remove from auto_calculated
+        keys_to_remove = [(r, c) for r, c in self.auto_calculated if r == row]
+        for key in keys_to_remove:
+            self.auto_calculated.remove(key)
+        
+        # Also reindex the remaining data for rows after this one
+        def reindex_dict_keys(data_dict, deleted_row):
+            new_dict = {}
+            for (r, c), value in data_dict.items():
+                if r > deleted_row:
+                    new_dict[(r-1, c)] = value
+                elif r < deleted_row:
+                    new_dict[(r, c)] = value
+            return new_dict
+        
+        def reindex_set_keys(data_set, deleted_row):
+            new_set = set()
+            for r, c in data_set:
+                if r > deleted_row:
+                    new_set.add((r-1, c))
+                elif r < deleted_row:
+                    new_set.add((r, c))
+            return new_set
+        
+        # Apply reindexing
+        self.original_values = reindex_dict_keys(self.original_values, row)
+        self.manually_edited = reindex_set_keys(self.manually_edited, row)
+        self.auto_calculated = reindex_set_keys(self.auto_calculated, row)
