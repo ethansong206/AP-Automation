@@ -2,9 +2,9 @@
 
 # Color definitions
 COLORS = {
-    'RED': "#CC6666",           # For errors, ADD VENDOR, no OCR
-    'YELLOW': "#F0F099",        # For incomplete data
-    'GREEN': "#98DDBB",         # For complete data
-    'LIGHT_BLUE': "#A8D1FF",    # For manually edited cells
-    'LIGHT_GREY': "#E6E6E6"     # For non-editable cells
+    'RED': '#FF5252',          # For errors/missing data/no OCR
+    'YELLOW': '#FFEB3B',       # For incomplete rows
+    'GREEN': '#4CAF50',        # For complete rows
+    'LIGHT_BLUE': '#81D4FA',   # For edited/calculated values
+    'LIGHT_GREY': '#F5F5F5'    # For non-editable cells
 }

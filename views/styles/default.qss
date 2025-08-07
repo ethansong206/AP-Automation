@@ -1,0 +1,121 @@
+/* Main Application Styles */
+
+/* General widget styling */
+QWidget {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 10pt;
+}
+
+/* Main application window */
+InvoiceApp {
+    background-color: #f5f5f5;
+}
+
+/* Button styling */
+QPushButton {
+    background-color: #4a86e8;
+    color: white;
+    border-radius: 4px;
+    padding: 8px 15px;
+    font-weight: bold;
+    min-height: 20px;
+}
+
+QPushButton:hover {
+    background-color: #3a76d8;
+}
+
+QPushButton:pressed {
+    background-color: #2a66c8;
+}
+
+/* Table styling */
+QTableWidget {
+    gridline-color: #d0d0d0;
+    selection-background-color: #c2d9f2;
+    border: 1px solid #c0c0c0;
+    background-color: white;
+}
+
+QTableWidget::item {
+    padding: 6px;
+    border-bottom: 1px solid #f0f0f0;
+    background-color: transparent;
+}
+
+QTableWidget::item:selected {
+    background-color: #c2d9f2;
+    color: black;
+}
+
+/* Add this to support dynamic cell borders */
+QTableWidget::item[LeftBorder] {
+    border-left: 3px solid attr(LeftBorder);
+    padding-left: 3px;
+}
+
+/* Header styling */
+QHeaderView::section {
+    background-color: #e9ecef;
+    padding: 8px 4px;
+    font-weight: bold;
+    border: 1px solid #d0d0d0;
+    color: #495057;
+}
+
+QHeaderView::section:checked {
+    background-color: #d0d0d0;
+}
+
+/* Special buttons with consistent sizing */
+QPushButton#exportButton {
+    background-color: #4CAF50;
+    font-size: 11pt;
+    min-width: 150px;
+}
+
+QPushButton#clearAllButton {
+    background-color: #f44336;
+    min-width: 120px;
+}
+
+QPushButton#deleteSelectedButton {
+    background-color: #ff9800;
+    min-width: 120px;
+}
+
+/* Status area */
+QLabel#totalLabel {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #333;
+    padding: 10px 5px;
+}
+
+/* Dialog styling */
+QDialog {
+    background-color: white;
+}
+
+QDialog QLabel {
+    font-weight: bold;
+    color: #333;
+}
+
+/* Scrollbars for better visibility */
+QScrollBar:vertical {
+    border: none;
+    background: #f5f5f5;
+    width: 14px;
+    margin: 15px 0 15px 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #c0c0c0;
+    min-height: 30px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #a0a0a0;
+}
