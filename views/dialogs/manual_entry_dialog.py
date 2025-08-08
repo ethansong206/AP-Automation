@@ -284,6 +284,7 @@ class ManualEntryDialog(QDialog):
         new_viewer = InteractivePDFViewer(self.pdf_paths[index])
         index_in_splitter = self.splitter.indexOf(self.viewer)
         self.splitter.replaceWidget(index_in_splitter, new_viewer)
+        new_viewer.show()
         self.viewer.deleteLater()
         self.viewer = new_viewer
         # Reapply splitter sizing so the viewer remains visible
