@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QMessageBox, QCompleter, QListWidget
 )
 from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QBrush
 
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_dialog import VendorDialog
@@ -33,6 +34,7 @@ class ManualEntryDialog(QDialog):
         for path in pdf_paths:
             self.file_list.addItem(os.path.basename(path) if path else "")
         self.file_list.currentRowChanged.connect(self.switch_to_index)
+        self.viewed_files = set()
 
         # --- Form fields ---
         form_layout = QFormLayout()
@@ -163,11 +165,15 @@ class ManualEntryDialog(QDialog):
         self.viewer = InteractivePDFViewer(self.pdf_paths[self.current_index])
 
         # --- Splitter Layout ---
-        self.splitter = QSplitter()
+        self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.file_list)
         self.splitter.addWidget(left_widget)
         self.splitter.addWidget(self.viewer)
         self.splitter.setSizes([150, 350, 550])
+        # Ensure the PDF viewer expands to take remaining space
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 0)
+        self.splitter.setStretchFactor(2, 1)
 
         # --- Dialog Buttons ---
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -183,7 +189,7 @@ class ManualEntryDialog(QDialog):
 
         self.setLayout(content_layout)
 
-         # Load first invoice data
+        # Load first invoice data
         self.load_invoice(self.current_index)
 
         # Highlight empty fields initially and update on change
@@ -204,6 +210,7 @@ class ManualEntryDialog(QDialog):
     def load_invoice(self, index):
         """Load invoice data at the given index into the form."""
         self.current_index = index
+        self.mark_file_viewed(index)
         values = self.values_list[index]
 
         self.vendor_combo.setCurrentText(values[0])
@@ -275,9 +282,13 @@ class ManualEntryDialog(QDialog):
 
         # Replace PDF viewer
         new_viewer = InteractivePDFViewer(self.pdf_paths[index])
-        self.splitter.replaceWidget(self.splitter.indexOf(self.viewer), new_viewer)
+        index_in_splitter = self.splitter.indexOf(self.viewer)
+        self.splitter.replaceWidget(index_in_splitter, new_viewer)
         self.viewer.deleteLater()
         self.viewer = new_viewer
+        # Reapply splitter sizing so the viewer remains visible
+        self.splitter.setStretchFactor(index_in_splitter, 1)
+        self.splitter.setSizes([150, 350, 550])
 
     def switch_to_index(self, index):
         """Switch to the selected file from the list."""
@@ -302,6 +313,15 @@ class ManualEntryDialog(QDialog):
         self.save_current_invoice()
         self.save_changes = True
         self.accept()
+
+    def mark_file_viewed(self, index):
+        """Track and visually mark a file as viewed."""
+        if index in self.viewed_files:
+            return
+        self.viewed_files.add(index)
+        item = self.file_list.item(index)
+        if item is not None:
+            item.setForeground(QBrush(Qt.gray))
 
     def _on_date_changed(self, label):
         """Handle updates to date fields."""

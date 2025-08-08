@@ -1,5 +1,9 @@
 """Main application window for invoice processing."""
 import os
+import re
+import shutil
+from datetime import datetime
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog,
     QMessageBox, QHBoxLayout, QDialog, QTableWidgetItem
@@ -87,6 +91,12 @@ class InvoiceApp(QWidget):
         self.delete_selected_button.clicked.connect(self.delete_selected_rows)
         button_group.addWidget(self.delete_selected_button)
         button_row.addLayout(button_group)
+
+        # Export files button between Delete Selected and Total Amount
+        self.export_files_button = QPushButton("Export Files to Folder")
+        self.export_files_button.setObjectName("exportFilesButton")
+        self.export_files_button.clicked.connect(self.export_files_to_folder)
+        button_row.addWidget(self.export_files_button)
 
         # Add stretching space in the middle
         button_row.addStretch()
@@ -288,6 +298,71 @@ class InvoiceApp(QWidget):
         else:
             QMessageBox.critical(self, "Export Failed", f"Error: {message}")
             print(f"[ERROR] Failed to export: {message}")
+
+    def export_files_to_folder(self):
+        """Export and organize source PDF files into a user-selected folder."""
+        if self.table.rowCount() == 0:
+            QMessageBox.warning(self, "No Files", "There are no files to export.")
+            return
+
+        target_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")
+        if not target_dir:
+            return
+
+        # Create month subfolders if they do not exist
+        month_names = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+        ]
+        month_dirs = []
+        for i, name in enumerate(month_names, 1):
+            month_path = os.path.join(target_dir, f"{i:02d} - {name}")
+            if not os.path.exists(month_path):
+                os.makedirs(month_path)
+            month_dirs.append(month_path)
+
+        for row in range(self.table.rowCount()):
+            file_path = self.table.get_file_path_for_row(row)
+            if not file_path or not os.path.isfile(file_path):
+                continue
+
+            vendor = self._sanitize_filename(self.table.get_cell_text(row, 0)) or "UNKNOWN"
+            po_number = self._sanitize_filename(self.table.get_cell_text(row, 2)) or "PO"
+            invoice_number = self._sanitize_filename(self.table.get_cell_text(row, 1)) or "INV"
+
+            new_name = f"{vendor}_{po_number}_{invoice_number}.pdf"
+
+            date_str = self.table.get_cell_text(row, 3)
+            date_obj = self._parse_invoice_date(date_str)
+            if date_obj:
+                dest_dir = month_dirs[date_obj.month - 1]
+            else:
+                dest_dir = target_dir
+
+            dest_path = os.path.join(dest_dir, new_name)
+            if os.path.exists(dest_path):
+                print(f"[INFO] Skipping existing file: {dest_path}")
+                continue
+
+            try:
+                shutil.copy2(file_path, dest_path)
+            except Exception as e:
+                print(f"[ERROR] Failed to copy '{file_path}' to '{dest_path}': {e}")
+
+        QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")
+
+    # --- Helper methods ---
+    def _sanitize_filename(self, text):
+        text = (text or "").strip().replace(" ", "_")
+        return re.sub(r"[^A-Za-z0-9_\-]", "", text)
+
+    def _parse_invoice_date(self, date_str):
+        for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(date_str, fmt)
+            except Exception:
+                continue
+        return None
 
     def handle_files_selected(self, files):
         """Handle files selected from drop area."""
