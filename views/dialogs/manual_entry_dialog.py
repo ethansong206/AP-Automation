@@ -1,32 +1,40 @@
+import os
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QDialogButtonBox, QSplitter, QWidget, QFormLayout,
-    QComboBox, QMessageBox, QCompleter
+    QComboBox, QMessageBox, QCompleter, QListWidget
 )
 from PyQt5.QtCore import Qt, QDate
+
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_dialog import VendorDialog
 from extractors.utils import get_vendor_list, calculate_discount_due_date, calculate_discounted_total
 
 class ManualEntryDialog(QDialog):
-    """Dialog for manual entry of invoice fields with PDF viewer."""
-    def __init__(self, pdf_path, parent=None, existing_values=None,
-                 enable_prev=False, enable_next=False):
+    """Dialog for manual entry of invoice fields with PDF viewer.
+
+    This version can handle multiple files within a single dialog.  A list
+    of uploaded files is shown on the left allowing direct navigation without
+    closing and reopening the dialog.
+    """
+    def __init__(self, pdf_paths, parent=None, values_list=None, start_index=0):
         super().__init__(parent)
         self.setWindowTitle("Manual Entry")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(1100, 600)
 
-        # Track navigation requests : -1 for prev, 1 for next, 0 for none
-        self.navigation = 0
+        # Store paths and values for all files
+        self.pdf_paths = pdf_paths
+        self.values_list = values_list or [[""] * 8 for _ in pdf_paths]
+        self.current_index = start_index
+        self.save_changes = False
 
-        # Track whether any field has been modified
-        self.changes_made = False
-        self.save_changes = True
-        
-        # Store existing values
-        self.existing_values = existing_values or [""] * 8
+        # --- File list on the far left ---
+        self.file_list = QListWidget()
+        for path in pdf_paths:
+            self.file_list.addItem(os.path.basename(path) if path else "")
+        self.file_list.currentRowChanged.connect(self.switch_to_index)
 
-        # --- Left: Form fields ---
+        # --- Form fields ---
         form_layout = QFormLayout()
         self.fields = {}
 
@@ -97,6 +105,21 @@ class ManualEntryDialog(QDialog):
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
+        # Standard button styling for action buttons
+        primary_button_style = (
+            "QPushButton {"
+            "background-color: #5E6F5E;"
+            "color: white;"
+            "border-radius: 4px;"
+            "padding: 6px 12px;"
+            "font-weight: bold;"
+            "}"
+            "QPushButton:hover { background-color: #3f6193; }"
+            "QPushButton:pressed { background-color: #345480; }"
+        )
+        for btn in (self.add_vendor_btn, self.calc_due_date_btn, self.calc_disc_total_btn):
+            btn.setStyleSheet(primary_button_style)
+
         # --- Navigation Buttons ---
         arrow_layout = QHBoxLayout()
         arrow_layout.addStretch()
@@ -121,10 +144,8 @@ class ManualEntryDialog(QDialog):
         size = 60
         self.prev_button.setFixedSize(size, size)
         self.next_button.setFixedSize(size, size)
-        self.prev_button.setDisabled(not enable_prev)
-        self.next_button.setDisabled(not enable_next)
-        self.prev_button.clicked.connect(self._go_prev)
-        self.next_button.clicked.connect(self._go_next)
+        self.prev_button.clicked.connect(self.show_prev)
+        self.next_button.clicked.connect(self.show_next)
         arrow_layout.addWidget(self.prev_button)
         arrow_layout.addWidget(self.next_button)
         arrow_layout.addStretch()
@@ -139,55 +160,78 @@ class ManualEntryDialog(QDialog):
         left_widget.setLayout(left_layout)
 
         # --- Right: PDF Viewer ---
-        viewer = InteractivePDFViewer(pdf_path)
+        self.viewer = InteractivePDFViewer(self.pdf_paths[self.current_index])
 
         # --- Splitter Layout ---
-        splitter = QSplitter()
-        splitter.addWidget(left_widget)
-        splitter.addWidget(viewer)
-        splitter.setSizes([350, 550])
+        self.splitter = QSplitter()
+        self.splitter.addWidget(self.file_list)
+        self.splitter.addWidget(left_widget)
+        self.splitter.addWidget(self.viewer)
+        self.splitter.setSizes([150, 350, 550])
 
         # --- Dialog Buttons ---
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
+        button_box.accepted.connect(self.on_save)
         button_box.rejected.connect(self.reject)
+        for btn in button_box.buttons():
+            btn.setStyleSheet(primary_button_style)
 
         # --- Content Layout ---
         content_layout = QVBoxLayout()
-        content_layout.addWidget(splitter)
+        content_layout.addWidget(self.splitter)
         content_layout.addWidget(button_box)
 
         self.setLayout(content_layout)
 
-        # When setting up fields, populate with existing values
-        self.vendor_combo.setCurrentText(self.existing_values[0])
-        self.fields["Invoice Number"].setText(self.existing_values[1])
-        self.fields["PO Number"].setText(self.existing_values[2])
-        
-        # Fix for Invoice Date - use the correct format and handle 2-digit years properly
-        invoice_date = self.existing_values[3]
+         # Load first invoice data
+        self.load_invoice(self.current_index)
+
+        # Highlight empty fields initially and update on change
+        for label, widget in self.fields.items():
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._highlight_empty_fields)
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(self._highlight_empty_fields)
+            elif isinstance(widget, QDateEdit):
+                widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
+
+    def save_current_invoice(self):
+        """Store current field values into values_list."""
+        if not self.values_list:
+            return
+        self.values_list[self.current_index] = self.get_data()
+
+    def load_invoice(self, index):
+        """Load invoice data at the given index into the form."""
+        self.current_index = index
+        values = self.values_list[index]
+
+        self.vendor_combo.setCurrentText(values[0])
+        self.fields["Invoice Number"].setText(values[1])
+        self.fields["PO Number"].setText(values[2])
+
+        # Invoice Date
+        self.fields["Invoice Date"].setDate(QDate.currentDate())
+        invoice_date = values[3]
         try:
-            # First try to parse with the format from the table
             date_obj = QDate.fromString(invoice_date, "MM/dd/yy")
-            
-            # If we got a valid date but it's in the wrong century, fix it
+
             if date_obj.isValid() and date_obj.year() < 2000:
-                # Convert to a date in the 2000s
-                year = date_obj.year() % 100  # Get just the 2-digit year
-                century_date = QDate(2000 + year, date_obj.month(), date_obj.day())
-                self.fields["Invoice Date"].setDate(century_date)
-            elif date_obj.isValid():
+                year = date_obj.year() % 100
+                date_obj = QDate(2000 + year, date_obj.month(), date_obj.day())
+            if date_obj.isValid():
                 self.fields["Invoice Date"].setDate(date_obj)
         except Exception as e:
             print(f"Error parsing invoice date: {e}")
             
-        self.fields["Discount Terms"].setText(self.existing_values[4])
-        
-        # Fix for Due Date - completely rebuilt parsing logic
-        due_date = self.existing_values[5]
-        if due_date.strip():  # Only process if there's a value
+        self.fields["Discount Terms"].setText(values[4])
+
+        # Due Date
+        self.fields["Due Date"].setDate(QDate.currentDate())
+        due_date = values[5]
+        if due_date.strip():
             try:
-                # Try parsing the date parts directly (most reliable method)
+                new_date = QDate()
                 if '/' in due_date:
                     parts = due_date.split('/')
                     if len(parts) == 3:
@@ -195,81 +239,73 @@ class ManualEntryDialog(QDialog):
                         day = int(parts[1])
                         year = int(parts[2])
                         
-                        # Ensure correct century for 2-digit years
                         if year < 100:
-                            year = 2000 + year  # Always use 21st century for 2-digit years
-                        
-                        # Create date directly from components
+                            year = 2000 + year
                         new_date = QDate(year, month, day)
-                        if new_date.isValid():
-                            self.fields["Due Date"].setDate(new_date)
-                            print(f"Successfully set due date: {new_date.toString('MM/dd/yyyy')}")
-                
-                # Fallback to QDate parsing if direct parsing fails
-                if not '/' in due_date or not new_date.isValid():
+                        
+                if not new_date.isValid():
                     date_obj = QDate.fromString(due_date, "MM/dd/yy")
                     if date_obj.isValid():
-                        # Manually correct the century
                         correct_year = 2000 + (date_obj.year() % 100)
-                        correct_date = QDate(correct_year, date_obj.month(), date_obj.day())
-                        if correct_date.isValid():
-                            self.fields["Due Date"].setDate(correct_date)
+                        new_date = QDate(correct_year, date_obj.month(), date_obj.day())
+                if new_date.isValid():
+                    self.fields["Due Date"].setDate(new_date)
             except Exception as e:
                 print(f"Error parsing due date '{due_date}': {e}")
-            
-        self.fields["Discounted Total"].setText(self.existing_values[6])
-        self.fields["Total Amount"].setText(self.existing_values[7])
+        
+        self.fields["Discounted Total"].setText(values[6])
+        self.fields["Total Amount"].setText(values[7])
 
-        # Track which date fields started empty for highlighting
+        # Track empty date fields for highlighting
         self.empty_date_fields = set()
-        if not self.existing_values[3].strip():
+        if not values[3].strip():
             self.empty_date_fields.add("Invoice Date")
-        if not self.existing_values[5].strip():
+        if not values[5].strip():
             self.empty_date_fields.add("Due Date")
 
-        # Highlight empty fields initially and update on change
         self._highlight_empty_fields()
-        for label, widget in self.fields.items():
-            if isinstance(widget, QLineEdit):
-                widget.textChanged.connect(self._highlight_empty_fields)
-                widget.textChanged.connect(self._mark_changed)
-            elif isinstance(widget, QComboBox):
-                widget.currentTextChanged.connect(self._highlight_empty_fields)
-                widget.currentTextChanged.connect(self._mark_changed)
-            elif isinstance(widget, QDateEdit):
-                widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
 
-    def _mark_changed(self, *_):
-        """Flag that a user-editable field has changed."""
-        self.changes_made = True
+        # Update navigation buttons and list selection
+        self.prev_button.setDisabled(index == 0)
+        self.next_button.setDisabled(index == len(self.pdf_paths) - 1)
+        if self.file_list.currentRow() != index:
+            self.file_list.blockSignals(True)
+            self.file_list.setCurrentRow(index)
+            self.file_list.blockSignals(False)
+
+        # Replace PDF viewer
+        new_viewer = InteractivePDFViewer(self.pdf_paths[index])
+        self.splitter.replaceWidget(self.splitter.indexOf(self.viewer), new_viewer)
+        self.viewer.deleteLater()
+        self.viewer = new_viewer
+
+    def switch_to_index(self, index):
+        """Switch to the selected file from the list."""
+        if index < 0 or index >= len(self.pdf_paths):
+            return
+        if index == self.current_index:
+            return
+        self.save_current_invoice()
+        self.load_invoice(index)
+
+    def show_prev(self):
+        if self.current_index > 0:
+            self.save_current_invoice()
+            self.load_invoice(self.current_index - 1)
+
+    def show_next(self):
+        if self.current_index < len(self.pdf_paths) - 1:
+            self.save_current_invoice()
+            self.load_invoice(self.current_index + 1)
+
+    def on_save(self):
+        self.save_current_invoice()
+        self.save_changes = True
+        self.accept()
 
     def _on_date_changed(self, label):
         """Handle updates to date fields."""
         self._clear_date_highlight(label)
-        self._mark_changed()
-
-    def _confirm_and_navigate(self, direction):
-        """Prompt to save changes before navigating away."""
-        if self.changes_made:
-            reply = QMessageBox.question(
-                self,
-                "Save Changes?",
-                "Do you want to save changes before navigating?",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-            )
-            if reply == QMessageBox.Cancel:
-                return
-            self.save_changes = reply == QMessageBox.Yes
-        self.navigation = direction
-        self.accept()
-
-    def _go_prev(self):
-        """Navigate to the previous row."""
-        self._confirm_and_navigate(-1)
-
-    def _go_next(self):
-        """Navigate to the next row."""
-        self._confirm_and_navigate(1)
 
     def load_vendors(self):
         """Load vendors into the combo box."""
@@ -362,7 +398,7 @@ class ManualEntryDialog(QDialog):
         data = []
         for label in [
             "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-            "Discount Terms", "Due Date", "Discounted Total", "Total Amount"
+            "Discount Terms", "Due Date", "Discounted Total", "Total Amount",
         ]:
             widget = self.fields[label]
             if isinstance(widget, QDateEdit):
@@ -374,3 +410,8 @@ class ManualEntryDialog(QDialog):
                 value = widget.text().strip()
             data.append(value)
         return data
+    
+    def get_all_data(self):
+        """Return data for all files after ensuring current edits are saved."""
+        self.save_current_invoice()
+        return self.values_list

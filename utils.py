@@ -45,7 +45,7 @@ def export_accounting_csv(filename, invoice_table):
                 
                 # Get vendor name for lookup - ensure aggressive cleaning
                 raw_vendor_name = invoice_table.get_cell_text(row, 0)
-                vendor_name = re.sub(r'\s+', ' ', raw_vendor_name.replace("• ", "").strip())
+                vendor_name = re.sub(r'\s+', ' ', raw_vendor_name.strip())
 
                 if not vendor_name:
                     print(f"[INFO] Skipping row {row}: Invalid vendor '{vendor_name}'")
@@ -189,7 +189,7 @@ def get_vendor_id(vendor_name):
     # Extra aggressive cleaning - convert all whitespace sequences to single spaces
     # This directly addresses spaces being preserved in the table text
     original = vendor_name  # Save for logging
-    vendor_name = re.sub(r'\s+', ' ', vendor_name.replace("• ", "").strip())
+    vendor_name = re.sub(r'\s+', ' ', vendor_name.strip())
     
     print(f"[DEBUG] Vendor lookup: '{original}' → '{vendor_name}'")
     
@@ -226,8 +226,7 @@ def format_date_for_export(date_obj):
 def parse_date(date_string):
     """Parse date from MM/dd/yy format"""
     try:
-        # Remove bullet points if present
-        clean_date = date_string.replace("• ", "").strip()
+        clean_date = date_string.strip()
         
         if '/' in clean_date:
             parts = clean_date.split('/')
@@ -268,18 +267,13 @@ def format_float(value):
 def clean_text(text):
     """
     Clean text for export and comparison:
-    1. Remove bullet points
-    2. Normalize all whitespace (including internal spaces)
-    3. Trim leading/trailing whitespace
+    1. Normalize all whitespace (including internal spaces)
+    2. Trim leading/trailing whitespace
     """
     if not text:
         return ""
     
-    # Remove bullet points
-    cleaned = text.replace("• ", " ")
-    
-    # Normalize all whitespace to single spaces (handles multiple spaces, tabs, etc.)
-    cleaned = ' '.join(cleaned.split())
+    cleaned = ' '.join(text.split())
     
     # Final trim
     return cleaned.strip()

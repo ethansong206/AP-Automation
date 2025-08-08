@@ -139,16 +139,16 @@ class InvoiceController:
         for row in range(table.rowCount()):
             # Get data from table cells and clean thoroughly
             raw_vendor_name = table.get_cell_text(row, 0)
-            vendor_name = ' '.join(raw_vendor_name.replace("• ", "").strip().split())
+            vendor_name = ' '.join(raw_vendor_name.strip().split())
             
             # Get other invoice data
-            invoice_number = ' '.join(table.get_cell_text(row, 1).replace("• ", "").strip().split())
-            po_number = ' '.join(table.get_cell_text(row, 2).replace("• ", "").strip().split())
-            invoice_date = ' '.join(table.get_cell_text(row, 3).replace("• ", "").strip().split())
-            terms = ' '.join(table.get_cell_text(row, 4).replace("• ", "").strip().split())
-            due_date = ' '.join(table.get_cell_text(row, 5).replace("• ", "").strip().split()) 
-            discounted_total = ' '.join(table.get_cell_text(row, 6).replace("• ", "").strip().split())  
-            total_amount = ' '.join(table.get_cell_text(row, 7).replace("• ", "").strip().split())
+            invoice_number = ' '.join(table.get_cell_text(row, 1).strip().split())
+            po_number = ' '.join(table.get_cell_text(row, 2).strip().split())
+            invoice_date = ' '.join(table.get_cell_text(row, 3).strip().split())
+            terms = ' '.join(table.get_cell_text(row, 4).strip().split())
+            due_date = ' '.join(table.get_cell_text(row, 5).strip().split())
+            discounted_total = ' '.join(table.get_cell_text(row, 6).strip().split())
+            total_amount = ' '.join(table.get_cell_text(row, 7).strip().split())
             
             # Skip incomplete rows
             if not vendor_name or not invoice_number or not invoice_date or not total_amount:

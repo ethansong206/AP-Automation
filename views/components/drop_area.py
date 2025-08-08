@@ -35,7 +35,7 @@ class FileDropArea(QFrame):
                 font-size: 20px;  /* Reduced size */
             }
             #browseButton {
-                background-color: #2E7D32;
+                background-color: #5E6F5E;
                 color: white;
                 border-radius: 4px;
                 padding: 4px 12px;  /* Reduced padding */

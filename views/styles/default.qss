@@ -52,18 +52,18 @@ QHeaderView::section:checked {
 
 /* Special buttons with consistent sizing */
 QPushButton#exportButton {
-    background-color: #4CAF50;
+    background-color: #5E6F5E;
     font-size: 11pt;
     min-width: 150px;
 }
 
 QPushButton#clearAllButton {
-    background-color: #f44336;
+    background-color: #db6969;
     min-width: 120px;
 }
 
 QPushButton#deleteSelectedButton {
-    background-color: #ff9800;
+    background-color: #dd956c;
     min-width: 120px;
 }
 

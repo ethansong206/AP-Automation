@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QAbstractButton
 )
 from PyQt5.QtGui import QFont, QColor
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 
 from assets.constants import COLORS
 from views.components.status_indicator_delegate import StatusIndicatorDelegate
@@ -104,13 +104,15 @@ class InvoiceTable(QTableWidget):
         # Track whether the entire table is selected
         self._all_selected = False
 
+        # Store reference to the corner button for select-all toggling
+        self._corner_button = self.findChild(QAbstractButton)
+
         # Update selection state when it changes
         self.itemSelectionChanged.connect(self.update_all_selected_state)
 
         # Allow toggling select-all via the top-left corner button
-        corner_button = self.findChild(QAbstractButton)
-        if corner_button:
-            corner_button.clicked.connect(self.handle_corner_button_click)
+        if self._corner_button:
+            self._corner_button.installEventFilter(self)
 
     def update_all_selected_state(self):
         """Update internal flag indicating if the whole table is selected."""
@@ -123,6 +125,15 @@ class InvoiceTable(QTableWidget):
         """Toggle select-all behaviour when the corner button is clicked."""
         if self._all_selected:
             self.clearSelection()
+        else:
+            self.selectAll()
+
+    def eventFilter(self, source, event):
+        """Intercept corner button clicks to implement toggle behaviour."""
+        if source is getattr(self, "_corner_button", None) and event.type() == QEvent.MouseButtonPress:
+            self.handle_corner_button_click()
+            return True
+        return super().eventFilter(source, event)
 
     def add_row(self, row_data, file_path, is_no_ocr=False):
         """Add a new row to the table."""

@@ -50,7 +50,7 @@ class InvoiceApp(QWidget):
             font-family: 'Segoe UI', Arial, sans-serif;
             font-size: 24px;
             font-weight: bold;
-            color: #2E7D32;
+            color: #5E6F5E;
             padding: 10px;
             margin-bottom: 10px;
         """)
@@ -152,72 +152,52 @@ class InvoiceApp(QWidget):
         self.file_controller.open_file(file_path)
     
     def open_manual_entry_dialog(self, row, button=None):
-        """Open the manual entry dialog."""
-        file_path = self.table.get_file_path_for_row(row)
-        
-        # Create a list of existing values to pre-populate the dialog
-        existing_values = []
-        for col in range(8):  # First 8 columns contain the invoice data
-            existing_values.append(self.table.get_cell_text(row, col))
-        
-        # Create dialog with file path and pre-populate with existing values
-        enable_prev = row > 0
-        enable_next = row < self.table.rowCount() - 1
-        dialog = ManualEntryDialog(file_path, self, existing_values,
-                                   enable_prev, enable_next)
+        """Open the manual entry dialog for all files starting at a specific row."""
+        file_paths = []
+        values_list = []
+        for r in range(self.table.rowCount()):
+            file_paths.append(self.table.get_file_path_for_row(r))
+            row_values = [self.table.get_cell_text(r, c) for c in range(8)]
+            values_list.append(row_values)
 
-        if dialog.exec_() == QDialog.Accepted:
-            navigation = dialog.navigation
-            
-            if dialog.save_changes:
-                data = dialog.get_data()
+        dialog = ManualEntryDialog(file_paths, self, values_list, start_index=row)
 
-                # First, update all the table cells with new values
+        if dialog.exec_() == QDialog.Accepted and dialog.save_changes:
+            all_data = dialog.get_all_data()
+
+            for r, data in enumerate(all_data):
+                file_path = file_paths[r]
+
                 for col, value in enumerate(data):
                     str_value = str(value) if value is not None else ""
 
-                    existing_item = self.table.item(row, col)
+                    existing_item = self.table.item(r, col)
                     original_value = existing_item.data(Qt.UserRole) if existing_item else ""
 
                     item = QTableWidgetItem(str_value)
                     item.setData(Qt.UserRole, str_value)
-                    self.table.setItem(row, col, item)
+                    self.table.setItem(r, col, item)
 
-                    # Mark as edited if different from original - BUT NOT THE DUE DATE COLUMN (5)
                     if str_value != original_value and col != 5:
-                        self.table.manually_edited.add((row, col))
+                        self.table.manually_edited.add((r, col))
 
-                # Make sure the due date column is NOT in manually_edited
-                for r, c in list(self.table.manually_edited):
-                    if r == row and c == 5:  # Remove due date from manually edited
-                        self.table.manually_edited.remove((r, c))
+                for r_edit, c_edit in list(self.table.manually_edited):
+                    if r_edit == r and c_edit == 5:
+                        self.table.manually_edited.remove((r_edit, c_edit))
 
-                # Make sure to add source file cell if it doesn't exist
-                if file_path and not self.table.item(row, 8):
-                    self.table.add_source_file_cell(row, file_path)
+                if file_path and not self.table.item(r, 8):
+                    self.table.add_source_file_cell(r, file_path)
 
-                # Make sure to add delete cell if it doesn't exist
-                if not self.table.item(row, 9):
-                    self.table.add_delete_cell(row)
+                if not self.table.item(r, 9):
+                    self.table.add_delete_cell(r)
 
-                # Add to loaded_files to prevent reprocessing
                 if file_path:
                     self.file_controller.loaded_files.add(file_path)
 
-                # Update row coloring
-                self.table.highlight_row(row)
+                self.table.highlight_row(r)
+                self.invoice_controller.recalculate_dependent_fields(r)
 
-                # Always explicitly recalculate fields when saving from dialog
-                self.invoice_controller.recalculate_dependent_fields(row)
-
-                # Update totals
-                self.update_total_amount()
-
-            # Handle navigation to adjacent rows if requested
-            if navigation == 1 and row < self.table.rowCount() - 1:
-                self.open_manual_entry_dialog(row + 1)
-            elif navigation == -1 and row > 0:
-                self.open_manual_entry_dialog(row - 1)
+            self.update_total_amount()
     
     def clear_all_rows(self):
         """Clear all rows from the table after confirmation."""
