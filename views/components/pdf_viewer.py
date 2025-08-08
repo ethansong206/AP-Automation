@@ -1,9 +1,9 @@
-"""Interactive PDF viewer with zoom functionality."""
+"""Interactive PDF viewer that can display multi-page PDFs with zoom."""
 import os
 import fitz  # PyMuPDF
 
-from PyQt5.QtWidgets import QScrollArea, QLabel
-from PyQt5.QtGui import QImage, QPixmap, QCursor
+from PyQt5.QtWidgets import QScrollArea, QLabel, QAction
+from PyQt5.QtGui import QImage, QPixmap, QCursor, QPainter, QTransform
 from PyQt5.QtCore import Qt
 
 class InteractivePDFViewer(QScrollArea):
@@ -37,13 +37,31 @@ class InteractivePDFViewer(QScrollArea):
             print(f"[DEBUG] Trying path: {path}")
             if os.path.isfile(path):
                 try:
-                    doc = fitz.open(path)
-                    page = doc.load_page(0)
-                    pix = page.get_pixmap(dpi=100)
-                    fmt = QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888
-                    img = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt).copy()
-                    self.original_pixmap = QPixmap.fromImage(img)
+                    with fitz.open(path) as doc:
+                        # Render every page and stack them vertically into one image
+                        images = []
+                        max_width = 0
+                        total_height = 0
+                        for page in doc:
+                            pix = page.get_pixmap(dpi=100)
+                            fmt = QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888
+                            img = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt).copy()
+                            img = img.convertToFormat(QImage.Format_RGBA8888)
+                            images.append(img)
+                            max_width = max(max_width, img.width())
+                            total_height += img.height()
 
+                        combined = QImage(max_width, total_height, QImage.Format_RGBA8888)
+                        combined.fill(Qt.white)
+                        painter = QPainter(combined)
+                        y = 0
+                        for img in images:
+                            painter.drawImage(0, y, img)
+                            y += img.height()
+                        painter.end()
+
+                    self.original_pixmap = QPixmap.fromImage(combined)
+                    
                     self.normal_pixmap = self.original_pixmap.scaledToWidth(500, Qt.SmoothTransformation)
                     self.zoomed_pixmap = self.original_pixmap.scaledToWidth(1000, Qt.SmoothTransformation)
                     self.label.setPixmap(self.normal_pixmap)
@@ -51,6 +69,7 @@ class InteractivePDFViewer(QScrollArea):
                     self.zoom_in_cursor = QCursor(QPixmap("assets/zoom_in_cursor.cur"))
                     self.zoom_out_cursor = QCursor(QPixmap("assets/zoom_out_cursor.cur"))
                     self._update_cursor()
+                    self._add_rotation_actions()
                     return  # Successfully loaded, exit the loop
                 except Exception as e:
                     print(f"[DEBUG] Failed with path {path}: {e}")
@@ -58,6 +77,33 @@ class InteractivePDFViewer(QScrollArea):
         
         # If we get here, all path attempts failed
         self.label.setText(f"Failed to open PDF.\nChecked paths:\n" + "\n".join(paths_to_try))
+
+    def _add_rotation_actions(self):
+        self.setContextMenuPolicy(Qt.ActionsContextMenu)
+        rotate_cw_action = QAction("Rotate Clockwise", self)
+        rotate_cw_action.triggered.connect(self.rotate_clockwise)
+        rotate_ccw_action = QAction("Rotate Counterclockwise", self)
+        rotate_ccw_action.triggered.connect(self.rotate_counterclockwise)
+        self.addAction(rotate_cw_action)
+        self.addAction(rotate_ccw_action)
+
+    def rotate_clockwise(self):
+        self._rotate(90)
+
+    def rotate_counterclockwise(self):
+        self._rotate(-90)
+
+    def _rotate(self, angle):
+        if not hasattr(self, "original_pixmap"):
+            return
+        transform = QTransform().rotate(angle)
+        self.original_pixmap = self.original_pixmap.transformed(transform, Qt.SmoothTransformation)
+        self._zoomed = False
+        self._update_normal_pixmap()
+        self.zoomed_pixmap = self.original_pixmap.scaledToWidth(1000, Qt.SmoothTransformation)
+        self._update_cursor()
+        self.horizontalScrollBar().setValue(0)
+        self.verticalScrollBar().setValue(0)
 
     def _update_normal_pixmap(self):
         if not hasattr(self, "original_pixmap"):

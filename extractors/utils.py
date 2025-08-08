@@ -73,24 +73,6 @@ def calculate_discounted_total(terms, total_amount, vendor_name):
     """
     # Check for discount percentage
     discount_match = re.search(r"(\d+)%", terms)
-    if not discount_match:
-        if vendor_name == "TOPO ATHLETIC":
-            discount_percent = float(.07)   # Special Case for Topo Athletic
-            return discount_total(discount_percent, total_amount)
-        if vendor_name == "Ruffwear":
-            discount_percent = float(.05)
-            return discount_total(discount_percent, total_amount)
-        if vendor_name == "ON Running":
-            discount_percent = float(.12)
-            return discount_total(discount_percent, total_amount)
-        if vendor_name == "Free Fly Apparel" or vendor_name == "Hadley Wren":
-            discount_percent = float(.1)
-            return discount_total(discount_percent, total_amount)
-        if vendor_name == "Gregory Mountain Products":
-            discount_percent = float(.08)
-            return discount_total(discount_percent, total_amount)
-        else:
-            return None
     
     discount_percent = float(discount_match.group(1)) / 100
     return discount_total(discount_percent, total_amount)
