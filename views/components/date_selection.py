@@ -51,25 +51,23 @@ class DateDelegate(QItemDelegate):
         # Create a copy of the option with QStyleOptionViewItem
         opt = QStyleOptionViewItem(option)
         
-        # Get the status color from the model data
+        # Get the background color from the item
+        bg_data = index.data(Qt.BackgroundRole)
+        if bg_data:
+            # Fill the cell with the background color
+            background_color = bg_data if isinstance(bg_data, QBrush) else QBrush(bg_data)
+            painter.fillRect(opt.rect, background_color)
+        
+        # Get the status color from the model data for the stripe
         color_data = index.data(Qt.UserRole + 2)
         
-        # First draw the cell background - either default or our custom light background
-        if color_data:
-            # Use very light background based on indicator color
-            base_color = QColor(color_data)
-            light_color = QColor(base_color)
-            light_color.setAlpha(20)  # Very light
-            painter.fillRect(opt.rect, light_color)
-        
         # Now draw the text using standard ItemDelegate methods
-        # This ensures the text is drawn with proper alignment and formatting
         self.drawDisplay(painter, opt, opt.rect, index.data(Qt.DisplayRole))
         
         # Finally draw the indicator stripe if color is provided
         if color_data:
             stripe_rect = QRect(opt.rect.left(), opt.rect.top(), 
-                             10, opt.rect.height())
+                             5, opt.rect.height())
             painter.fillRect(stripe_rect, QColor(color_data))
         
         # Restore painter state

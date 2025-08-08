@@ -37,23 +37,6 @@ QTableWidget {
     background-color: white;
 }
 
-QTableWidget::item {
-    padding: 6px;
-    border-bottom: 1px solid #f0f0f0;
-    background-color: transparent;
-}
-
-QTableWidget::item:selected {
-    background-color: #c2d9f2;
-    color: black;
-}
-
-/* Add this to support dynamic cell borders */
-QTableWidget::item[LeftBorder] {
-    border-left: 3px solid attr(LeftBorder);
-    padding-left: 3px;
-}
-
 /* Header styling */
 QHeaderView::section {
     background-color: #e9ecef;

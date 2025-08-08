@@ -97,6 +97,38 @@ class ManualEntryDialog(QDialog):
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
+        # --- Navigation Buttons ---
+        arrow_layout = QHBoxLayout()
+        arrow_layout.addStretch()
+
+        self.prev_button = QPushButton("←")
+        self.next_button = QPushButton("→")
+        
+        button_style = (
+            "QPushButton {"
+            "background-color: #5E6F5E;"
+            "color: #f0f0f0;"
+            "border: 1px solid #3E4F3E;"
+            "font-size: 28px;"
+            "padding: 10px;"
+            "}"
+            "QPushButton:hover { background-color: #546454; }"
+            "QPushButton:pressed { background-color: #485848; }"
+            "QPushButton:disabled { background-color: #bbbbbb; color: #666666; }"
+        )
+        self.prev_button.setStyleSheet(button_style)
+        self.next_button.setStyleSheet(button_style)
+        size = 60
+        self.prev_button.setFixedSize(size, size)
+        self.next_button.setFixedSize(size, size)
+        self.prev_button.setDisabled(not enable_prev)
+        self.next_button.setDisabled(not enable_next)
+        self.prev_button.clicked.connect(self._go_prev)
+        self.next_button.clicked.connect(self._go_next)
+        arrow_layout.addWidget(self.prev_button)
+        arrow_layout.addWidget(self.next_button)
+        arrow_layout.addStretch()
+
         left_widget = QWidget()
         left_widget.setLayout(form_layout)
 
@@ -109,32 +141,20 @@ class ManualEntryDialog(QDialog):
         splitter.addWidget(viewer)
         splitter.setSizes([350, 550])
 
-        # --- Navigation Buttons ---
-        nav_layout = QHBoxLayout()
-        nav_layout.addStretch()
-        self.prev_button = QPushButton("←")
-        self.next_button = QPushButton("→")
-        disabled_style = "QPushButton:disabled { color: gray; }"
-        self.prev_button.setStyleSheet(disabled_style)
-        self.next_button.setStyleSheet(disabled_style)
-        self.prev_button.setDisabled(not enable_prev)
-        self.next_button.setDisabled(not enable_next)
-        self.prev_button.clicked.connect(self._go_prev)
-        self.next_button.clicked.connect(self._go_next)
-        nav_layout.addWidget(self.prev_button)
-        nav_layout.addWidget(self.next_button)
-        nav_layout.addStretch()
-
         # --- Dialog Buttons ---
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
 
+        # --- Content Layout ---
+        content_layout = QVBoxLayout()
+        content_layout.addWidget(splitter)
+        content_layout.addWidget(button_box)
+
         # --- Main Layout ---
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(splitter)
-        main_layout.addLayout(nav_layout)
-        main_layout.addWidget(button_box)
+        main_layout = QHBoxLayout()
+        main_layout.addLayout(arrow_layout)
+        main_layout.addLayout(content_layout)
         self.setLayout(main_layout)
 
         # When setting up fields, populate with existing values

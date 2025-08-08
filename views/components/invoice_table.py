@@ -99,13 +99,6 @@ class InvoiceTable(QTableWidget):
     
         # Force consistent row heights - don't allow resizing
         self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        
-        # Ensure table items don't use the default white background
-        self.setStyleSheet("""
-            QTableWidget::item {
-                background-color: transparent;
-            }
-        """)
     
     def add_row(self, row_data, file_path, is_no_ocr=False):
         """Add a new row to the table."""
@@ -179,12 +172,12 @@ class InvoiceTable(QTableWidget):
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
         """Populate the cells of a row with data."""
         for col, value in enumerate(row_data):
-            # Create cell with larger font and padding
+            # Create cell with larger font
             display_value = str(value) if value is not None else ""
             if col == 0 and is_no_ocr:
                 display_value = ""
 
-            item = QTableWidgetItem("    " + display_value)
+            item = QTableWidgetItem(display_value)
             font = item.font()
             font.setPointSize(font.pointSize() + 2)
             item.setFont(font)
@@ -482,7 +475,7 @@ class InvoiceTable(QTableWidget):
     def contains_special_keyword(self, text):
         """Check if text contains any special keywords."""
         keywords = [
-            "CREDIT MEMO", "CREDIT NOTE", "WARRANTY", "RETURN AUTHORIZATION", "DEFECTIVE"
+            "CREDIT MEMO", "CREDIT NOTE", "WARRANTY", "RETURN AUTHORIZATION", "DEFECTIVE", "STATEMENT", "NO CHARGE"
         ]
         return any(keyword in text for keyword in keywords)
 
@@ -519,7 +512,7 @@ class InvoiceTable(QTableWidget):
     def update_calculated_field(self, row, col, value, is_auto_calculated=True):
         """Update a cell with a calculated value."""
         # Create the item with the value
-        item = QTableWidgetItem("    " + (str(value) if value is not None else ""))
+        item = QTableWidgetItem(str(value) if value is not None else "")
         
         # Add visual indicators that this is calculated
         font = item.font()
