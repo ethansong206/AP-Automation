@@ -167,49 +167,51 @@ class InvoiceApp(QWidget):
                                    enable_prev, enable_next)
 
         if dialog.exec_() == QDialog.Accepted:
-            data = dialog.get_data()
             navigation = dialog.navigation
             
-            # First, update all the table cells with new values
-            for col, value in enumerate(data):
-                str_value = str(value) if value is not None else ""
+            if dialog.save_changes:
+                data = dialog.get_data()
 
-                existing_item = self.table.item(row, col)
-                original_value = existing_item.data(Qt.UserRole) if existing_item else ""
+                # First, update all the table cells with new values
+                for col, value in enumerate(data):
+                    str_value = str(value) if value is not None else ""
 
-                item = QTableWidgetItem(str_value)
-                item.setData(Qt.UserRole, str_value)
-                self.table.setItem(row, col, item)
+                    existing_item = self.table.item(row, col)
+                    original_value = existing_item.data(Qt.UserRole) if existing_item else ""
 
-                # Mark as edited if different from original - BUT NOT THE DUE DATE COLUMN (5)
-                if str_value != original_value and col != 5:
-                    self.table.manually_edited.add((row, col))
-            
-            # Make sure the due date column is NOT in manually_edited
-            for r, c in list(self.table.manually_edited):
-                if r == row and c == 5:  # Remove due date from manually edited
-                    self.table.manually_edited.remove((r, c))
-            
-            # Make sure to add source file cell if it doesn't exist
-            if file_path and not self.table.item(row, 8):
-                self.table.add_source_file_cell(row, file_path)
-            
-            # Make sure to add delete cell if it doesn't exist
-            if not self.table.item(row, 9):
-                self.table.add_delete_cell(row)
-            
-            # Add to loaded_files to prevent reprocessing
-            if file_path:
-                self.file_controller.loaded_files.add(file_path)
-            
-            # Update row coloring
-            self.table.highlight_row(row)
-            
-            # Always explicitly recalculate fields when saving from dialog
-            self.invoice_controller.recalculate_dependent_fields(row)
-                            
-            # Update totals
-            self.update_total_amount()
+                    item = QTableWidgetItem(str_value)
+                    item.setData(Qt.UserRole, str_value)
+                    self.table.setItem(row, col, item)
+
+                    # Mark as edited if different from original - BUT NOT THE DUE DATE COLUMN (5)
+                    if str_value != original_value and col != 5:
+                        self.table.manually_edited.add((row, col))
+
+                # Make sure the due date column is NOT in manually_edited
+                for r, c in list(self.table.manually_edited):
+                    if r == row and c == 5:  # Remove due date from manually edited
+                        self.table.manually_edited.remove((r, c))
+
+                # Make sure to add source file cell if it doesn't exist
+                if file_path and not self.table.item(row, 8):
+                    self.table.add_source_file_cell(row, file_path)
+
+                # Make sure to add delete cell if it doesn't exist
+                if not self.table.item(row, 9):
+                    self.table.add_delete_cell(row)
+
+                # Add to loaded_files to prevent reprocessing
+                if file_path:
+                    self.file_controller.loaded_files.add(file_path)
+
+                # Update row coloring
+                self.table.highlight_row(row)
+
+                # Always explicitly recalculate fields when saving from dialog
+                self.invoice_controller.recalculate_dependent_fields(row)
+
+                # Update totals
+                self.update_total_amount()
 
             # Handle navigation to adjacent rows if requested
             if navigation == 1 and row < self.table.rowCount() - 1:

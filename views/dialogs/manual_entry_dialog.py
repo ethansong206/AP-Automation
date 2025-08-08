@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QDialogButtonBox, QSplitter, QWidget, QFormLayout,
-    QComboBox, QMessageBox
+    QComboBox, QMessageBox, QCompleter
 )
 from PyQt5.QtCore import Qt, QDate
 from views.components.pdf_viewer import InteractivePDFViewer
@@ -18,6 +18,10 @@ class ManualEntryDialog(QDialog):
 
         # Track navigation requests : -1 for prev, 1 for next, 0 for none
         self.navigation = 0
+
+        # Track whether any field has been modified
+        self.changes_made = False
+        self.save_changes = True
         
         # Store existing values
         self.existing_values = existing_values or [""] * 8
@@ -29,7 +33,13 @@ class ManualEntryDialog(QDialog):
         # 1. Replace Vendor Name with dropdown + button
         vendor_layout = QHBoxLayout()
         self.vendor_combo = QComboBox()
+        self.vendor_combo.setEditable(True)
+        self.vendor_combo.setInsertPolicy(QComboBox.NoInsert)
         self.load_vendors()
+        #Enable popup suggestions while typing
+        completer = self.vendor_combo.completer()
+        if completer:
+            completer.setCompletionMode(QCompleter.PopupCompletion)
         vendor_layout.addWidget(self.vendor_combo, 1)
         
         self.add_vendor_btn = QPushButton("New Vendor")
@@ -200,20 +210,44 @@ class ManualEntryDialog(QDialog):
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self._highlight_empty_fields)
+                widget.textChanged.connect(self._mark_changed)
             elif isinstance(widget, QComboBox):
                 widget.currentTextChanged.connect(self._highlight_empty_fields)
+                widget.currentTextChanged.connect(self._mark_changed)
             elif isinstance(widget, QDateEdit):
-                widget.dateChanged.connect(lambda _, l=label: self._clear_date_highlight(l))
+                widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
+
+    def _mark_changed(self, *_):
+        """Flag that a user-editable field has changed."""
+        self.changes_made = True
+
+    def _on_date_changed(self, label):
+        """Handle updates to date fields."""
+        self._clear_date_highlight(label)
+        self._mark_changed()
+
+    def _confirm_and_navigate(self, direction):
+        """Prompt to save changes before navigating away."""
+        if self.changes_made:
+            reply = QMessageBox.question(
+                self,
+                "Save Changes?",
+                "Do you want to save changes before navigating?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            )
+            if reply == QMessageBox.Cancel:
+                return
+            self.save_changes = reply == QMessageBox.Yes
+        self.navigation = direction
+        self.accept()
 
     def _go_prev(self):
         """Navigate to the previous row."""
-        self.navigation = -1
-        self.accept()
+        self._confirm_and_navigate(-1)
 
     def _go_next(self):
         """Navigate to the next row."""
-        self.navigation = 1
-        self.accept()
+        self._confirm_and_navigate(1)
 
     def load_vendors(self):
         """Load vendors into the combo box."""

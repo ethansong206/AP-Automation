@@ -266,32 +266,27 @@ class InvoiceTable(QTableWidget):
             original_value = item.data(Qt.UserRole) or ""
             current_value = item.text().strip()
 
-            if not current_value:
-                # Restore original value
-                item.setText(original_value)
+            if current_value != original_value:
+                # Mark cell as manually edited
+                self.manually_edited.add((row, col))
+                self.cell_manually_edited.emit(row, col)
+
+                if col == 3:  # Invoice Date column
+                    terms = self.get_cell_text(row, 4).strip()
+                    if terms:
+                        from extractors.utils import calculate_discount_due_date
+                        try:
+                            invoice_date = current_value
+                            due_date = calculate_discount_due_date(terms, invoice_date)
+                            if due_date:
+                                self.update_calculated_field(row, 5, due_date, True)
+                        except Exception as e:
+                            print(f"[WARN] Could not compute due date: {e}")
+            else:
+                # Remove from tracking if reverted to original
                 if (row, col) in self.manually_edited:
                     self.manually_edited.remove((row, col))
-            else:
-                if current_value != original_value:
-                    self.manually_edited.add((row, col))
-                    self.cell_manually_edited.emit(row, col)
-                    
-                    if col == 3:  # Invoice Date column
-                        terms = self.get_cell_text(row, 4).strip()
-                        if terms:
-                            from extractors.utils import calculate_discount_due_date
-                            try:
-                                invoice_date = current_value
-                                due_date = calculate_discount_due_date(terms, invoice_date)
-                                if due_date:
-                                    self.update_calculated_field(row, 5, due_date, True)
-                            except Exception as e:
-                                print(f"[WARN] Could not compute due date: {e}")
-                else:
-                    if (row, col) in self.manually_edited:
-                        self.manually_edited.remove((row, col))
-                        
-            # Let rehighlight_row handle the coloring
+            # Reapply coloring after changes
             self.rehighlight_row(row)
             
         finally:
@@ -461,24 +456,22 @@ class InvoiceTable(QTableWidget):
 
         row_empty = self.is_row_empty(row)
         row_complete = self.is_row_complete(row)
+        vendor_missing = not self.get_cell_text(row, 0).strip()
 
         background = None
         stripe = None
 
-        if row_empty:
-            background = COLORS['RED']
-            stripe = COLORS['RED']
-        elif row_complete:
-            background = None
-            stripe = None
+        if row_empty or vendor_missing:
+            background = COLORS['LIGHT_RED']
         else:
-            if col == 0:
-                stripe = COLORS['YELLOW']
             if not text:
                 background = COLORS['YELLOW']
+            if not row_complete and col == 0:
+                stripe = COLORS['YELLOW']
 
         if (row, col) in self.manually_edited:
             background = COLORS['GREEN']
+            stripe = None
         elif self.contains_special_keyword(text_upper):
             background = COLORS['LIGHT_BLUE']
         elif (row, col) in self.auto_calculated:
