@@ -47,7 +47,7 @@ def export_accounting_csv(filename, invoice_table):
                 raw_vendor_name = invoice_table.get_cell_text(row, 0)
                 vendor_name = re.sub(r'\s+', ' ', raw_vendor_name.replace("• ", "").strip())
 
-                if not vendor_name or vendor_name.upper() == "ADD VENDOR":
+                if not vendor_name:
                     print(f"[INFO] Skipping row {row}: Invalid vendor '{vendor_name}'")
                     continue
 
@@ -156,8 +156,8 @@ def is_row_valid_for_export(invoice_table, row):
     # Log validation details
     print(f"Validating row {row}: Vendor='{vendor_name}', Invoice='{invoice_no}', Total='{total_amount}'")
     
-    # Check for empty vendor name or "ADD VENDOR"
-    if not vendor_name or vendor_name.strip().upper() == "ADD VENDOR":
+    # Check for empty vendor name
+    if not vendor_name:
         print(f"[INFO] Row {row} skipped: Missing or invalid vendor name")
         return False
     
@@ -193,7 +193,7 @@ def get_vendor_id(vendor_name):
     
     print(f"[DEBUG] Vendor lookup: '{original}' → '{vendor_name}'")
     
-    if vendor_name.upper() == "ADD VENDOR":
+    if not vendor_name:
         return "0"
     
     # Look up vendor ID in vendors.csv

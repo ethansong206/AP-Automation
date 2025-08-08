@@ -51,7 +51,7 @@ class InvoiceController:
         vendor_name = table.get_cell_text(row, 0)
         
         # Only proceed if we have valid input data
-        if not terms or not total_amount or vendor_name == "ADD VENDOR":
+        if not terms or not total_amount or not vendor_name:
             return
             
         try:

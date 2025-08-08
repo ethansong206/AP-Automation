@@ -10,7 +10,6 @@ from PyQt5.QtCore import Qt
 from views.components.invoice_table import InvoiceTable
 from views.components.drop_area import FileDropArea
 from views.helpers.style_loader import load_stylesheet, get_style_path
-from views.dialogs.vendor_dialog import VendorDialog
 from views.dialogs.manual_entry_dialog import ManualEntryDialog
 
 from controllers.file_controller import FileController
@@ -110,7 +109,6 @@ class InvoiceApp(QWidget):
     def setup_table_connections(self):
         """Set up signal connections for the table."""
         self.table.row_deleted.connect(self.handle_row_deleted)
-        self.table.vendor_add_clicked.connect(self.open_vendor_dialog)
         self.table.source_file_clicked.connect(self.open_file)
         self.table.manual_entry_clicked.connect(self.open_manual_entry_dialog)
         self.table.cell_manually_edited.connect(self.handle_cell_edited)
@@ -153,18 +151,6 @@ class InvoiceApp(QWidget):
         """Open a file with the system's default application."""
         self.file_controller.open_file(file_path)
     
-    def open_vendor_dialog(self, row, col):
-        """Open dialog for vendor selection."""
-        file_path = self.table.get_file_path_for_row(row)
-
-        dialog = VendorDialog(file_path, self)
-        if dialog.exec_() == QDialog.Accepted:
-            vendor_name = dialog.selected_vendor().strip()
-            self.table.setItem(row, col, QTableWidgetItem(vendor_name))
-            
-            # Recalculate fields that may depend on vendor
-            self.invoice_controller.recalculate_dependent_fields(row)
-
     def open_manual_entry_dialog(self, row, button=None):
         """Open the manual entry dialog."""
         file_path = self.table.get_file_path_for_row(row)
@@ -175,19 +161,28 @@ class InvoiceApp(QWidget):
             existing_values.append(self.table.get_cell_text(row, col))
         
         # Create dialog with file path and pre-populate with existing values
-        dialog = ManualEntryDialog(file_path, self, existing_values)
+        enable_prev = row > 0
+        enable_next = row < self.table.rowCount() - 1
+        dialog = ManualEntryDialog(file_path, self, existing_values,
+                                   enable_prev, enable_next)
 
         if dialog.exec_() == QDialog.Accepted:
             data = dialog.get_data()
+            navigation = dialog.navigation
             
             # First, update all the table cells with new values
             for col, value in enumerate(data):
                 str_value = str(value) if value is not None else ""
-                self.table.setItem(row, col, QTableWidgetItem(str_value))
-                
+
+                existing_item = self.table.item(row, col)
+                original_value = existing_item.data(Qt.UserRole) if existing_item else ""
+
+                item = QTableWidgetItem(str_value)
+                item.setData(Qt.UserRole, str_value)
+                self.table.setItem(row, col, item)
+
                 # Mark as edited if different from original - BUT NOT THE DUE DATE COLUMN (5)
-                original_value = self.table.original_values.get((row, col), "")
-                if str_value != original_value and col != 5:  # Skip marking due date as manually edited
+                if str_value != original_value and col != 5:
                     self.table.manually_edited.add((row, col))
             
             # Make sure the due date column is NOT in manually_edited
@@ -208,25 +203,19 @@ class InvoiceApp(QWidget):
                 self.file_controller.loaded_files.add(file_path)
             
             # Update row coloring
-            self.table.highlight_row(row, is_no_ocr=False)
+            self.table.highlight_row(row)
             
             # Always explicitly recalculate fields when saving from dialog
             self.invoice_controller.recalculate_dependent_fields(row)
-            
-            # Only AFTER recalculation, update the original_values to match new values
-            # BUT DON'T UPDATE DUE DATE - let it always be calculated
-            for col, value in enumerate(data):
-                if col != 5:  # Skip updating original value for due date
-                    str_value = str(value) if value is not None else ""
-                    self.table.original_values[(row, col)] = str_value
-            
-            # For due date, always use the calculated value as original
-            due_date_item = self.table.item(row, 5)
-            if due_date_item:
-                self.table.original_values[(row, 5)] = due_date_item.text()
-                
+                            
             # Update totals
             self.update_total_amount()
+
+            # Handle navigation to adjacent rows if requested
+            if navigation == 1 and row < self.table.rowCount() - 1:
+                self.open_manual_entry_dialog(row + 1)
+            elif navigation == -1 and row > 0:
+                self.open_manual_entry_dialog(row - 1)
     
     def clear_all_rows(self):
         """Clear all rows from the table after confirmation."""

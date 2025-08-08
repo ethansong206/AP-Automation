@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     QPushButton, QMessageBox, QWidget, QHBoxLayout, QLabel
 )
-from PyQt5.QtGui import QFont, QColor, QBrush, QIcon
+from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from assets.constants import COLORS
@@ -16,7 +16,6 @@ class InvoiceTable(QTableWidget):
     
     # Define signals for events
     row_deleted = pyqtSignal(int, str)  # row_index, file_path
-    vendor_add_clicked = pyqtSignal(int, int)  # row, col
     source_file_clicked = pyqtSignal(str)  # file_path
     manual_entry_clicked = pyqtSignal(int, object)  # row, button
     cell_manually_edited = pyqtSignal(int, int)  # row, col
@@ -26,7 +25,6 @@ class InvoiceTable(QTableWidget):
         self.setup_table()
         
         # Data tracking
-        self.original_values = {}  # (row, col): value
         self.manually_edited = set()  # Track (row, col) of manually edited cells
         self.auto_calculated = set()  # Track (row, col) of auto-calculated cells
         
@@ -170,11 +168,8 @@ class InvoiceTable(QTableWidget):
         # Add delete cell
         self.add_delete_cell(row_position)
         
-        # Store original values for tracking changes
-        self.store_original_values(row_position, row_data)
-        
         # Highlight row based on content
-        self.highlight_row(row_position, is_no_ocr)
+        self.highlight_row(row_position)
         
         # Auto-size vendor column
         self.resize_vendor_column()
@@ -184,34 +179,19 @@ class InvoiceTable(QTableWidget):
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
         """Populate the cells of a row with data."""
         for col, value in enumerate(row_data):
+            # Create cell with larger font and padding
+            display_value = str(value) if value is not None else ""
             if col == 0 and is_no_ocr:
-                # Empty vendor name for no OCR rows
-                self.setItem(row_position, col, QTableWidgetItem(""))
-                
-            elif col == 0 and not value:
-                # ADD VENDOR placeholder for missing vendor
-                item = QTableWidgetItem("ADD VENDOR")
-                item.setForeground(QBrush(QColor("blue")))
-                item.setBackground(QBrush(QColor(COLORS['RED'])))
-                font = QFont()
-                font.setBold(True)
-                font.setUnderline(True)
-                font.setPointSize(font.pointSize() + 2)
-                item.setFont(font)
-                item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-                item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                # Add padding with spaces (will be combined with cell padding below)
-                item.setText("    " + "ADD VENDOR")
-                self.setItem(row_position, col, item)
-                
-            else:
-                # Normal cell with larger font and padding
-                item = QTableWidgetItem("    " + (str(value) if value is not None else ""))
-                font = item.font()
-                font.setPointSize(font.pointSize() + 2)
-                item.setFont(font)
-                item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                self.setItem(row_position, col, item)
+                display_value = ""
+
+            item = QTableWidgetItem("    " + display_value)
+            font = item.font()
+            font.setPointSize(font.pointSize() + 2)
+            item.setFont(font)
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            # Store original value
+            item.setData(Qt.UserRole, display_value)
+            self.setItem(row_position, col, item)
 
     def add_source_file_cell(self, row_position, file_path):
         """Add the manual entry cell with a clickable link and edit icon."""
@@ -269,11 +249,6 @@ class InvoiceTable(QTableWidget):
         delete_item.setBackground(QColor(COLORS['LIGHT_GREY']))
         self.setItem(row_position, 9, delete_item)
 
-    def store_original_values(self, row_position, row_data):
-        """Store original values for change tracking."""
-        for col, value in enumerate(row_data):
-            self.original_values[(row_position, col)] = str(value) if value is not None else ""
-
     def handle_cell_changed(self, row, col):
         """Handle when a cell's content is changed by the user."""
         # Only handle editable columns (0-7)
@@ -288,42 +263,31 @@ class InvoiceTable(QTableWidget):
         self.cellChanged.disconnect(self.handle_cell_changed)
 
         try:
-            # Check if cell was cleared (empty)
-            if not item.text().strip():
+            original_value = item.data(Qt.UserRole) or ""
+            current_value = item.text().strip()
+
+            if not current_value:
                 # Restore original value
-                original_value = self.original_values.get((row, col), "")
                 item.setText(original_value)
-                # Remove from manually edited if it matches original
                 if (row, col) in self.manually_edited:
                     self.manually_edited.remove((row, col))
             else:
-                # Check if value is different from original
-                original_value = self.original_values.get((row, col), "")
-                current_value = item.text().strip()
-                
                 if current_value != original_value:
-                    # Mark as manually edited
                     self.manually_edited.add((row, col))
-                    # Emit signal that cell was manually edited
                     self.cell_manually_edited.emit(row, col)
                     
-                    # NEW CODE: Check if this is the invoice date column
                     if col == 3:  # Invoice Date column
-                        # Check if discount terms are available
                         terms = self.get_cell_text(row, 4).strip()
                         if terms:
-                            # Try to calculate due date
                             from extractors.utils import calculate_discount_due_date
                             try:
                                 invoice_date = current_value
                                 due_date = calculate_discount_due_date(terms, invoice_date)
                                 if due_date:
-                                    # Update the due date cell
                                     self.update_calculated_field(row, 5, due_date, True)
                             except Exception as e:
                                 print(f"[WARN] Could not compute due date: {e}")
                 else:
-                    # Value matches original, remove from manually edited
                     if (row, col) in self.manually_edited:
                         self.manually_edited.remove((row, col))
                         
@@ -365,11 +329,6 @@ class InvoiceTable(QTableWidget):
                     self.cleanup_row_data(row)
                     self.removeRow(row)
                     self.row_deleted.emit(row, file_path)
-        
-        elif header == "Vendor Name":
-            value = self.item(row, col).text()
-            if value.strip().upper() == "ADD VENDOR":
-                self.vendor_add_clicked.emit(row, col)
 
     def get_file_path_for_row(self, row):
         """Get the file path for a row from any type of cell in column 8."""
@@ -407,12 +366,11 @@ class InvoiceTable(QTableWidget):
         return file_path
 
     # --- Additional helper methods (omitted for brevity) ---
-    def highlight_row(self, row_position, is_no_ocr):
-        """Highlight the row based on its content using left border indicators."""
-        # Set colors for each cell using our left border indicator approach
+    def highlight_row(self, row_position):
+        """Highlight the row based on its content"""
         for col in range(8):
-            color = self.determine_cell_color(row_position, col)
-            self.set_cell_color(row_position, col, color)
+            background, stripe = self.determine_cell_color(row_position, col)
+            self.set_cell_color(row_position, col, background, stripe)
 
     def resize_vendor_column(self):
         """Auto-resize the vendor column based on content."""
@@ -433,8 +391,8 @@ class InvoiceTable(QTableWidget):
         
         try:
             for col in range(8):
-                color = self.determine_cell_color(row, col)
-                self.set_cell_color(row, col, color)
+                background, stripe = self.determine_cell_color(row, col)
+                self.set_cell_color(row, col, background, stripe)
         finally:
             # Only reconnect if it was connected before
             if was_connected:
@@ -448,11 +406,6 @@ class InvoiceTable(QTableWidget):
 
     def cleanup_row_data(self, row):
         """Clean up all data associated with a row."""
-        # Remove from original_values
-        keys_to_remove = [key for key in self.original_values if key[0] == row]
-        for key in keys_to_remove:
-            del self.original_values[key]
-    
         # Remove from manually_edited
         keys_to_remove = [(r, c) for r, c in self.manually_edited if r == row]
         for key in keys_to_remove:
@@ -463,25 +416,16 @@ class InvoiceTable(QTableWidget):
         for key in keys_to_remove:
             self.auto_calculated.remove(key)
         
-        # Also reindex the remaining data for rows after this one
+        # Reindex the remaining data for rows after this one
         self.reindex_tracking_data(row)
-        
+
     def reindex_tracking_data(self, deleted_row):
-        """Reindex tracking dictionaries after a row is deleted."""
-        # Reindex original_values
-        new_dict = {}
-        for (r, c), value in self.original_values.items():
-            if r > deleted_row:
-                new_dict[(r-1, c)] = value
-            elif r < deleted_row:
-                new_dict[(r, c)] = value
-        self.original_values = new_dict
-        
+        """Reindex tracking sets after a row is deleted."""
         # Reindex manually_edited
         new_set = set()
         for r, c in self.manually_edited:
             if r > deleted_row:
-                new_set.add((r-1, c))
+                new_set.add((r - 1, c))
             elif r < deleted_row:
                 new_set.add((r, c))
         self.manually_edited = new_set
@@ -490,84 +434,74 @@ class InvoiceTable(QTableWidget):
         new_set = set()
         for r, c in self.auto_calculated:
             if r > deleted_row:
-                new_set.add((r-1, c))
+                new_set.add((r - 1, c))
             elif r < deleted_row:
                 new_set.add((r, c))
         self.auto_calculated = new_set
         
-    def set_cell_color(self, row, col, color):
-        """Set the indicator color for a cell."""
-        item = self.item(row, col)
-        if item:
-            # Store the color in the UserRole+2 data
-            item.setData(Qt.UserRole + 2, color)
-            
-            # Special handling for rows with red indicators - use pink background
-            if color == COLORS['RED']:
-                # Use a more visible pink background for error rows
-                item.setBackground(QColor("#FFDDDD"))  # Light pink background
-            elif (row, col) in self.auto_calculated:
-                # Add a special background for calculated cells - BUT NO BULLET POINTS
-                item.setBackground(QColor("#E6F3FF"))  # Light blue background
-                
-                # REMOVE THIS CODE: 
-                # if not item.text().startswith("•"):
-                #     item.setText("• " + item.text())
-            else:
-                # Regular background for normal cells
-                light_color = self.get_lighter_shade(color, 0.07)
-                item.setBackground(QColor(light_color))
-        
-    def get_lighter_shade(self, color_code, opacity=0.07):
-        """Convert a color to a lighter shade with opacity."""
-        color = QColor(color_code)
-        # Create a lighter version by blending with white
-        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {opacity})"
-
-    def determine_cell_color(self, row, col):
-        """Determine the appropriate color for a cell based on conditions."""
-        # Special cell overrides first (ADD VENDOR cells and discount terms)
-        if self.is_add_vendor_cell(row, col):
-            return COLORS['RED']
-        
-        if col == 4:  # Discount Terms column
-            cell_text = self.get_cell_text(row, col).upper()
-            if "NET" not in cell_text and cell_text:
-                return "#FFC0CB"  # Pink
-        
-        # ROW STATUS DETERMINES COLOR - this is what we're trying to fix
-        # Check the row status independent of individual cell edits
-        if self.is_row_no_ocr(row):
-            return COLORS['RED']
-        
-        if self.is_row_complete(row):
-            return COLORS['GREEN']
-            
-        # If we get here, the row is incomplete - use YELLOW regardless of cell edits
-        return COLORS['YELLOW']
-        
-        # Remove these individual cell checks - they override the row status
-        # if (row, col) in self.manually_edited:
-        #     return COLORS['LIGHT_BLUE']
-        # elif (row, col) in self.auto_calculated:
-        #     return COLORS['LIGHT_BLUE']
-
-    def is_add_vendor_cell(self, row, col):
-        """Check if the cell contains an ADD VENDOR placeholder."""
-        if col != 0:  # Only vendor name column (0) can have ADD VENDOR
-            return False
-            
+    def set_cell_color(self, row, col, background=None, stripe=None):
+        """Set the background and stripe color for a cell."""
         item = self.item(row, col)
         if not item:
-            return False
-            
-        return item.text().strip().upper() == "ADD VENDOR"
+            return
 
-    def is_row_no_ocr(self, row):
-        """Check if the row is marked as no-OCR (manual entry only)."""
-        # Check if the row has a MANUAL ENTRY button in column 8
-        cell_widget = self.cellWidget(row, 8)
-        return isinstance(cell_widget, QPushButton) and cell_widget.text() == "MANUAL ENTRY"
+        # Set stripe color for delegate
+        item.setData(Qt.UserRole + 2, stripe)
+
+        # Set background color
+        if background:
+            item.setBackground(QColor(background))
+        else:
+            item.setBackground(QColor(COLORS['WHITE']))
+
+    def determine_cell_color(self, row, col):
+        """Determine background and stripe colors for a cell."""
+        text = self.get_cell_text(row, col).strip()
+        text_upper = text.upper()
+
+        row_empty = self.is_row_empty(row)
+        row_complete = self.is_row_complete(row)
+
+        background = None
+        stripe = None
+
+        if row_empty:
+            background = COLORS['RED']
+            stripe = COLORS['RED']
+        elif row_complete:
+            background = None
+            stripe = None
+        else:
+            if col == 0:
+                stripe = COLORS['YELLOW']
+            if not text:
+                background = COLORS['YELLOW']
+
+        if (row, col) in self.manually_edited:
+            background = COLORS['GREEN']
+        elif self.contains_special_keyword(text_upper):
+            background = COLORS['LIGHT_BLUE']
+        elif (row, col) in self.auto_calculated:
+            background = "#E6F3FF"
+
+        return background, stripe
+
+    def contains_special_keyword(self, text):
+        """Check if text contains any special keywords."""
+        keywords = [
+            "CREDIT MEMO", "CREDIT NOTE", "WARRANTY", "RETURN AUTHORIZATION", "DEFECTIVE"
+        ]
+        return any(keyword in text for keyword in keywords)
+
+    def is_cell_empty(self, row, col):
+        return not self.get_cell_text(row, col).strip()
+
+    def is_row_empty(self, row):
+        """Check if all data cells in the row are empty."""
+        for col in range(8):
+            if self.get_cell_text(row, col).strip():
+                return False
+        return True
 
     def is_row_complete(self, row):
         """Check if all required fields in the row are filled."""
@@ -608,17 +542,17 @@ class InvoiceTable(QTableWidget):
         # Mark as auto-calculated in our tracking set
         if is_auto_calculated:
             self.auto_calculated.add((row, col))
-        
-        # Apply the appropriate color based on row status
-        color = self.determine_cell_color(row, col)
-        self.set_cell_color(row, col, color)
-        
-        # Update original values to prevent this being marked as manually edited
-        self.original_values[(row, col)] = str(value) if value is not None else ""
+        elif (row, col) in self.auto_calculated:
+            self.auto_calculated.remove((row, col))
+
+        # Store original value on the item
+        item.setData(Qt.UserRole, str(value) if value is not None else "")
+
+        # Reapply coloring for the row
+        self.rehighlight_row(row)
 
     def clear_tracking_data(self):
         """Reset all data tracking mechanisms."""
         # Clear all tracking structures
-        self.original_values = {}
         self.manually_edited = set()
         self.auto_calculated = set()

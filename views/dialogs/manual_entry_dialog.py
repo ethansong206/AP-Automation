@@ -10,10 +10,14 @@ from extractors.utils import get_vendor_list, calculate_discount_due_date, calcu
 
 class ManualEntryDialog(QDialog):
     """Dialog for manual entry of invoice fields with PDF viewer."""
-    def __init__(self, pdf_path, parent=None, existing_values=None):
+    def __init__(self, pdf_path, parent=None, existing_values=None,
+                 enable_prev=False, enable_next=False):
         super().__init__(parent)
         self.setWindowTitle("Manual Entry")
         self.setMinimumSize(900, 600)
+
+        # Track navigation requests : -1 for prev, 1 for next, 0 for none
+        self.navigation = 0
         
         # Store existing values
         self.existing_values = existing_values or [""] * 8
@@ -95,6 +99,22 @@ class ManualEntryDialog(QDialog):
         splitter.addWidget(viewer)
         splitter.setSizes([350, 550])
 
+        # --- Navigation Buttons ---
+        nav_layout = QHBoxLayout()
+        nav_layout.addStretch()
+        self.prev_button = QPushButton("←")
+        self.next_button = QPushButton("→")
+        disabled_style = "QPushButton:disabled { color: gray; }"
+        self.prev_button.setStyleSheet(disabled_style)
+        self.next_button.setStyleSheet(disabled_style)
+        self.prev_button.setDisabled(not enable_prev)
+        self.next_button.setDisabled(not enable_next)
+        self.prev_button.clicked.connect(self._go_prev)
+        self.next_button.clicked.connect(self._go_next)
+        nav_layout.addWidget(self.prev_button)
+        nav_layout.addWidget(self.next_button)
+        nav_layout.addStretch()
+
         # --- Dialog Buttons ---
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -103,6 +123,7 @@ class ManualEntryDialog(QDialog):
         # --- Main Layout ---
         main_layout = QVBoxLayout()
         main_layout.addWidget(splitter)
+        main_layout.addLayout(nav_layout)
         main_layout.addWidget(button_box)
         self.setLayout(main_layout)
 
@@ -166,6 +187,33 @@ class ManualEntryDialog(QDialog):
             
         self.fields["Discounted Total"].setText(self.existing_values[6])
         self.fields["Total Amount"].setText(self.existing_values[7])
+
+        # Track which date fields started empty for highlighting
+        self.empty_date_fields = set()
+        if not self.existing_values[3].strip():
+            self.empty_date_fields.add("Invoice Date")
+        if not self.existing_values[5].strip():
+            self.empty_date_fields.add("Due Date")
+
+        # Highlight empty fields initially and update on change
+        self._highlight_empty_fields()
+        for label, widget in self.fields.items():
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._highlight_empty_fields)
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(self._highlight_empty_fields)
+            elif isinstance(widget, QDateEdit):
+                widget.dateChanged.connect(lambda _, l=label: self._clear_date_highlight(l))
+
+    def _go_prev(self):
+        """Navigate to the previous row."""
+        self.navigation = -1
+        self.accept()
+
+    def _go_next(self):
+        """Navigate to the next row."""
+        self.navigation = 1
+        self.accept()
 
     def load_vendors(self):
         """Load vendors into the combo box."""
@@ -231,8 +279,27 @@ class ManualEntryDialog(QDialog):
                 QMessageBox.warning(self, "No Discount", 
                     "No discount percentage found in the terms.")
         except Exception as e:
-            QMessageBox.warning(self, "Calculation Error", 
+            QMessageBox.warning(self, "Calculation Error",
                 f"Could not calculate discounted total: {str(e)}")
+
+    def _clear_date_highlight(self, label):
+        """Remove highlight from a date field once the user sets a value."""
+        if label in self.empty_date_fields:
+            self.empty_date_fields.remove(label)
+            self._highlight_empty_fields()
+
+    def _highlight_empty_fields(self):
+        """Highlight fields with empty values in yellow."""
+        for label, widget in self.fields.items():
+            if isinstance(widget, QLineEdit):
+                empty = not widget.text().strip()
+            elif isinstance(widget, QComboBox):
+                empty = not widget.currentText().strip()
+            elif isinstance(widget, QDateEdit):
+                empty = label in self.empty_date_fields
+            else:
+                empty = False
+            widget.setStyleSheet("background-color: yellow;" if empty else "")
 
     def get_data(self):
         """Return the entered data as a list in the correct order."""
