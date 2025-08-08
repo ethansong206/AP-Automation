@@ -2,7 +2,8 @@
 import os
 from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
-    QPushButton, QMessageBox, QWidget, QHBoxLayout, QLabel
+    QPushButton, QMessageBox, QWidget, QHBoxLayout, QLabel,
+    QAbstractButton
 )
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -100,6 +101,29 @@ class InvoiceTable(QTableWidget):
         # Force consistent row heights - don't allow resizing
         self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
     
+        # Track whether the entire table is selected
+        self._all_selected = False
+
+        # Update selection state when it changes
+        self.itemSelectionChanged.connect(self.update_all_selected_state)
+
+        # Allow toggling select-all via the top-left corner button
+        corner_button = self.findChild(QAbstractButton)
+        if corner_button:
+            corner_button.clicked.connect(self.handle_corner_button_click)
+
+    def update_all_selected_state(self):
+        """Update internal flag indicating if the whole table is selected."""
+        total_items = self.rowCount() * self.columnCount()
+        self._all_selected = (
+            total_items > 0 and len(self.selectedIndexes()) == total_items
+        )
+
+    def handle_corner_button_click(self):
+        """Toggle select-all behaviour when the corner button is clicked."""
+        if self._all_selected:
+            self.clearSelection()
+
     def add_row(self, row_data, file_path, is_no_ocr=False):
         """Add a new row to the table."""
         # Ensure row_data has at least 8 elements (for all columns)

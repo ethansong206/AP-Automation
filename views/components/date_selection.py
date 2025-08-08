@@ -1,5 +1,11 @@
 """Date handling components for the invoice application."""
-from PyQt5.QtWidgets import QItemDelegate, QDateEdit, QStyleOptionViewItem
+from PyQt5.QtWidgets import (
+    QItemDelegate,
+    QDateEdit,
+    QStyleOptionViewItem,
+    QStyle,
+    QStyleOption,
+)
 from PyQt5.QtCore import QDate, Qt, QRect
 from PyQt5.QtGui import QPainter, QColor, QBrush
 
@@ -61,13 +67,28 @@ class DateDelegate(QItemDelegate):
         # Get the status color from the model data for the stripe
         color_data = index.data(Qt.UserRole + 2)
         
-        # Now draw the text using standard ItemDelegate methods
-        self.drawDisplay(painter, opt, opt.rect, index.data(Qt.DisplayRole))
-        
+        # Reserve space for the arrow and draw the text
+        text_rect = opt.rect.adjusted(0, 0, -15, 0)
+        self.drawDisplay(painter, opt, text_rect, index.data(Qt.DisplayRole))
+
+        # Draw dropdown arrow to indicate calendar availability
+        style = opt.widget.style() if opt.widget else None
+        if style:
+            arrow_option = QStyleOption()
+            arrow_option.rect = QRect(
+                opt.rect.right() - 15,
+                opt.rect.center().y() - 5,
+                10,
+                10,
+            )
+            arrow_option.state = QStyle.State_Enabled
+            style.drawPrimitive(QStyle.PE_IndicatorArrowDown, arrow_option, painter)
+
         # Finally draw the indicator stripe if color is provided
         if color_data:
-            stripe_rect = QRect(opt.rect.left(), opt.rect.top(), 
-                             5, opt.rect.height())
+            stripe_rect = QRect(
+                opt.rect.left(), opt.rect.top(), 5, opt.rect.height()
+            )
             painter.fillRect(stripe_rect, QColor(color_data))
         
         # Restore painter state

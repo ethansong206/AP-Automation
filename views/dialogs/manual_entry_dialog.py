@@ -129,8 +129,14 @@ class ManualEntryDialog(QDialog):
         arrow_layout.addWidget(self.next_button)
         arrow_layout.addStretch()
 
+        # Combine the form and navigation buttons in a vertical layout
+        left_layout = QVBoxLayout()
+        left_layout.addLayout(form_layout)
+        left_layout.addSpacing(20)
+        left_layout.addLayout(arrow_layout)
+
         left_widget = QWidget()
-        left_widget.setLayout(form_layout)
+        left_widget.setLayout(left_layout)
 
         # --- Right: PDF Viewer ---
         viewer = InteractivePDFViewer(pdf_path)
@@ -151,11 +157,7 @@ class ManualEntryDialog(QDialog):
         content_layout.addWidget(splitter)
         content_layout.addWidget(button_box)
 
-        # --- Main Layout ---
-        main_layout = QHBoxLayout()
-        main_layout.addLayout(arrow_layout)
-        main_layout.addLayout(content_layout)
-        self.setLayout(main_layout)
+        self.setLayout(content_layout)
 
         # When setting up fields, populate with existing values
         self.vendor_combo.setCurrentText(self.existing_values[0])
