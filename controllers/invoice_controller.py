@@ -35,54 +35,6 @@ class InvoiceController:
                         self.main_window.table.manually_edited.remove(key)
             except Exception as e:
                 print(f"[WARN] Could not compute due date: {e}")
-        
-        # Now calculate the discounted total
-        self.recalculate_discounted_total(row)
-
-    def recalculate_discounted_total(self, row):
-        """Recalculate due date and discounted total when terms change."""
-        from extractors.utils import calculate_discounted_total
-        
-        table = self.main_window.table
-        
-        # Get the required values
-        terms = table.get_cell_text(row, 4)
-        total_amount = table.get_cell_text(row, 7)
-        vendor_name = table.get_cell_text(row, 0)
-        
-        # Only proceed if we have valid input data
-        if not terms or not total_amount or not vendor_name:
-            return
-            
-        try:
-            # Check if terms contains a percentage
-            has_discount = re.search(r"(\d+)%", terms) is not None
-            special_vendors = [
-                "TOPO ATHLETIC", "Ruffwear", "ON Running", 
-                "Free Fly Apparel", "Hadley Wren", "Gregory Mountain Products"
-            ]
-            is_special_vendor = vendor_name in special_vendors
-            
-            if not has_discount and not is_special_vendor:
-                # No discount percentage found, clear the discounted total
-                table.update_calculated_field(row, 6, "", False)
-                # Remove from auto-calculated if it was there
-                if (row, 6) in table.auto_calculated:
-                    table.auto_calculated.remove((row, 6))
-            else:
-                # Calculate discounted total - Handle None case
-                discounted_total = calculate_discounted_total(terms, total_amount, vendor_name)
-                if discounted_total is not None and discounted_total:  # Check for None and empty string
-                    table.update_calculated_field(row, 6, f"***  {discounted_total}  ***")
-                
-        except Exception as e:
-            # Handle calculation errors with user feedback
-            print(f"[ERROR] Calculation failed: {e}")
-            QMessageBox.warning(
-                self.main_window, 
-                "Calculation Error", 
-                f"Could not recalculate fields from terms: {terms}\nError: {str(e)}"
-            )
     
     def format_date(self, date_str):
         """Format date for accounting system."""

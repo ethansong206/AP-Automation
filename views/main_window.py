@@ -48,15 +48,16 @@ class InvoiceApp(QWidget):
         self.layout = QVBoxLayout()
         
         # Add title at the top
-        title_label = QLabel("GOPC Invoice App")
+        title_label = QLabel("GOPC\nInvoice App")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("""
-            font-family: 'Segoe UI', Arial, sans-serif;
-            font-size: 24px;
+            font-family: 'Montserrat', Arial, sans-serif;
+            font-size: 28px;
             font-weight: bold;
             color: #5E6F5E;
             padding: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
+            line-height: 1;
         """)
         self.layout.addWidget(title_label)
         
