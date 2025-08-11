@@ -173,6 +173,8 @@ class InvoiceApp(QWidget):
 
         dialog = ManualEntryDialog(file_paths, self, values_list, start_index=row)
 
+        dialog.file_deleted.connect(self._on_dialog_deleted_file)
+
         if dialog.exec_() == QDialog.Accepted and dialog.save_changes:
             all_data = dialog.get_all_data()
 
@@ -265,6 +267,13 @@ class InvoiceApp(QWidget):
                     pass
                 
         self.total_label.setText(f"Total Amount: ${total:,.2f}")
+
+    def _on_dialog_deleted_file(self, file_path: str):
+        """Remove the row (and let row_deleted signal clean up controller)."""
+        if not file_path:
+            return
+        # No confirm prompt here—the dialog already confirmed.
+        self.table.delete_row_by_file_path(file_path, confirm=False)
 
     # --- Export functionality ---
     def export_to_csv(self):

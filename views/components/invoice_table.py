@@ -114,6 +114,29 @@ class InvoiceTable(QTableWidget):
         if self._corner_button:
             self._corner_button.installEventFilter(self)
 
+    def delete_row_by_file_path(self, file_path: str, confirm: bool = False) -> bool:
+        """Find and delete the first row whose Manual Entry cell matches file_path."""
+        if not file_path:
+            return False
+        abs_target = os.path.abspath(file_path)
+        for row in range(self.rowCount()):
+            row_path = self.get_file_path_for_row(row)
+            if row_path and os.path.abspath(row_path) == abs_target:
+                if confirm:
+                    ans = QMessageBox.question(
+                        self, "Delete Row",
+                        f"Delete invoice for file:\n{os.path.basename(abs_target)}?",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                    )
+                    if ans != QMessageBox.Yes:
+                        return False
+                # Clean up tracking, remove, and emit
+                self.cleanup_row_data(row)
+                self.removeRow(row)
+                self.row_deleted.emit(row, abs_target)
+                return True
+        return False
+
     def update_all_selected_state(self):
         """Update internal flag indicating if the whole table is selected."""
         total_items = self.rowCount() * self.columnCount()

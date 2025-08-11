@@ -3,9 +3,9 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QDialogButtonBox, QSplitter, QWidget, QFormLayout,
     QComboBox, QMessageBox, QCompleter, QListWidget, QGroupBox,
-    QSizePolicy, QScrollArea
+    QSizePolicy, QScrollArea, QGridLayout
 )
-from PyQt5.QtCore import Qt, QDate, QEvent, QTimer
+from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QGuiApplication
 
 from views.components.pdf_viewer import InteractivePDFViewer
@@ -15,6 +15,8 @@ from extractors.utils import get_vendor_list  # removed calculate_* deps
 
 class ManualEntryDialog(QDialog):
     """Dialog for manual entry of invoice fields with PDF viewer and a Quick Calculator."""
+    # NEW: let parent know we deleted a file so it can update InvoiceTable immediately
+    file_deleted = pyqtSignal(str)  # file_path
 
     def __init__(self, pdf_paths, parent=None, values_list=None, start_index=0):
         super().__init__(parent)
@@ -34,6 +36,7 @@ class ManualEntryDialog(QDialog):
         self.values_list = values_list or [[""] * 8 for _ in pdf_paths]
         self.current_index = start_index
         self.save_changes = False
+        self._deleted_files = []  # NEW: track deleted file paths
 
         # --- File list on the far left ---
         self.file_list = QListWidget()
@@ -107,7 +110,6 @@ class ManualEntryDialog(QDialog):
         qc.setHorizontalSpacing(10)
         qc.setContentsMargins(12, 12, 12, 12)
 
-        # Groupbox styling and spacing for title
         self.quick_calc_group.setStyleSheet("""
             QGroupBox {
                 border: 1px solid #C9C9C9;
@@ -158,7 +160,6 @@ class ManualEntryDialog(QDialog):
         buttons_row.addWidget(self.qc_apply_total)
         buttons_row.addWidget(self.qc_apply_discounted)
 
-        # Layout the calculator
         qc.addRow(QLabel("Subtotal:"), self.qc_subtotal)
         qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
         qc.addRow(QLabel("Discount $:"), self.qc_disc_amt)
@@ -187,10 +188,7 @@ class ManualEntryDialog(QDialog):
         ):
             btn.setStyleSheet(primary_button_style)
 
-        # --- Navigation Buttons ---
-        arrow_layout = QHBoxLayout()
-        arrow_layout.addStretch()
-
+                # --- Navigation Buttons ---
         self.prev_button = QPushButton("←")
         self.next_button = QPushButton("→")
 
@@ -206,23 +204,54 @@ class ManualEntryDialog(QDialog):
             "QPushButton:pressed { background-color: #485848; }"
             "QPushButton:disabled { background-color: #bbbbbb; color: #666666; }"
         )
-        self.prev_button.setStyleSheet(button_style)
-        self.next_button.setStyleSheet(button_style)
-        size = 60
-        self.prev_button.setFixedSize(size, size)
-        self.next_button.setFixedSize(size, size)
+        for b in (self.prev_button, self.next_button):
+            b.setStyleSheet(button_style)
+            b.setFixedSize(60, 60)
+
         self.prev_button.clicked.connect(self.show_prev)
         self.next_button.clicked.connect(self.show_next)
-        arrow_layout.addWidget(self.prev_button)
-        arrow_layout.addWidget(self.next_button)
-        arrow_layout.addStretch()
 
-        # Combine the form + calculator + navigation on the left
+        # Tight spacing between arrows
+        center_arrows = QHBoxLayout()
+        center_arrows.setSpacing(8)
+        center_arrows.setContentsMargins(0, 0, 0, 0)
+        center_arrows.addWidget(self.prev_button)
+        center_arrows.addWidget(self.next_button)
+
+        # --- Delete Button ---
+        self.delete_btn = QPushButton("Delete This Invoice")
+        self.delete_btn.setToolTip("Remove this invoice from the list and table")
+        self.delete_btn.setStyleSheet(
+            "QPushButton {"
+            "background-color: #C0392B;"
+            "color: white;"
+            "border-radius: 4px;"
+            "padding: 6px 12px;"
+            "font-weight: bold;"
+            "}"
+            "QPushButton:hover { background-color: #D3543C; }"
+            "QPushButton:pressed { background-color: #A93226; }"
+        )
+        self.delete_btn.clicked.connect(self._confirm_delete_current)
+
+        # --- Row container that LAYERS center + right in the same cell ---
+        row_container = QWidget()
+        row_grid = QGridLayout(row_container)
+        row_grid.setContentsMargins(0, 8, 0, 0)
+        row_grid.setHorizontalSpacing(0)
+
+        # Put both items in the same (0,0) cell with different alignments:
+        #  - Arrows exactly centered
+        #  - Delete button pinned to the right
+        row_grid.addLayout(center_arrows, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
+        row_grid.addWidget(self.delete_btn, 0, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+
+        # ---- Build the left column AFTER the row is ready ----
         left_layout = QVBoxLayout()
         left_layout.addLayout(form_layout)
         left_layout.addWidget(self.quick_calc_group)
-        left_layout.addSpacing(16)
-        left_layout.addLayout(arrow_layout)
+        left_layout.addSpacing(12)
+        left_layout.addWidget(row_container)
 
         left_widget = QWidget()
         left_widget.setLayout(left_layout)
@@ -252,7 +281,6 @@ class ManualEntryDialog(QDialog):
         self.splitter.setStretchFactor(1, 5)   # entry fields (largest)
         self.splitter.setStretchFactor(2, 4)   # pdf viewer
 
-        # Apply initial absolute sizes after layout
         QTimer.singleShot(0, self._apply_splitter_proportions)
 
         # --- Dialog Buttons ---
@@ -320,13 +348,10 @@ class ManualEntryDialog(QDialog):
         if not screen:
             return
         avail = screen.availableGeometry()
-        # Aim for a comfortably tall, wide window; cap to screen with a margin
         target_h = min(900, max(750, avail.height() - 80))
         target_w = min(1400, max(1200, avail.width() - 80))
         self.resize(target_w, target_h)
-        # Re-apply the 10/50/40 splitter proportions after resize
         self._apply_splitter_proportions()
-        # After resize, keep PDF fit-to-width
         if hasattr(self, "viewer") and self.viewer:
             self.viewer.fit_width()
 
@@ -335,7 +360,6 @@ class ManualEntryDialog(QDialog):
     # -----------------------------
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Left, Qt.Key_Right):
-            # If an entry control has focus, let it handle arrows (e.g., caret move).
             if not self._entry_field_has_focus():
                 if event.key() == Qt.Key_Left:
                     self.show_prev()
@@ -351,6 +375,71 @@ class ManualEntryDialog(QDialog):
         return isinstance(w, (QLineEdit, QComboBox, QDateEdit))
 
     # -----------------------------
+    # Deletion logic (NEW)
+    # -----------------------------
+    def _confirm_delete_current(self):
+        if not self.pdf_paths:
+            return
+        path = self.pdf_paths[self.current_index]
+        fname = os.path.basename(path) if path else "(unknown)"
+        confirm = QMessageBox.question(
+            self,
+            "Delete Invoice",
+            f"Are you sure you want to delete this invoice?\n\n{fname}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm == QMessageBox.Yes:
+            self._delete_current_without_prompt()
+
+    def _delete_current_without_prompt(self):
+        """Remove current invoice from lists, update UI, and navigate appropriately."""
+        if not self.pdf_paths:
+            return
+        
+        idx = self.current_index
+
+        if idx < 0 or idx >= len(self.pdf_paths):
+            idx = max(0, min(idx, len(self.pdf_paths) - 1))
+
+        path = self.pdf_paths[idx]
+        self.file_list.blockSignals(True)
+
+        # Remove from data structures
+        self.pdf_paths.pop(idx)
+        self.values_list.pop(idx)
+        self._deleted_files.append(path)
+
+        # Update file list UI
+        item = self.file_list.takeItem(idx)
+        if item:
+            del item
+
+        # Notify parent immediately so it can update InvoiceTable
+        self.file_deleted.emit(path)
+
+        if not self.pdf_paths:
+            # Nothing left: close the dialog as 'save' to persist removals
+            self.file_list.blockSignals(False)
+            QMessageBox.information(self, "All Done", "All invoices were deleted.")
+            self.save_changes = True
+            self.accept()
+            return
+
+        # Choose next index: stay at same position if possible, else step back
+        if idx >= len(self.pdf_paths):
+            new_index = len(self.pdf_paths) - 1
+        else:
+            new_index = idx
+
+        self.file_list.setCurrentRow(new_index)
+        self.current_index = new_index
+        self.file_list.blockSignals(False)
+
+        # Load the next/previous invoice
+        self.load_invoice(new_index)
+
+    # -----------------------------
     # Persistence / Navigation
     # -----------------------------
     def save_current_invoice(self):
@@ -359,6 +448,13 @@ class ManualEntryDialog(QDialog):
         self.values_list[self.current_index] = self.get_data()
 
     def load_invoice(self, index):
+        if not self.pdf_paths:
+            return
+        if index < 0:
+            index = 0
+        elif index >= len(self.pdf_paths):
+            index = len(self.pdf_paths) - 1
+
         self.current_index = index
         self.mark_file_viewed(index)
         values = self.values_list[index]
@@ -438,9 +534,7 @@ class ManualEntryDialog(QDialog):
         self.viewer.deleteLater()
         self.viewer = new_viewer
         self.splitter.setStretchFactor(index_in_splitter, 1)
-        # keep proportions on swap
         QTimer.singleShot(0, self._apply_splitter_proportions)
-        # ensure new viewer is fit-to-width after layout
         QTimer.singleShot(0, lambda: self.viewer.fit_width())
 
     def switch_to_index(self, index):
@@ -534,7 +628,6 @@ class ManualEntryDialog(QDialog):
             else:
                 txt = widget.text().strip()
                 if label in getattr(self, "_currency_labels", set()):
-                    # store canonically
                     value = self._money_plain(txt)
                 else:
                     value = txt
@@ -545,11 +638,14 @@ class ManualEntryDialog(QDialog):
         self.save_current_invoice()
         return self.values_list
 
+    def get_deleted_files(self):
+        """Return a list of file paths deleted during this session."""
+        return list(self._deleted_files)
+
     # -----------------------------
     # Quick Calculator logic
     # -----------------------------
     def _recalc_quick_calc(self):
-        """Live-recalculate Grand Total from the calculator inputs."""
         sub = self._money(self.qc_subtotal.text())
         ship = self._money(self.qc_shipping.text())
         other = self._money(self.qc_other.text())
@@ -560,28 +656,24 @@ class ManualEntryDialog(QDialog):
         tax_pct = self._percent(self.qc_tax_pct.text())
         tax_amt_input = self._money(self.qc_tax_amt.text())
 
-        # Derive discount amount: prefer explicit $ if entered; else use %
         disc_amt = disc_amt_input if disc_amt_input is not None else (
             (sub * disc_pct) if (sub is not None and disc_pct is not None) else 0.0
         )
         if disc_amt is None:
             disc_amt = 0.0
 
-        # Tax base is (subtotal - discount) + shipping (common AP convention; tweak if needed)
         tax_base = None
         if sub is not None:
             tax_base = sub - disc_amt
             if ship is not None:
                 tax_base += ship
 
-        # Derive tax amount: prefer explicit $ if entered; else use %
         tax_amt = tax_amt_input if tax_amt_input is not None else (
             (tax_base * tax_pct) if (tax_base is not None and tax_pct is not None) else 0.0
         )
         if tax_amt is None:
             tax_amt = 0.0
 
-        # Grand total = subtotal - discount + shipping + tax + other adjustments
         if sub is None:
             self.qc_grand_total.setText("$0.00")
             return
@@ -590,7 +682,6 @@ class ManualEntryDialog(QDialog):
         self.qc_grand_total.setText(self._fmt_money(total))
 
     def _apply_quick_total_to(self, target_label):
-        """Copy the calculator’s grand total into a target field as plain numeric (no $ or commas)."""
         text = self.qc_grand_total.text().strip()
         text = text.replace("***", "").replace("$", "").replace(",", "").strip()
         try:
@@ -603,7 +694,6 @@ class ManualEntryDialog(QDialog):
             w = self.fields[target_label]
             if isinstance(w, QLineEdit):
                 w.setText(text)
-                # Immediately pretty-display it if the field is not focused
                 if not w.hasFocus():
                     w.setText(self._money_pretty(w.text()))
                 self._highlight_empty_fields()
@@ -612,7 +702,6 @@ class ManualEntryDialog(QDialog):
     # Currency helpers / formatting
     # -----------------------------
     def _money(self, s):
-        """Parse a money string like '$1,234.56' or '1234.56'. Returns float or None."""
         if not s:
             return None
         s = s.strip().replace(",", "")
@@ -629,7 +718,6 @@ class ManualEntryDialog(QDialog):
             return None
 
     def _percent(self, s):
-        """Parse percent like '2', '2%', or '0.02' → fraction (0.02) or None."""
         if not s:
             return None
         s = s.strip()
@@ -643,18 +731,15 @@ class ManualEntryDialog(QDialog):
             return None
 
     def _fmt_money(self, val):
-        """Format a float as currency with $ and 2 decimals."""
         try:
             return f"${val:,.2f}"
         except Exception:
             return "$0.00"
 
     def _money_plain(self, s: str) -> str:
-        """Return plain numeric string with 2 decimals, no $/commas; empty -> ''."""
         if not s:
             return ""
         t = s.replace("$", "").replace(",", "").strip()
-        # handle parentheses negatives
         neg = False
         if t.startswith("(") and t.endswith(")"):
             neg = True
@@ -665,10 +750,9 @@ class ManualEntryDialog(QDialog):
                 val = -val
             return f"{val:.2f}"
         except ValueError:
-            return t  # leave as-is for user to fix
+            return t
 
     def _money_pretty(self, s: str) -> str:
-        """Return pretty currency like $2,500.68 from a raw string; empty -> ''."""
         p = self._money_plain(s)
         if p == "":
             return ""
@@ -678,7 +762,6 @@ class ManualEntryDialog(QDialog):
             return s
 
     def _apply_pretty_currency_display(self):
-        """Pretty-format any currency field currently showing plain numbers."""
         for label in self._currency_labels:
             w = self.fields.get(label)
             if w and not w.hasFocus():
@@ -688,13 +771,11 @@ class ManualEntryDialog(QDialog):
     # Focus-based pretty/plain toggle
     # -----------------------------
     def eventFilter(self, obj, event):
-        # Fields on the main form
         if event.type() == QEvent.FocusIn:
             for label in getattr(self, "_currency_labels", set()):
                 if obj is self.fields.get(label):
                     obj.setText(self._money_plain(obj.text()))
                     break
-            # Calculator currency inputs
             if obj in getattr(self, "_calc_currency_fields", []):
                 obj.setText(self._money_plain(obj.text()))
         elif event.type() == QEvent.FocusOut:
@@ -702,7 +783,6 @@ class ManualEntryDialog(QDialog):
                 if obj is self.fields.get(label):
                     obj.setText(self._money_pretty(obj.text()))
                     break
-            # Calculator currency inputs
             if obj in getattr(self, "_calc_currency_fields", []):
                 obj.setText(self._money_pretty(obj.text()))
         return super().eventFilter(obj, event)

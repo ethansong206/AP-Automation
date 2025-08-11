@@ -22,25 +22,19 @@ class FileController:
             return False
 
         print(f"[INFO] Processing {len(new_files)} new files...")
-        self.loaded_files.update(new_files)
+        self.loaded_files.update(os.path.normpath(f) for f in new_files)
         
         text_blocks = extract_text_data_from_pdfs(new_files)
         extracted_data = extract_fields(text_blocks)
-        
-        # Return data to be handled by the view
         return list(zip(extracted_data, new_files))
         
     def filter_new_files(self, files):
         """Filter out already processed files."""
-        # Normalize paths for comparison
-        normalized_loaded = {os.path.normpath(f) for f in self.loaded_files}
         new_files = []
-        
         for file in files:
             norm_path = os.path.normpath(file)
-            if norm_path not in normalized_loaded:
+            if norm_path not in self.loaded_files:
                 new_files.append(file)
-        
         return new_files
     
     def open_file(self, file_path):
@@ -71,8 +65,11 @@ class FileController:
     
     def remove_file(self, file_path):
         """Remove a file from the loaded files list."""
-        if file_path in self.loaded_files:
-            self.loaded_files.remove(file_path)
+        if not file_path:
+            return False
+        norm = os.path.normpath(file_path)
+        if norm in self.loaded_files:
+            self.loaded_files.remove(norm)
             return True
         return False
     
