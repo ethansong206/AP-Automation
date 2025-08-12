@@ -172,8 +172,9 @@ class InvoiceApp(QWidget):
             values_list.append(row_values)
 
         dialog = ManualEntryDialog(file_paths, self, values_list, start_index=row)
-
         dialog.file_deleted.connect(self._on_dialog_deleted_file)
+
+        dialog.row_saved.connect(self.on_manual_row_saved)
 
         if dialog.exec_() == QDialog.Accepted and dialog.save_changes:
             all_data = dialog.get_all_data()
@@ -274,6 +275,11 @@ class InvoiceApp(QWidget):
             return
         # No confirm prompt here—the dialog already confirmed.
         self.table.delete_row_by_file_path(file_path, confirm=False)
+
+    def on_manual_row_saved(self, file_path: str, row_values: list):
+        """Update the table row for the given file path with new values."""
+        self.table.update_row_by_source(file_path, row_values)
+        self.update_total_amount()
 
     # --- Export functionality ---
     def export_to_csv(self):

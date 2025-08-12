@@ -600,3 +600,18 @@ class InvoiceTable(QTableWidget):
         # Clear all tracking structures
         self.manually_edited = set()
         self.auto_calculated = set()
+
+    def update_row_by_source(self, file_path: str, row_values: list):
+        """Update an existing row based on its file path."""
+        abs_target = os.path.abspath(file_path)
+        for row in range(self.rowCount()):
+            row_path = self.get_file_path_for_row(row)
+            if row_path and os.path.abspath(row_path) == abs_target:
+                for col, value in enumerate(row_values):
+                    str_value = str(value) if value is not None else ""
+                    item = QTableWidgetItem(str_value)
+                    item.setData(Qt.UserRole, str_value)
+                    self.setItem(row, col, item)
+
+                self.highlight_row(row)
+                return

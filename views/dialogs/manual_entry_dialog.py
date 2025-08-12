@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QDialogButtonBox, QSplitter, QWidget, QFormLayout,
@@ -8,22 +9,23 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QGuiApplication
 
+# Project components
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_dialog import VendorDialog
-from extractors.utils import get_vendor_list  # removed calculate_* deps
+from extractors.utils import get_vendor_list
 
 
 class ManualEntryDialog(QDialog):
-    """Dialog for manual entry of invoice fields with PDF viewer and a Quick Calculator."""
-    # NEW: let parent know we deleted a file so it can update InvoiceTable immediately
-    file_deleted = pyqtSignal(str)  # file_path
+    """Dialog for manual entry of invoice fields with PDF viewer and quick calc."""
+    file_deleted = pyqtSignal(str)           # emitted when a file is deleted here
+    row_saved = pyqtSignal(str, list)        # (file_path, row_values) — Save without closing
 
     def __init__(self, pdf_paths, parent=None, values_list=None, start_index=0):
         super().__init__(parent)
         self.setWindowTitle("Manual Entry")
         self.setMinimumSize(1100, 650)
 
-        # Global readability tweaks
+        # Style tweaks
         self.setStyleSheet("""
             QLabel { font-size: 13px; }
             QLineEdit, QComboBox, QDateEdit { font-size: 13px; padding: 4px; }
@@ -31,21 +33,23 @@ class ManualEntryDialog(QDialog):
             QGroupBox { font-size: 14px; font-weight: bold; margin-top: 12px; }
         """)
 
-        # Store paths and values for all files
-        self.pdf_paths = pdf_paths
-        self.values_list = values_list or [[""] * 8 for _ in pdf_paths]
-        self.current_index = start_index
+        # Data/state
+        self.pdf_paths = list(pdf_paths or [])
+        self.values_list = values_list or [[""] * 8 for _ in self.pdf_paths]
+        self.saved_values_list = deepcopy(self.values_list)  # last-saved snapshot
+        self.current_index = start_index if 0 <= start_index < len(self.pdf_paths) else 0
+        self._deleted_files = []
+        self._dirty = False
+        self._loading = False           # <<< IMPORTANT: prevents false dirty on programmatic set
         self.save_changes = False
-        self._deleted_files = []  # NEW: track deleted file paths
-
-        # --- File list on the far left ---
-        self.file_list = QListWidget()
-        for path in pdf_paths:
-            self.file_list.addItem(os.path.basename(path) if path else "")
-        self.file_list.currentRowChanged.connect(self.switch_to_index)
         self.viewed_files = set()
 
-        # --- Form fields ---
+        # ===== Left: file list =====
+        self.file_list = QListWidget()
+        for path in self.pdf_paths:
+            self.file_list.addItem(os.path.basename(path) if path else "")
+
+        # ===== Center: form =====
         form_layout = QFormLayout()
         form_layout.setVerticalSpacing(10)
         form_layout.setHorizontalSpacing(8)
@@ -53,32 +57,30 @@ class ManualEntryDialog(QDialog):
 
         self.fields = {}
 
-        # 1) Vendor dropdown + New Vendor button
+        # Vendor
         vendor_layout = QHBoxLayout()
         self.vendor_combo = QComboBox()
         self.vendor_combo.setEditable(True)
         self.vendor_combo.setInsertPolicy(QComboBox.NoInsert)
         self.load_vendors()
-        completer = self.vendor_combo.completer()
-        if completer:
-            completer.setCompletionMode(QCompleter.PopupCompletion)
+        comp = self.vendor_combo.completer()
+        if comp:
+            comp.setCompletionMode(QCompleter.PopupCompletion)
         vendor_layout.addWidget(self.vendor_combo, 1)
-
         self.add_vendor_btn = QPushButton("New Vendor")
         self.add_vendor_btn.clicked.connect(self.add_new_vendor)
         vendor_layout.addWidget(self.add_vendor_btn)
-
         form_layout.addRow(QLabel("Vendor Name:"), vendor_layout)
         self.fields["Vendor Name"] = self.vendor_combo
 
-        # 2) Core fields
+        # Core fields
         self.fields["Invoice Number"] = QLineEdit()
         form_layout.addRow(QLabel("Invoice Number:"), self.fields["Invoice Number"])
 
         self.fields["PO Number"] = QLineEdit()
         form_layout.addRow(QLabel("PO Number:"), self.fields["PO Number"])
 
-        # 3) Dates
+        # Dates
         self.fields["Invoice Date"] = QDateEdit()
         self.fields["Invoice Date"].setCalendarPopup(True)
         self.fields["Invoice Date"].setDisplayFormat("MM/dd/yyyy")
@@ -88,77 +90,48 @@ class ManualEntryDialog(QDialog):
         self.fields["Discount Terms"] = QLineEdit()
         form_layout.addRow(QLabel("Discount Terms:"), self.fields["Discount Terms"])
 
-        # 4) Due Date (fully manual now)
         self.fields["Due Date"] = QDateEdit()
         self.fields["Due Date"].setCalendarPopup(True)
         self.fields["Due Date"].setDisplayFormat("MM/dd/yyyy")
         self.fields["Due Date"].setDate(QDate.currentDate())
         form_layout.addRow(QLabel("Due Date:"), self.fields["Due Date"])
 
-        # 5) Discounted Total (manual)
+        # Currency fields
         self.fields["Discounted Total"] = QLineEdit()
         form_layout.addRow(QLabel("Discounted Total:"), self.fields["Discounted Total"])
-
-        # 6) Total Amount (manual)
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
-        # --- Quick Calculator (subtotal/discount/shipping/tax/adjust) ---
+        # Quick Calculator (simplified UI)
         self.quick_calc_group = QGroupBox("Quick Calculator")
         qc = QFormLayout()
         qc.setVerticalSpacing(10)
         qc.setHorizontalSpacing(10)
         qc.setContentsMargins(12, 12, 12, 12)
 
-        self.quick_calc_group.setStyleSheet("""
-            QGroupBox {
-                border: 1px solid #C9C9C9;
-                border-radius: 6px;
-                margin-top: 16px;
-                padding-top: 16px;
-                background: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: 10px;
-                padding: 0 6px;
-                background: #ffffff;
-            }
-        """)
-        self.quick_calc_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        def new_lineedit():
+            e = QLineEdit()
+            e.textChanged.connect(self._recalc_quick_calc)
+            return e
 
-        # Inputs
-        self.qc_subtotal = QLineEdit()
-        self.qc_disc_pct = QLineEdit()     # as %
-        self.qc_disc_amt = QLineEdit()     # as $
-        self.qc_shipping = QLineEdit()
-        self.qc_tax_pct = QLineEdit()      # as %
-        self.qc_tax_amt = QLineEdit()      # as $
-        self.qc_other = QLineEdit()        # adjustments (+/-)
-
-        # Output
+        self.qc_subtotal = new_lineedit()
+        self.qc_disc_pct = new_lineedit()
+        self.qc_disc_amt = new_lineedit()
+        self.qc_shipping = new_lineedit()
+        self.qc_tax_pct = new_lineedit()
+        self.qc_tax_amt = new_lineedit()
+        self.qc_other = new_lineedit()
         self.qc_grand_total = QLabel("$0.00")
         self.qc_grand_total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.qc_grand_total.setStyleSheet("font-weight: bold;")
 
-        # Wire up live recalculation
-        for w in (
-            self.qc_subtotal, self.qc_disc_pct, self.qc_disc_amt,
-            self.qc_shipping, self.qc_tax_pct, self.qc_tax_amt, self.qc_other
-        ):
-            w.textChanged.connect(self._recalc_quick_calc)
-
-        # Buttons to push result back into fields (as PLAIN numbers)
-        buttons_row = QHBoxLayout()
+        btn_row = QHBoxLayout()
         self.qc_apply_total = QPushButton("Apply → Total Amount")
         self.qc_apply_discounted = QPushButton("Apply → Discounted Total")
-        self.qc_apply_total.setMinimumHeight(32)
-        self.qc_apply_discounted.setMinimumHeight(32)
         self.qc_apply_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount"))
         self.qc_apply_discounted.clicked.connect(lambda: self._apply_quick_total_to("Discounted Total"))
-        buttons_row.addWidget(self.qc_apply_total)
-        buttons_row.addWidget(self.qc_apply_discounted)
+        btn_row.addWidget(self.qc_apply_total)
+        btn_row.addWidget(self.qc_apply_discounted)
 
         qc.addRow(QLabel("Subtotal:"), self.qc_subtotal)
         qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
@@ -168,85 +141,58 @@ class ManualEntryDialog(QDialog):
         qc.addRow(QLabel("Tax $:"), self.qc_tax_amt)
         qc.addRow(QLabel("Other Adj. (+/−):"), self.qc_other)
         qc.addRow(QLabel("Grand Total:"), self.qc_grand_total)
-        qc.addRow(buttons_row)
+        qc.addRow(btn_row)
         self.quick_calc_group.setLayout(qc)
 
-        # Standard button styling for action buttons
-        primary_button_style = (
-            "QPushButton {"
-            "background-color: #5E6F5E;"
-            "color: white;"
-            "border-radius: 4px;"
-            "padding: 6px 12px;"
-            "font-weight: bold;"
-            "}"
-            "QPushButton:hover { background-color: #6b7d6b; }"
+        # Button styles
+        primary_btn_css = (
+            "QPushButton { background-color: #5E6F5E; color: white; border-radius: 4px; "
+            "padding: 6px 12px; font-weight: bold; } "
+            "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
-        for btn in (
-            self.add_vendor_btn, self.qc_apply_total, self.qc_apply_discounted
-        ):
-            btn.setStyleSheet(primary_button_style)
+        for b in (self.add_vendor_btn, self.qc_apply_total, self.qc_apply_discounted):
+            b.setStyleSheet(primary_btn_css)
 
-                # --- Navigation Buttons ---
+        # Navigation + delete
         self.prev_button = QPushButton("←")
         self.next_button = QPushButton("→")
-
-        button_style = (
-            "QPushButton {"
-            "background-color: #5E6F5E;"
-            "color: #f0f0f0;"
-            "border: 1px solid #3E4F3E;"
-            "font-size: 28px;"
-            "padding: 10px;"
-            "}"
-            "QPushButton:hover { background-color: #546454; }"
-            "QPushButton:pressed { background-color: #485848; }"
+        nav_css = (
+            "QPushButton { background-color: #5E6F5E; color: #f0f0f0; border: 1px solid #3E4F3E; "
+            "font-size: 28px; padding: 10px; } "
+            "QPushButton:hover { background-color: #546454; } "
+            "QPushButton:pressed { background-color: #485848; } "
             "QPushButton:disabled { background-color: #bbbbbb; color: #666666; }"
         )
         for b in (self.prev_button, self.next_button):
-            b.setStyleSheet(button_style)
+            b.setStyleSheet(nav_css)
             b.setFixedSize(60, 60)
+        self.prev_button.clicked.connect(self._on_prev_clicked)
+        self.next_button.clicked.connect(self._on_next_clicked)
 
-        self.prev_button.clicked.connect(self.show_prev)
-        self.next_button.clicked.connect(self.show_next)
+        arrows = QHBoxLayout()
+        arrows.setSpacing(8)
+        arrows.setContentsMargins(0, 0, 0, 0)
+        arrows.addWidget(self.prev_button)
+        arrows.addWidget(self.next_button)
 
-        # Tight spacing between arrows
-        center_arrows = QHBoxLayout()
-        center_arrows.setSpacing(8)
-        center_arrows.setContentsMargins(0, 0, 0, 0)
-        center_arrows.addWidget(self.prev_button)
-        center_arrows.addWidget(self.next_button)
-
-        # --- Delete Button ---
         self.delete_btn = QPushButton("Delete This Invoice")
         self.delete_btn.setToolTip("Remove this invoice from the list and table")
         self.delete_btn.setStyleSheet(
-            "QPushButton {"
-            "background-color: #C0392B;"
-            "color: white;"
-            "border-radius: 4px;"
-            "padding: 6px 12px;"
-            "font-weight: bold;"
-            "}"
-            "QPushButton:hover { background-color: #D3543C; }"
+            "QPushButton { background-color: #C0392B; color: white; border-radius: 4px; "
+            "padding: 6px 12px; font-weight: bold; } "
+            "QPushButton:hover { background-color: #D3543C; } "
             "QPushButton:pressed { background-color: #A93226; }"
         )
         self.delete_btn.clicked.connect(self._confirm_delete_current)
 
-        # --- Row container that LAYERS center + right in the same cell ---
         row_container = QWidget()
         row_grid = QGridLayout(row_container)
         row_grid.setContentsMargins(0, 8, 0, 0)
         row_grid.setHorizontalSpacing(0)
-
-        # Put both items in the same (0,0) cell with different alignments:
-        #  - Arrows exactly centered
-        #  - Delete button pinned to the right
-        row_grid.addLayout(center_arrows, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
+        row_grid.addLayout(arrows, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
         row_grid.addWidget(self.delete_btn, 0, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
 
-        # ---- Build the left column AFTER the row is ready ----
         left_layout = QVBoxLayout()
         left_layout.addLayout(form_layout)
         left_layout.addWidget(self.quick_calc_group)
@@ -256,94 +202,84 @@ class ManualEntryDialog(QDialog):
         left_widget = QWidget()
         left_widget.setLayout(left_layout)
 
-        # Make the whole left column scrollable so nothing gets clipped
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QScrollArea.NoFrame)
         left_scroll.setWidget(left_widget)
 
-        # --- Right: PDF Viewer ---
-        self.viewer = InteractivePDFViewer(self.pdf_paths[self.current_index])
+        # ===== Right: PDF viewer =====
+        self.viewer = InteractivePDFViewer(self.pdf_paths[self.current_index] if self.pdf_paths else "")
 
-        # --- Splitter Layout ---
+        # ===== Splitter =====
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
-
-        # Keep the file list readable but allow shrinking a bit
         self.file_list.setMinimumWidth(140)
-
         self.splitter.addWidget(self.file_list)
-        self.splitter.addWidget(left_scroll)   # scrollable center pane
+        self.splitter.addWidget(left_scroll)
         self.splitter.addWidget(self.viewer)
-
-        # Ratios: 10% : 50% : 40%
-        self.splitter.setStretchFactor(0, 1)   # list
-        self.splitter.setStretchFactor(1, 5)   # entry fields (largest)
-        self.splitter.setStretchFactor(2, 4)   # pdf viewer
-
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 5)
+        self.splitter.setStretchFactor(2, 4)
         QTimer.singleShot(0, self._apply_splitter_proportions)
 
-        # --- Dialog Buttons ---
+        # ===== Save / Cancel buttons =====
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.on_save)
-        button_box.rejected.connect(self.reject)
+        button_box.accepted.connect(self.on_save)        # Save keeps dialog open
+        button_box.rejected.connect(self._on_cancel)     # Guarded close
         for btn in button_box.buttons():
-            btn.setStyleSheet(primary_button_style)
+            btn.setStyleSheet(primary_btn_css)
 
-        # --- Content Layout ---
+        # Layout
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(8, 8, 8, 8)
         content_layout.addWidget(self.splitter)
         content_layout.addWidget(button_box)
         self.setLayout(content_layout)
 
-        # Currency fields that display pretty but store plain
+        # Currency fields we pretty/normalize
         self._currency_labels = {"Total Amount", "Discounted Total"}
         for label in self._currency_labels:
             w = self.fields.get(label)
             if w:
                 w.installEventFilter(self)
 
-        # Also pretty/plain toggle for $-based calculator inputs
         self._calc_currency_fields = [
             self.qc_subtotal, self.qc_disc_amt, self.qc_shipping, self.qc_tax_amt, self.qc_other
         ]
         for w in self._calc_currency_fields:
             w.installEventFilter(self)
 
-        # Load first invoice data
-        self.load_invoice(self.current_index)
-
-        # Highlight empty fields initially and update on change
+        # Highlight on change
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self._highlight_empty_fields)
             elif isinstance(widget, QComboBox):
                 widget.currentTextChanged.connect(self._highlight_empty_fields)
             elif isinstance(widget, QDateEdit):
+                # Make sure we clear the "empty" tint when user sets a date
                 widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
 
-        # Make the window taller on open (within screen bounds) so buttons are visible
+        # Wire dirty tracking AFTER fields exist
+        self._wire_dirty_tracking()
+
+        # Initial load
+        self.load_invoice(self.current_index)
+
+        # Resize to avoid buttons being off-screen, and fit the PDF to width
         QTimer.singleShot(0, self._resize_to_fit_content)
-        # Ensure PDF starts as fit-to-width after initial layout
         QTimer.singleShot(0, lambda: self.viewer.fit_width())
 
-    # -----------------------------
-    # Apply initial splitter proportions
-    # -----------------------------
+        # Guarded file list navigation
+        self.file_list.currentRowChanged.connect(self._on_file_list_row_changed)
+
+    # ---------- Layout helpers ----------
     def _apply_splitter_proportions(self):
-        """Set initial splitter sizes to ~10% / 50% / 40% of current width."""
         total = max(1, self.splitter.width())
         sizes = [int(total * 0.10), int(total * 0.50), int(total * 0.40)]
-        sizes[2] = max(1, total - sizes[0] - sizes[1])  # exact fill
+        sizes[2] = max(1, total - sizes[0] - sizes[1])
         self.splitter.setSizes(sizes)
 
-    # -----------------------------
-    # Resize dialog on open to avoid scrolling to actions
-    # -----------------------------
     def _resize_to_fit_content(self):
-        """Resize the dialog so calculator buttons are visible w/o scrolling,
-        but never exceed the available screen area."""
         screen = self.windowHandle().screen() if self.windowHandle() else QGuiApplication.primaryScreen()
         if not screen:
             return
@@ -355,215 +291,240 @@ class ManualEntryDialog(QDialog):
         if hasattr(self, "viewer") and self.viewer:
             self.viewer.fit_width()
 
-    # -----------------------------
-    # Keyboard: arrow navigation when no field is focused
-    # -----------------------------
+    # ---------- Keyboard nav ----------
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Left, Qt.Key_Right):
             if not self._entry_field_has_focus():
                 if event.key() == Qt.Key_Left:
-                    self.show_prev()
+                    self._on_prev_clicked()
                 else:
-                    self.show_next()
+                    self._on_next_clicked()
                 event.accept()
                 return
         super().keyPressEvent(event)
 
     def _entry_field_has_focus(self):
-        """Return True if a text-entry-like widget currently has focus."""
         w = self.focusWidget()
         return isinstance(w, (QLineEdit, QComboBox, QDateEdit))
 
-    # -----------------------------
-    # Deletion logic (NEW)
-    # -----------------------------
+    # ---------- Deletion ----------
     def _confirm_delete_current(self):
         if not self.pdf_paths:
             return
         path = self.pdf_paths[self.current_index]
         fname = os.path.basename(path) if path else "(unknown)"
         confirm = QMessageBox.question(
-            self,
-            "Delete Invoice",
+            self, "Delete Invoice",
             f"Are you sure you want to delete this invoice?\n\n{fname}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if confirm == QMessageBox.Yes:
             self._delete_current_without_prompt()
 
     def _delete_current_without_prompt(self):
-        """Remove current invoice from lists, update UI, and navigate appropriately."""
         if not self.pdf_paths:
             return
-        
         idx = self.current_index
-
         if idx < 0 or idx >= len(self.pdf_paths):
             idx = max(0, min(idx, len(self.pdf_paths) - 1))
 
         path = self.pdf_paths[idx]
         self.file_list.blockSignals(True)
 
-        # Remove from data structures
+        # Remove from buffers
         self.pdf_paths.pop(idx)
         self.values_list.pop(idx)
+        self.saved_values_list.pop(idx)
         self._deleted_files.append(path)
 
-        # Update file list UI
+        # Remove from UI list
         item = self.file_list.takeItem(idx)
         if item:
             del item
 
-        # Notify parent immediately so it can update InvoiceTable
+        # Tell parent to remove table row
         self.file_deleted.emit(path)
 
+        # No files left: close
         if not self.pdf_paths:
-            # Nothing left: close the dialog as 'save' to persist removals
             self.file_list.blockSignals(False)
             QMessageBox.information(self, "All Done", "All invoices were deleted.")
             self.save_changes = True
             self.accept()
             return
 
-        # Choose next index: stay at same position if possible, else step back
-        if idx >= len(self.pdf_paths):
-            new_index = len(self.pdf_paths) - 1
-        else:
-            new_index = idx
-
+        # Go to the next logical file
+        new_index = idx if idx < len(self.pdf_paths) else (len(self.pdf_paths) - 1)
         self.file_list.setCurrentRow(new_index)
         self.current_index = new_index
         self.file_list.blockSignals(False)
-
-        # Load the next/previous invoice
         self.load_invoice(new_index)
 
-    # -----------------------------
-    # Persistence / Navigation
-    # -----------------------------
+    # ---------- Persistence / navigation ----------
     def save_current_invoice(self):
         if not self.values_list:
             return
         self.values_list[self.current_index] = self.get_data()
 
+    def _load_values_into_widgets(self, values):
+        """Programmatic set (guarded -> doesn't mark dirty)."""
+        self._loading = True
+        try:
+            vals = list(values) + [""] * (8 - len(values))
+
+            self.vendor_combo.setCurrentText(vals[0])
+            self.fields["Invoice Number"].setText(vals[1])
+            self.fields["PO Number"].setText(vals[2])
+
+            # Invoice Date
+            self.fields["Invoice Date"].setDate(QDate.currentDate())
+            inv = vals[3].strip()
+            if inv:
+                d = self._parse_mmddyy(inv)
+                if d.isValid():
+                    self.fields["Invoice Date"].setDate(d)
+
+            self.fields["Discount Terms"].setText(vals[4])
+
+            # Due Date
+            self.fields["Due Date"].setDate(QDate.currentDate())
+            due = vals[5].strip()
+            if due:
+                d2 = self._parse_mmddyy(due)
+                if d2.isValid():
+                    self.fields["Due Date"].setDate(d2)
+
+            # Currency fields
+            self.fields["Discounted Total"].setText(vals[6])
+            self.fields["Total Amount"].setText(vals[7])
+            self._apply_pretty_currency_display()
+
+            # Highlighting
+            self.empty_date_fields = set()
+            if not vals[3].strip():
+                self.empty_date_fields.add("Invoice Date")
+            if not vals[5].strip():
+                self.empty_date_fields.add("Due Date")
+            self._highlight_empty_fields()
+        finally:
+            # Reset dirty to reflect snapshot equality
+            self._dirty = False
+            self._loading = False
+
+    def _parse_mmddyy(self, s):
+        # Accept MM/DD/YY or MM/DD/YYYY
+        parts = s.split("/")
+        if len(parts) == 3:
+            try:
+                m, d, y = int(parts[0]), int(parts[1]), int(parts[2])
+                if y < 100:
+                    y = 2000 + y
+                qd = QDate(y, m, d)
+                return qd if qd.isValid() else QDate()
+            except Exception:
+                return QDate()
+        return QDate.fromString(s, "MM/dd/yy")
+
     def load_invoice(self, index):
         if not self.pdf_paths:
             return
-        if index < 0:
-            index = 0
-        elif index >= len(self.pdf_paths):
-            index = len(self.pdf_paths) - 1
-
+        index = max(0, min(index, len(self.pdf_paths) - 1))
         self.current_index = index
         self.mark_file_viewed(index)
-        values = self.values_list[index]
 
-        self.vendor_combo.setCurrentText(values[0])
-        self.fields["Invoice Number"].setText(values[1])
-        self.fields["PO Number"].setText(values[2])
+        # Load widgets (guard prevents dirty)
+        self._load_values_into_widgets(self.values_list[index])
 
-        # Invoice Date
-        self.fields["Invoice Date"].setDate(QDate.currentDate())
-        invoice_date = values[3]
-        try:
-            date_obj = QDate.fromString(invoice_date, "MM/dd/yy")
-            if date_obj.isValid() and date_obj.year() < 2000:
-                year = date_obj.year() % 100
-                date_obj = QDate(2000 + year, date_obj.month(), date_obj.day())
-            if date_obj.isValid():
-                self.fields["Invoice Date"].setDate(date_obj)
-        except Exception as e:
-            print(f"Error parsing invoice date: {e}")
-
-        self.fields["Discount Terms"].setText(values[4])
-
-        # Due Date
-        self.fields["Due Date"].setDate(QDate.currentDate())
-        due_date = values[5]
-        if due_date.strip():
-            try:
-                new_date = QDate()
-                if '/' in due_date:
-                    parts = due_date.split('/')
-                    if len(parts) == 3:
-                        month = int(parts[0])
-                        day = int(parts[1])
-                        year = int(parts[2])
-                        if year < 100:
-                            year = 2000 + year
-                        new_date = QDate(year, month, day)
-
-                if not new_date.isValid():
-                    date_obj = QDate.fromString(due_date, "MM/dd/yy")
-                    if date_obj.isValid():
-                        correct_year = 2000 + (date_obj.year() % 100)
-                        new_date = QDate(correct_year, date_obj.month(), date_obj.day())
-                if new_date.isValid():
-                    self.fields["Due Date"].setDate(new_date)
-            except Exception as e:
-                print(f"Error parsing due date '{due_date}': {e}")
-
-        # Currency fields: set text from values and apply pretty display
-        self.fields["Discounted Total"].setText(values[6])
-        self.fields["Total Amount"].setText(values[7])
-        self._apply_pretty_currency_display()
-
-        # Track empty date fields for highlighting
-        self.empty_date_fields = set()
-        if not values[3].strip():
-            self.empty_date_fields.add("Invoice Date")
-        if not values[5].strip():
-            self.empty_date_fields.add("Due Date")
-
-        self._highlight_empty_fields()
-
-        # Update navigation buttons and list selection
+        # Enable/disable nav
         self.prev_button.setDisabled(index == 0)
         self.next_button.setDisabled(index == len(self.pdf_paths) - 1)
+
+        # Sync list selection without triggering guard
         if self.file_list.currentRow() != index:
             self.file_list.blockSignals(True)
             self.file_list.setCurrentRow(index)
             self.file_list.blockSignals(False)
 
-        # Replace PDF viewer
+        # Refresh viewer
         new_viewer = InteractivePDFViewer(self.pdf_paths[index])
-        index_in_splitter = self.splitter.indexOf(self.viewer)
-        self.splitter.replaceWidget(index_in_splitter, new_viewer)
+        i = self.splitter.indexOf(self.viewer)
+        self.splitter.replaceWidget(i, new_viewer)
         new_viewer.show()
         self.viewer.deleteLater()
         self.viewer = new_viewer
-        self.splitter.setStretchFactor(index_in_splitter, 1)
+        self.splitter.setStretchFactor(i, 1)
         QTimer.singleShot(0, self._apply_splitter_proportions)
         QTimer.singleShot(0, lambda: self.viewer.fit_width())
 
-    def switch_to_index(self, index):
-        if index < 0 or index >= len(self.pdf_paths):
-            return
-        if index == self.current_index:
-            return
-        self.save_current_invoice()
-        self.load_invoice(index)
+    def _navigate_to_index(self, index):
+        if 0 <= index < len(self.pdf_paths):
+            self.save_current_invoice()
+            self.load_invoice(index)
 
-    def show_prev(self):
+    def _on_file_list_row_changed(self, index):
+        # Only act if actually changing rows
+        if index == self.current_index or index < 0 or index >= len(self.pdf_paths):
+            return
+        self._confirm_unsaved_then(lambda: self._navigate_to_index(index))
+
+    def _on_prev_clicked(self):
         if self.current_index > 0:
-            self.save_current_invoice()
-            self.load_invoice(self.current_index - 1)
+            self._confirm_unsaved_then(lambda: self._navigate_to_index(self.current_index - 1))
 
-    def show_next(self):
+    def _on_next_clicked(self):
         if self.current_index < len(self.pdf_paths) - 1:
-            self.save_current_invoice()
-            self.load_invoice(self.current_index + 1)
+            self._confirm_unsaved_then(lambda: self._navigate_to_index(self.current_index + 1))
 
     def on_save(self):
-        # Ensure currency fields are stored canonically
-        for label in self._currency_labels:
+        # Normalize currency (plain) before saving
+        for label in getattr(self, "_currency_labels", set()):
             w = self.fields.get(label)
             if w:
                 w.setText(self._money_plain(w.text()))
+
+        # Persist into working list
         self.save_current_invoice()
-        self.save_changes = True
-        self.accept()
+
+        # Snapshot as saved, emit outward, clear dirty
+        if self.pdf_paths:
+            idx = self.current_index
+            self.saved_values_list[idx] = deepcopy(self.values_list[idx])
+            self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx])
+        self._dirty = False
+        self._flash_saved()
+
+    def _on_cancel(self):
+        # Guarded close via Cancel button
+        self._confirm_unsaved_then(self.reject)
+
+    def closeEvent(self, event):
+        """Guard window-X close. Ensure 'No' actually closes."""
+        event.ignore()
+
+        def proceed_accept_close():
+            # Accept this close event
+            event.accept()
+
+        self._confirm_unsaved_then(proceed_accept_close)
+
+    # ---------- Tiny saved toast ----------
+    def _flash_saved(self):
+        from PyQt5.QtWidgets import QLabel
+        note = QLabel("Saved", self)
+        note.setStyleSheet("""
+            QLabel {
+                background-color: #e7f5e7;
+                color: #2f7a2f;
+                border: 1px solid #b9e0b9;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-weight: bold;
+            }
+        """)
+        note.adjustSize()
+        note.move(self.width() - note.width() - 60, self.height() - 60)
+        note.show()
+        QTimer.singleShot(1000, note.deleteLater)
 
     def mark_file_viewed(self, index):
         if index in self.viewed_files:
@@ -573,12 +534,7 @@ class ManualEntryDialog(QDialog):
         if item is not None:
             item.setForeground(QBrush(Qt.gray))
 
-    # -----------------------------
-    # Vendors / Helpers
-    # -----------------------------
-    def _on_date_changed(self, label):
-        self._clear_date_highlight(label)
-
+    # ---------- Vendors ----------
     def load_vendors(self):
         vendors = get_vendor_list()
         if vendors:
@@ -594,9 +550,10 @@ class ManualEntryDialog(QDialog):
                 self.vendor_combo.addItem(new_vendor)
                 self.vendor_combo.setCurrentText(new_vendor)
 
-    # -----------------------------
-    # Highlighting / Data extraction
-    # -----------------------------
+    def _on_date_changed(self, label):
+        self._clear_date_highlight(label)
+
+    # ---------- Highlighting / data extraction ----------
     def _clear_date_highlight(self, label):
         if label in getattr(self, "empty_date_fields", set()):
             self.empty_date_fields.remove(label)
@@ -620,17 +577,14 @@ class ManualEntryDialog(QDialog):
             "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
             "Discount Terms", "Due Date", "Discounted Total", "Total Amount",
         ]:
-            widget = self.fields[label]
-            if isinstance(widget, QDateEdit):
-                value = widget.date().toString("MM/dd/yy")
-            elif isinstance(widget, QComboBox):
-                value = widget.currentText().strip()
+            w = self.fields[label]
+            if isinstance(w, QDateEdit):
+                value = w.date().toString("MM/dd/yy")
+            elif isinstance(w, QComboBox):
+                value = w.currentText().strip()
             else:
-                txt = widget.text().strip()
-                if label in getattr(self, "_currency_labels", set()):
-                    value = self._money_plain(txt)
-                else:
-                    value = txt
+                txt = w.text().strip()
+                value = self._money_plain(txt) if label in getattr(self, "_currency_labels", set()) else txt
             data.append(value)
         return data
 
@@ -639,20 +593,15 @@ class ManualEntryDialog(QDialog):
         return self.values_list
 
     def get_deleted_files(self):
-        """Return a list of file paths deleted during this session."""
         return list(self._deleted_files)
 
-    # -----------------------------
-    # Quick Calculator logic
-    # -----------------------------
+    # ---------- Quick Calculator ----------
     def _recalc_quick_calc(self):
         sub = self._money(self.qc_subtotal.text())
         ship = self._money(self.qc_shipping.text())
         other = self._money(self.qc_other.text())
-
         disc_pct = self._percent(self.qc_disc_pct.text())
         disc_amt_input = self._money(self.qc_disc_amt.text())
-
         tax_pct = self._percent(self.qc_tax_pct.text())
         tax_amt_input = self._money(self.qc_tax_amt.text())
 
@@ -698,9 +647,7 @@ class ManualEntryDialog(QDialog):
                     w.setText(self._money_pretty(w.text()))
                 self._highlight_empty_fields()
 
-    # -----------------------------
-    # Currency helpers / formatting
-    # -----------------------------
+    # ---------- Currency utils ----------
     def _money(self, s):
         if not s:
             return None
@@ -762,14 +709,12 @@ class ManualEntryDialog(QDialog):
             return s
 
     def _apply_pretty_currency_display(self):
-        for label in self._currency_labels:
+        for label in getattr(self, "_currency_labels", set()):
             w = self.fields.get(label)
             if w and not w.hasFocus():
                 w.setText(self._money_pretty(w.text()))
 
-    # -----------------------------
-    # Focus-based pretty/plain toggle
-    # -----------------------------
+    # ---------- Event filter: pretty/plain on focus ----------
     def eventFilter(self, obj, event):
         if event.type() == QEvent.FocusIn:
             for label in getattr(self, "_currency_labels", set()):
@@ -786,3 +731,59 @@ class ManualEntryDialog(QDialog):
             if obj in getattr(self, "_calc_currency_fields", []):
                 obj.setText(self._money_pretty(obj.text()))
         return super().eventFilter(obj, event)
+
+    # ---------- Dirty tracking + guard ----------
+    def _wire_dirty_tracking(self):
+        """Mark dialog dirty when user edits a field (but not during programmatic loads)."""
+        for w in self.fields.values():
+            if hasattr(w, "textChanged"):
+                w.textChanged.connect(self._mark_dirty)
+            if hasattr(w, "currentIndexChanged"):
+                w.currentIndexChanged.connect(self._mark_dirty)
+            if isinstance(w, QDateEdit):
+                w.dateChanged.connect(self._mark_dirty)
+
+    def _mark_dirty(self, *args):
+        if self._loading:
+            return
+        self._dirty = True
+
+    def _discard_changes_current(self):
+        """Revert widgets and working copy to last-saved for the current file."""
+        idx = self.current_index
+        if 0 <= idx < len(self.saved_values_list):
+            snapshot = self.saved_values_list[idx]
+            self._load_values_into_widgets(snapshot)   # guarded -> won't mark dirty
+            self.values_list[idx] = deepcopy(snapshot)
+        self._dirty = False
+
+    def _confirm_unsaved_then(self, proceed_action):
+        """
+        If dirty, ask: Yes / Keep Editing / No
+        - Yes: save, then proceed_action()
+        - Keep Editing: do nothing
+        - No: discard, then proceed_action()
+        """
+        if not self._dirty:
+            proceed_action()
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Unsaved changes")
+        box.setText("You have unsaved changes. Do you want to save them before continuing?")
+        yes_btn = box.addButton("Yes", QMessageBox.YesRole)
+        keep_btn = box.addButton("Keep Editing", QMessageBox.RejectRole)  # your “Make Changes”
+        no_btn  = box.addButton("No", QMessageBox.DestructiveRole)
+        box.setDefaultButton(yes_btn)
+        box.exec_()
+
+        clicked = box.clickedButton()
+        if clicked is yes_btn:
+            self.on_save()
+            proceed_action()
+        elif clicked is keep_btn:
+            pass  # stay put
+        elif clicked is no_btn:
+            self._discard_changes_current()
+            proceed_action()
