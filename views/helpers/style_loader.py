@@ -1,5 +1,6 @@
 """Style loading utilities for the application."""
 import os
+import sys
 
 def load_stylesheet(filename):
     """Load a QSS stylesheet from a file.
@@ -30,8 +31,18 @@ def get_style_path(style_name):
     if not style_name.lower().endswith('.qss'):
         style_name += '.qss'
         
-    # Get the directory where views module is located
-    views_dir = os.path.dirname(os.path.dirname(__file__))
-    
-    # Build path to the style file
-    return os.path.join(views_dir, 'styles', style_name)
+    # Determine base path (supports PyInstaller bundles)
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(__file__)))
+
+    # Potential locations for styles depending on bundle layout
+    candidates = [
+        os.path.join(base, 'styles', style_name),
+        os.path.join(base, 'views', 'styles', style_name),
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    # Default to first candidate if none found
+    return candidates[0]
