@@ -13,24 +13,34 @@ except Exception as e:
 
 
 class _PDFGraphicsView(QGraphicsView):
-    """Graphics view that supports Ctrl+wheel zoom and rectangle selection via QRubberBand."""
+    """Graphics view that supports Ctrl+wheel zoom, rectangle selection (left-drag),
+    and panning with either Space (hold) or right-drag."""
     selectionMade = pyqtSignal(QRectF)  # scene rect (pixels in rendered image coords)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setDragMode(QGraphicsView.ScrollHandDrag)  # Spacebar also changes temporarily
+        self.setDragMode(QGraphicsView.ScrollHandDrag)  # used during Spacebar pan only
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setRenderHints(self.renderHints())  # default good enough
+        self.setRenderHints(self.renderHints())
+
+        # Disable default context menu so right-drag is clean
+        self.setContextMenuPolicy(Qt.NoContextMenu)
+
+        # Rubber-band selection (left-drag)
         self._rubber = QRubberBand(QRubberBand.Rectangle, self)
         self._origin = None
-        self._panning_override = False  # when spacebar held
+
+        # Spacebar panning override (uses built-in hand drag)
+        self._panning_override = False
+
+        # Right-button manual panning
+        self._rb_pan_active = False
+        self._rb_last_pos = None
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.ControlModifier:
-            # Let parent widget handle zoom; don’t scroll
             event.accept()
-            # forward to parent
             p = self.parent()
             if hasattr(p, "_on_ctrl_wheel"):
                 p._on_ctrl_wheel(event.angleDelta().y())
@@ -41,43 +51,74 @@ class _PDFGraphicsView(QGraphicsView):
         if event.key() == Qt.Key_Space:
             self._panning_override = True
             self.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.viewport().setCursor(Qt.ClosedHandCursor)
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Space:
             self._panning_override = False
-            # When not space, return to NoDrag so rectangle selection works
             self.setDragMode(QGraphicsView.NoDrag)
+            self.viewport().unsetCursor()
         super().keyReleaseEvent(event)
 
     def mousePressEvent(self, event):
-        # Left-click drag = selection (unless panning)
-        if event.button() == Qt.LeftButton and not self._panning_override:
+        # --- Right-button manual panning ---
+        if event.button() == Qt.RightButton:
+            self._rb_pan_active = True
+            self._rb_last_pos = event.pos()
+            self.viewport().setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+
+        # --- Left-button rectangle selection (unless in spacebar pan) ---
+        if event.button() == Qt.LeftButton and not self._panning_override and not self._rb_pan_active:
             self._origin = event.pos()
             self._rubber.setGeometry(QRect(self._origin, self._origin))
             self._rubber.show()
             event.accept()
             return
+
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        # Active right-button pan: move scrollbars by mouse delta
+        if self._rb_pan_active and self._rb_last_pos is not None:
+            delta = event.pos() - self._rb_last_pos
+            self._rb_last_pos = event.pos()
+            h = self.horizontalScrollBar()
+            v = self.verticalScrollBar()
+            h.setValue(h.value() - delta.x())
+            v.setValue(v.value() - delta.y())
+            event.accept()
+            return
+
+        # Resize selection rectangle while dragging with left button
         if self._rubber.isVisible() and self._origin is not None:
             rect = QRect(self._origin, event.pos()).normalized()
             self._rubber.setGeometry(rect)
             event.accept()
             return
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        # End right-button pan
+        if event.button() == Qt.RightButton and self._rb_pan_active:
+            self._rb_pan_active = False
+            self._rb_last_pos = None
+            self.viewport().unsetCursor()
+            event.accept()
+            return
+
+        # Finish left-button selection drag
         if self._rubber.isVisible() and self._origin is not None:
             self._rubber.hide()
             view_rect = QRect(self._origin, event.pos()).normalized()
             self._origin = None
-            # Map to scene coordinates
             top_left = self.mapToScene(view_rect.topLeft())
             bottom_right = self.mapToScene(view_rect.bottomRight())
             scene_rect = QRectF(top_left, bottom_right).normalized()
-            if scene_rect.width() > 4 and scene_rect.height() > 4:  # ignore tiny drags
+            if scene_rect.width() > 4 and scene_rect.height() > 4:
                 self.selectionMade.emit(scene_rect)
             event.accept()
             return

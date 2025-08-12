@@ -12,7 +12,7 @@ from PyQt5.QtGui import QBrush, QGuiApplication
 # Project components
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_dialog import VendorDialog
-from extractors.utils import get_vendor_list
+from extractors.utils import get_vendor_list, calculate_discount_due_date  # <<<< used for Due Date calc
 
 
 class ManualEntryDialog(QDialog):
@@ -40,7 +40,7 @@ class ManualEntryDialog(QDialog):
         self.current_index = start_index if 0 <= start_index < len(self.pdf_paths) else 0
         self._deleted_files = []
         self._dirty = False
-        self._loading = False           # <<< IMPORTANT: prevents false dirty on programmatic set
+        self._loading = False           # prevents false dirty on programmatic set
         self.save_changes = False
         self.viewed_files = set()
 
@@ -80,21 +80,29 @@ class ManualEntryDialog(QDialog):
         self.fields["PO Number"] = QLineEdit()
         form_layout.addRow(QLabel("PO Number:"), self.fields["PO Number"])
 
-        # Dates
+        # Invoice Date
         self.fields["Invoice Date"] = QDateEdit()
         self.fields["Invoice Date"].setCalendarPopup(True)
         self.fields["Invoice Date"].setDisplayFormat("MM/dd/yyyy")
         self.fields["Invoice Date"].setDate(QDate.currentDate())
         form_layout.addRow(QLabel("Invoice Date:"), self.fields["Invoice Date"])
 
+        # Discount Terms
         self.fields["Discount Terms"] = QLineEdit()
         form_layout.addRow(QLabel("Discount Terms:"), self.fields["Discount Terms"])
 
+        # Due Date + Calculate button
         self.fields["Due Date"] = QDateEdit()
         self.fields["Due Date"].setCalendarPopup(True)
         self.fields["Due Date"].setDisplayFormat("MM/dd/yyyy")
         self.fields["Due Date"].setDate(QDate.currentDate())
-        form_layout.addRow(QLabel("Due Date:"), self.fields["Due Date"])
+        due_row = QHBoxLayout()
+        due_row.addWidget(self.fields["Due Date"], 1)
+        self.due_calc_btn = QPushButton("Calculate")
+        self.due_calc_btn.setToolTip("Compute Due Date from Discount Terms and Invoice Date")
+        self.due_calc_btn.clicked.connect(self._on_calculate_due_date)
+        due_row.addWidget(self.due_calc_btn)
+        form_layout.addRow(QLabel("Due Date:"), due_row)
 
         # Currency fields
         self.fields["Discounted Total"] = QLineEdit()
@@ -102,7 +110,7 @@ class ManualEntryDialog(QDialog):
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
-        # Quick Calculator (simplified UI)
+        # Quick Calculator (no Tax rows)
         self.quick_calc_group = QGroupBox("Quick Calculator")
         qc = QFormLayout()
         qc.setVerticalSpacing(10)
@@ -115,16 +123,15 @@ class ManualEntryDialog(QDialog):
             return e
 
         self.qc_subtotal = new_lineedit()
-        self.qc_disc_pct = new_lineedit()
-        self.qc_disc_amt = new_lineedit()
+        self.qc_disc_pct = new_lineedit()   # %
+        self.qc_disc_amt = new_lineedit()   # $
         self.qc_shipping = new_lineedit()
-        self.qc_tax_pct = new_lineedit()
-        self.qc_tax_amt = new_lineedit()
-        self.qc_other = new_lineedit()
+        self.qc_other = new_lineedit()      # adjustments (+/-)
         self.qc_grand_total = QLabel("$0.00")
         self.qc_grand_total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.qc_grand_total.setStyleSheet("font-weight: bold;")
 
+        # Buttons to push result back into fields (as plain numbers)
         btn_row = QHBoxLayout()
         self.qc_apply_total = QPushButton("Apply → Total Amount")
         self.qc_apply_discounted = QPushButton("Apply → Discounted Total")
@@ -137,8 +144,6 @@ class ManualEntryDialog(QDialog):
         qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
         qc.addRow(QLabel("Discount $:"), self.qc_disc_amt)
         qc.addRow(QLabel("Shipping:"), self.qc_shipping)
-        qc.addRow(QLabel("Tax %:"), self.qc_tax_pct)
-        qc.addRow(QLabel("Tax $:"), self.qc_tax_amt)
         qc.addRow(QLabel("Other Adj. (+/−):"), self.qc_other)
         qc.addRow(QLabel("Grand Total:"), self.qc_grand_total)
         qc.addRow(btn_row)
@@ -151,7 +156,7 @@ class ManualEntryDialog(QDialog):
             "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
-        for b in (self.add_vendor_btn, self.qc_apply_total, self.qc_apply_discounted):
+        for b in (self.add_vendor_btn, self.qc_apply_total, self.qc_apply_discounted, self.due_calc_btn):
             b.setStyleSheet(primary_btn_css)
 
         # Navigation + delete
@@ -243,8 +248,9 @@ class ManualEntryDialog(QDialog):
             if w:
                 w.installEventFilter(self)
 
+        # Quick calc fields that use pretty/plain toggling (no tax fields now)
         self._calc_currency_fields = [
-            self.qc_subtotal, self.qc_disc_amt, self.qc_shipping, self.qc_tax_amt, self.qc_other
+            self.qc_subtotal, self.qc_disc_amt, self.qc_shipping, self.qc_other
         ]
         for w in self._calc_currency_fields:
             w.installEventFilter(self)
@@ -256,7 +262,6 @@ class ManualEntryDialog(QDialog):
             elif isinstance(widget, QComboBox):
                 widget.currentTextChanged.connect(self._highlight_empty_fields)
             elif isinstance(widget, QDateEdit):
-                # Make sure we clear the "empty" tint when user sets a date
                 widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
 
         # Wire dirty tracking AFTER fields exist
@@ -507,6 +512,37 @@ class ManualEntryDialog(QDialog):
 
         self._confirm_unsaved_then(proceed_accept_close)
 
+    # ---------- Due Date calculation ----------
+    def _on_calculate_due_date(self):
+        """Compute Due Date from Discount Terms + Invoice Date using project helper."""
+        terms = self.fields["Discount Terms"].text().strip()
+        invoice_date_str = self.fields["Invoice Date"].date().toString("MM/dd/yy")
+        try:
+            due_str = calculate_discount_due_date(terms, invoice_date_str)
+        except Exception as e:
+            print(f"[WARN] calculate_discount_due_date failed: {e}")
+            due_str = None
+
+        if not due_str:
+            QMessageBox.warning(
+                self, "Cannot Calculate Due Date",
+                "I couldn't determine a due date from those Discount Terms.\n"
+                "Try formats like 'NET 30', '2%10 NET 30', etc."
+            )
+            return
+
+        d = self._parse_mmddyy(due_str)
+        if not d.isValid():
+            QMessageBox.warning(
+                self, "Cannot Parse Due Date",
+                f"Got '{due_str}', but couldn't parse it as a date."
+            )
+            return
+
+        self.fields["Due Date"].setDate(d)
+        # Mark as modified by the user action
+        self._dirty = True
+
     # ---------- Tiny saved toast ----------
     def _flash_saved(self):
         from PyQt5.QtWidgets import QLabel
@@ -595,15 +631,14 @@ class ManualEntryDialog(QDialog):
     def get_deleted_files(self):
         return list(self._deleted_files)
 
-    # ---------- Quick Calculator ----------
+    # ---------- Quick Calculator (no tax) ----------
     def _recalc_quick_calc(self):
         sub = self._money(self.qc_subtotal.text())
         ship = self._money(self.qc_shipping.text())
         other = self._money(self.qc_other.text())
+
         disc_pct = self._percent(self.qc_disc_pct.text())
         disc_amt_input = self._money(self.qc_disc_amt.text())
-        tax_pct = self._percent(self.qc_tax_pct.text())
-        tax_amt_input = self._money(self.qc_tax_amt.text())
 
         disc_amt = disc_amt_input if disc_amt_input is not None else (
             (sub * disc_pct) if (sub is not None and disc_pct is not None) else 0.0
@@ -611,23 +646,11 @@ class ManualEntryDialog(QDialog):
         if disc_amt is None:
             disc_amt = 0.0
 
-        tax_base = None
-        if sub is not None:
-            tax_base = sub - disc_amt
-            if ship is not None:
-                tax_base += ship
-
-        tax_amt = tax_amt_input if tax_amt_input is not None else (
-            (tax_base * tax_pct) if (tax_base is not None and tax_pct is not None) else 0.0
-        )
-        if tax_amt is None:
-            tax_amt = 0.0
-
         if sub is None:
             self.qc_grand_total.setText("$0.00")
             return
 
-        total = sub - disc_amt + (ship or 0.0) + tax_amt + (other or 0.0)
+        total = sub - disc_amt + (ship or 0.0) + (other or 0.0)
         self.qc_grand_total.setText(self._fmt_money(total))
 
     def _apply_quick_total_to(self, target_label):
