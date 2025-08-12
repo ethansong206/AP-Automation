@@ -683,79 +683,89 @@ class InvoiceTable(QTableWidget):
         if self.columnCount() < 2 or self.rowCount() == 0:
             return
 
-        invoice_col = 1
+        try:
+            self.cellChanged.disconnect(self.handle_cell_changed)
+            was_connected = True
+        except TypeError:
+            was_connected = False
 
-        # 1) Build groups
-        groups = {}
-        for row in range(self.rowCount()):
-            inv = self.get_cell_text(row, invoice_col)
-            norm = self._normalize_invoice_number(inv)
-            if not norm:
-                continue
-            groups.setdefault(norm, []).append(row)
+        try:
+            invoice_col = 1
+
+            # 1) Build groups
+            groups = {}
+            for row in range(self.rowCount()):
+                inv = self.get_cell_text(row, invoice_col)
+                norm = self._normalize_invoice_number(inv)
+                if not norm:
+                    continue
+                groups.setdefault(norm, []).append(row)
 
         # 2) Prepare superscripts if needed
-        superscripts = {1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹"}
+            superscripts = {1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹"}
 
-        # 3) First, restore original text & coloring on all invoice-number cells
-        for row in range(self.rowCount()):
-            item = self.item(row, invoice_col)
-            if not item:
-                continue
-            base_text = item.data(Qt.UserRole + 20)
-            if base_text is None:
-                base_text = item.text()
-            # Always reset the display text to the base/original (no tags)
-            item.setText(str(base_text))
-            # Reset background/stripe so our normal highlight pipeline can apply later
-            item.setBackground(QColor(COLORS['WHITE']))
-            item.setData(Qt.UserRole + 2, None)  # clear stripe color
-            item.setData(Qt.UserRole + 20, str(base_text))
-
-        # 4) Apply duplicate markings
-        dup_norms = [k for k, rows in groups.items() if len(rows) > 1]
-        if not dup_norms:
-            self._last_duplicate_groups = {}
-            # reapply row-level coloring to reflect cleared state
-            for r in range(self.rowCount()):
-                self.rehighlight_row(r)
-            return
-
-        # Assign a stable group index for each duplicate set (1..N)
-        dup_norms_sorted = sorted(dup_norms)
-        group_index_map = {norm: idx + 1 for idx, norm in enumerate(dup_norms_sorted)}
-
-        # Light purple for duplicates (does not rely on COLORS dict)
-        dup_bg = QColor("#F5E6FF")
-
-        for norm, rows in groups.items():
-            if len(rows) < 2:
-                continue
-            gidx = group_index_map[norm]
-            tag = superscripts.get(gidx, f"[{gidx}]")
-
-            for row in rows:
+            # 3) First, restore original text & coloring on all invoice-number cells
+            for row in range(self.rowCount()):
                 item = self.item(row, invoice_col)
                 if not item:
                     continue
-                # Light purple on invoice number cell
-                item.setBackground(dup_bg)
+                base_text = item.data(Qt.UserRole + 20)
+                if base_text is None:
+                    base_text = item.text()
+                # Always reset the display text to the base/original (no tags)
+                item.setText(str(base_text))
+                # Reset background/stripe so our normal highlight pipeline can apply later
+                item.setBackground(QColor(COLORS['WHITE']))
+                item.setData(Qt.UserRole + 2, None)  # clear stripe color
+                item.setData(Qt.UserRole + 20, str(base_text))
 
-                if self.duplicate_marking_mode == "tag":
-                    # Append superscript group tag to displayed text
-                    clean_text = item.data(Qt.UserRole + 20)
-                    if clean_text is None:
-                        clean_text = item.text()
-                    item.setData(Qt.UserRole + 20, str(clean_text))  # ensure cache is set
-                    display = f"{clean_text} {tag}"
-                    item.setText(display)
+            # 4) Apply duplicate markings
+            dup_norms = [k for k, rows in groups.items() if len(rows) > 1]
+            if not dup_norms:
+                self._last_duplicate_groups = {}
+                # reapply row-level coloring to reflect cleared state
+                for r in range(self.rowCount()):
+                    self.rehighlight_row(r)
+                return
 
-        self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
+            # Assign a stable group index for each duplicate set (1..N)
+            dup_norms_sorted = sorted(dup_norms)
+            group_index_map = {norm: idx + 1 for idx, norm in enumerate(dup_norms_sorted)}
 
-        # Reapply row-level coloring so manual/auto flags still show;
-        # our cell-level background on the invoice number will remain.
-        for r in range(self.rowCount()):
-            self.rehighlight_row(r)
+            # Light purple for duplicates (does not rely on COLORS dict)
+            dup_bg = QColor("#F5E6FF")
+
+            for norm, rows in groups.items():
+                if len(rows) < 2:
+                    continue
+                gidx = group_index_map[norm]
+                tag = superscripts.get(gidx, f"[{gidx}]")
+
+                for row in rows:
+                    item = self.item(row, invoice_col)
+                    if not item:
+                        continue
+                    # Light purple on invoice number cell
+                    item.setBackground(dup_bg)
+
+                    if self.duplicate_marking_mode == "tag":
+                        # Append superscript group tag to displayed text
+                        clean_text = item.data(Qt.UserRole + 20)
+                        if clean_text is None:
+                            clean_text = item.text()
+                        item.setData(Qt.UserRole + 20, str(clean_text))  # ensure cache is set
+                        display = f"{clean_text} {tag}"
+                        item.setText(display)
+
+            self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
+
+            # Reapply row-level coloring so manual/auto flags still show;
+            # our cell-level background on the invoice number will remain.
+            for r in range(self.rowCount()):
+                self.rehighlight_row(r)
+        finally:
+            if was_connected:
+                self.cellChanged.connect(self.handle_cell_changed)
 
     def update_row_by_source(self, file_path: str, row_values: list):
         """Update an existing row based on its file path."""

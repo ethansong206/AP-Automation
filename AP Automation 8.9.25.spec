@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='AP Automation 8.9.25',
+    name='AP Automation 8.10.25',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
