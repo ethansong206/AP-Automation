@@ -225,6 +225,15 @@ class InvoiceTable(QTableWidget):
 
     def add_row(self, row_data, file_path, is_no_ocr=False):
         """Add a new row to the table."""
+        sorting_enabled = self.isSortingEnabled()
+        if sorting_enabled:
+            header = self.horizontalHeader()
+            sort_col = header.sortIndicatorSection()
+            sort_order = header.sortIndicatorOrder()
+            self.setSortingEnabled(False)
+        else:
+            sort_col = sort_order = None
+        
         # Ensure row_data has at least 8 elements (for all columns)
         while len(row_data) < 8:
             row_data.append("")
@@ -248,9 +257,11 @@ class InvoiceTable(QTableWidget):
             button = QPushButton("MANUAL ENTRY")
             # Store the file path on both the button AND the container
             button.setProperty("file_path", file_path)
-            container.setProperty("file_path", file_path)  # Add this line
-            button.clicked.connect(lambda _, r=row_position, b=button: 
-                                 self.manual_entry_clicked.emit(r, b))
+            container.setProperty("file_path", file_path)
+            # Determine row at click time to support sorting
+            button.clicked.connect(
+                lambda _, w=container, b=button: self._emit_manual_entry_from_widget(w, b)
+            )
 
             # Make button shorter
             button.setStyleSheet("""
@@ -291,7 +302,24 @@ class InvoiceTable(QTableWidget):
         self.resize_vendor_column()
 
         self.update_duplicate_invoice_markers()
+
+        if sorting_enabled:
+            self.setSortingEnabled(True)
+            self.sortByColumn(sort_col, sort_order)
+
         return row_position
+    
+    def _emit_manual_entry_from_widget(self, widget, button=None):
+        """Emit manual entry signal using the widget's current row.
+
+        This determines the row at click time so that sorting the table
+        doesn't cause the Manual Entry dialog to open for the wrong file.
+        """
+        if not widget:
+            return
+        index = self.indexAt(widget.pos())
+        row = index.row()
+        self.manual_entry_clicked.emit(row, button)
 
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
         """Populate the cells of a row with data."""
@@ -340,9 +368,9 @@ class InvoiceTable(QTableWidget):
         cell_widget.setProperty("file_path", file_path)
         
         # CRITICAL: Add a custom event to handle clicks on the widget
-        # This overrides mouseReleaseEvent to emit our signal
-        def mouse_release_handler(event):
-            self.manual_entry_clicked.emit(row_position, None)
+        # Determine the row at click time so sorting doesn't break selection
+        def mouse_release_handler(event, w=cell_widget):
+            self._emit_manual_entry_from_widget(w)
     
         cell_widget.mouseReleaseEvent = mouse_release_handler
     
