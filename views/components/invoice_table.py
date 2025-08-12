@@ -628,9 +628,13 @@ class InvoiceTable(QTableWidget):
     def get_cell_text(self, row, col):
         """Safely get the text from a cell."""
         item = self.item(row, col)
-        if item:
-            return item.text()
-        return ""
+        if not item:
+            return ""
+        if col == 1:
+            clean = item.data(Qt.UserRole + 20)
+            if clean is not None:
+                return str(clean)
+        return item.text()
 
     def update_calculated_field(self, row, col, value, is_auto_calculated=True):
         """Update a cell with a calculated value."""
@@ -698,12 +702,15 @@ class InvoiceTable(QTableWidget):
             item = self.item(row, invoice_col)
             if not item:
                 continue
-            base_text = item.data(Qt.UserRole) if item.data(Qt.UserRole) is not None else item.text()
+            base_text = item.data(Qt.UserRole + 20)
+            if base_text is None:
+                base_text = item.text()
             # Always reset the display text to the base/original (no tags)
             item.setText(str(base_text))
             # Reset background/stripe so our normal highlight pipeline can apply later
             item.setBackground(QColor(COLORS['WHITE']))
             item.setData(Qt.UserRole + 2, None)  # clear stripe color
+            item.setData(Qt.UserRole + 20, str(base_text))
 
         # 4) Apply duplicate markings
         dup_norms = [k for k, rows in groups.items() if len(rows) > 1]
@@ -736,14 +743,12 @@ class InvoiceTable(QTableWidget):
 
                 if self.duplicate_marking_mode == "tag":
                     # Append superscript group tag to displayed text
-                    base_text = item.data(Qt.UserRole) if item.data(Qt.UserRole) is not None else item.text()
-                    display = f"{base_text} {tag}"
+                    clean_text = item.data(Qt.UserRole + 20)
+                    if clean_text is None:
+                        clean_text = item.text()
+                    item.setData(Qt.UserRole + 20, str(clean_text))  # ensure cache is set
+                    display = f"{clean_text} {tag}"
                     item.setText(display)
-
-                # You can also add a subtle stripe on vendor column if desired:
-                # vendor_item = self.item(row, 0)
-                # if vendor_item:
-                #     vendor_item.setData(Qt.UserRole + 2, "#F5E6FF")  # delegate stripe
 
         self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
 
@@ -751,7 +756,6 @@ class InvoiceTable(QTableWidget):
         # our cell-level background on the invoice number will remain.
         for r in range(self.rowCount()):
             self.rehighlight_row(r)
-
 
     def update_row_by_source(self, file_path: str, row_values: list):
         """Update an existing row based on its file path."""
