@@ -290,7 +290,7 @@ class InvoiceApp(QWidget):
             return
         
         # Open file dialog for user to select destination
-        options = QFileDialog.Options()
+        options = QFileDialog.Options() | QFileDialog.DontConfirmOverwrite
         default_name = "accounting_import.csv"
         filename, _ = QFileDialog.getSaveFileName(
             self,
@@ -309,7 +309,7 @@ class InvoiceApp(QWidget):
 
         success, message = self.invoice_controller.export_to_csv(filename)
         if success:
-            QMessageBox.information(self, "Export Successful", f"Data successfully exported to:\n{filename}")
+            QMessageBox.information(self, "Export Successful", message)
             print(f"[INFO] {message}")
         else:
             QMessageBox.critical(self, "Export Failed", f"Error: {message}")

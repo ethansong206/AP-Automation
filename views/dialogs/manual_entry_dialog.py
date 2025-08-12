@@ -11,7 +11,7 @@ from PyQt5.QtGui import QBrush, QGuiApplication
 
 # Project components
 from views.components.pdf_viewer import InteractivePDFViewer
-from views.dialogs.vendor_dialog import VendorDialog
+from views.dialogs.vendor_dialog import AddVendorFlow
 from extractors.utils import get_vendor_list, calculate_discount_due_date  # <<<< used for Due Date calc
 
 
@@ -487,6 +487,48 @@ class ManualEntryDialog(QDialog):
             if w:
                 w.setText(self._money_plain(w.text()))
 
+        typed_vendor = (self.vendor_combo.currentText() or "").strip()
+
+        current_names = {
+            self.vendor_combo.itemText(i).strip().lower()
+            for i in range(self.vendor_combo.count())
+        }
+
+        if typed_vendor and typed_vendor.lower() not in current_names:
+            warn = QMessageBox.warning(
+                self,
+                "Unknown Vendor",
+                (
+                    f"‘{typed_vendor}’ isn’t in your vendor list.\n\n"
+                    "You’ll need to add it first (Vendor Name → Vendor Number → optional Identifier).\n"
+                    "Vendor Number is required; Identifier is optional."
+                ),
+                QMessageBox.Ok | QMessageBox.Cancel,
+                QMessageBox.Ok
+            )
+            if warn == QMessageBox.Cancel:
+                return  # abort save; let the user decide later
+
+            # Launch the exact same guided flow as the New Vendor button
+            current_pdf = (
+                self.pdf_paths[self.current_index]
+                if (self.pdf_paths and 0 <= self.current_index < len(self.pdf_paths))
+                else ""
+            )
+            flow = AddVendorFlow(pdf_path=current_pdf, parent=self, prefill_vendor_name=typed_vendor)
+            if flow.exec_() != QDialog.Accepted:
+                return  # user canceled adding the vendor; don't save yet
+
+            # Refresh dropdown and select the new vendor
+            self.load_vendors()
+            added_vendor = getattr(flow, "get_final_vendor_name", lambda: None)()
+            if added_vendor:
+                self.vendor_combo.setCurrentText(added_vendor)
+            else:
+                # Safety: if for some reason we didn't get a name back, bail to avoid saving with unknown vendor
+                QMessageBox.warning(self, "Vendor Not Added", "The vendor wasn’t added. Please try again.")
+                return
+
         # Persist into working list
         self.save_current_invoice()
 
@@ -579,12 +621,25 @@ class ManualEntryDialog(QDialog):
             self.vendor_combo.addItems(vendors)
 
     def add_new_vendor(self):
-        dialog = VendorDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            new_vendor = dialog.get_name()
-            if new_vendor:
-                self.vendor_combo.addItem(new_vendor)
-                self.vendor_combo.setCurrentText(new_vendor)
+        """Launch the guided flow to add a vendor (Name → Number → optional Identifier)."""
+        # Current PDF (for identifier-in-PDF checks inside the flow)
+        current_pdf = (
+            self.pdf_paths[self.current_index]
+            if (self.pdf_paths and 0 <= self.current_index < len(self.pdf_paths))
+            else ""
+        )
+
+        # Pre-fill with whatever the user already typed into the combo (if any)
+        prefill_name = self.vendor_combo.currentText().strip()
+
+        flow = AddVendorFlow(pdf_path=current_pdf, parent=self, prefill_vendor_name=prefill_name)
+        if flow.exec_() == QDialog.Accepted:
+            # The flow handles writing to vendors.csv (and manual map if identifier provided)
+            # Now refresh the dropdown and select the added vendor.
+            self.load_vendors()
+            added_vendor = getattr(flow, "get_final_vendor_name", lambda: None)()
+            if added_vendor:
+                self.vendor_combo.setCurrentText(added_vendor)
 
     def _on_date_changed(self, label):
         self._clear_date_highlight(label)

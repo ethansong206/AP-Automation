@@ -3,6 +3,50 @@ import csv
 import re
 from datetime import datetime
 
+def _should_write_headers(filename: str) -> bool:
+    """Return True if we should write headers (new or empty file)."""
+    try:
+        return (not os.path.exists(filename)) or os.path.getsize(filename) == 0
+    except Exception:
+        # If in doubt, be safe and write headers
+        return True
+
+def _scan_existing_pairs(filename: str) -> set[tuple]:
+    """
+    Read an existing export file and return a set of existing (VCHR_row, DIST_row) pairs,
+    stored as tuples of strings for exact comparison. Assumes rows are written in order:
+    1-AI_VCHR followed immediately by 2-AI_VCHR_DIST. Header lines are ignored.
+    """
+    pairs = set()
+    if not os.path.exists(filename) or os.path.getsize(filename) == 0:
+        return pairs
+
+    try:
+        with open(filename, "r", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            last_vchr = None
+            for row in reader:
+                if not row:
+                    continue
+                tag = row[0].strip() if row else ""
+                # Skip header rows (they are not tagged with 1-AI_VCHR/2-AI_VCHR_DIST first col)
+                if row == VCHR_HEADER or row == DIST_HEADER:
+                    continue
+                if tag == "1-AI_VCHR":
+                    last_vchr = tuple(row)
+                elif tag == "2-AI_VCHR_DIST":
+                    if last_vchr is not None:
+                        pairs.add((last_vchr, tuple(row)))
+                        last_vchr = None
+                else:
+                    # Any other unexpected row type: reset the latch
+                    last_vchr = None
+    except Exception:
+        # If anything goes wrong reading, just treat as empty (no duplicates known)
+        return set()
+
+    return pairs
+
 # Define headers for the accounting system import format
 VCHR_HEADER = [
     "1-AI_VCHR", "VCHR_VEND_NO", "VCHR_NO", "BAT_ID", "VCHR_DIST_DAT", 
@@ -31,22 +75,28 @@ def export_accounting_csv(filename, invoice_table):
         print(f"[INFO] Starting export to {filename}")
         print(f"[INFO] Table has {invoice_table.rowCount()} rows")
         
-        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        write_headers = _should_write_headers(filename)
+        existing_pairs = _scan_existing_pairs(filename) if not write_headers else set()
+        
+        mode = 'a' if not write_headers else 'w'
+        with open(filename, mode, newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
             
             # Write the record type headers
-            writer.writerow(VCHR_HEADER)
-            writer.writerow(DIST_HEADER)
+            if write_headers:
+                writer.writerow(VCHR_HEADER)
+                writer.writerow(DIST_HEADER)
             
             # Process each invoice row
             rows_written = 0
+            rows_skipped_dup = 0
+
             for row in range(invoice_table.rowCount()):
                 print(f"[INFO] Processing row {row}")
                 
                 # Get vendor name for lookup - ensure aggressive cleaning
                 raw_vendor_name = invoice_table.get_cell_text(row, 0)
                 vendor_name = re.sub(r'\s+', ' ', raw_vendor_name.strip())
-
                 if not vendor_name:
                     print(f"[INFO] Skipping row {row}: Invalid vendor '{vendor_name}'")
                     continue
@@ -128,19 +178,29 @@ def export_accounting_csv(filename, invoice_table):
                 vchr_row.append("")  # SPEC_TERMS
                 vchr_row.append("")  # VEND_TERMS
                 
-                writer.writerow(vchr_row)
-                
                 # Write main distribution line (inventory account)
                 dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", 
                           DEFAULT_INVENTORY_ACCT, DEFAULT_INVENTORY_ACCT, 
                           clean_total]
+                
+                pair = (tuple(vchr_row), tuple(dist_row))
+                if pair in existing_pairs:
+                    rows_skipped_dup += 1
+                    print(f"[INFO] Skipping duplicate pair for invoice '{invoice_no}'")
+                    continue
+
+                writer.writerow(vchr_row)
                 writer.writerow(dist_row)
+                existing_pairs.add(pair)
                 
                 print(f"[INFO] Successfully wrote row {row} for {vendor_name} (ID: {vendor_id})")
                 rows_written += 1
             
-            print(f"[INFO] Export completed: {rows_written} rows written")
-            return True, f"Successfully exported {rows_written} invoices to {filename}."
+            print(f"[INFO] Export completed: wrote={rows_written}, skipped_dups={rows_skipped_dup}")
+            if write_headers:
+                return True, f"Created new file and wrote {rows_written} invoices to {filename}."
+            else:
+                return True, f"Appended {rows_written} invoices to existing file (skipped {rows_skipped_dup} duplicates)."
     except Exception as e:
         print(f"[ERROR] Export failed: {str(e)}")
         return False, f"Export failed: {str(e)}"
@@ -331,20 +391,25 @@ def write_to_csv(filename, data_source):
         else:
             print(f"[INFO] Processing pre-formatted list with {len(data_source)} rows")
             
-            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            write_headers = _should_write_headers(filename)
+            existing_pairs = _scan_existing_pairs(filename) if not write_headers else set()
+
+            mode = 'a' if not write_headers else 'w'
+            with open(filename, mode, newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
-                
-                # Write the record type headers
-                writer.writerow(VCHR_HEADER)
-                writer.writerow(DIST_HEADER)
-                
-                # Process each invoice row from the list
+
+                if write_headers:
+                    writer.writerow(VCHR_HEADER)
+                    writer.writerow(DIST_HEADER)
+
+                rows_written = 0
+                rows_skipped_dup = 0
+
                 for row_data in data_source:
                     if len(row_data) < 9:
                         print(f"[WARN] Skipping invalid row: {row_data}")
                         continue
-                    
-                    # Extract data from the pre-formatted row
+
                     vendor_id = clean_text(row_data[0]) or "0"
                     invoice_date = clean_text(row_data[1])
                     invoice_no = clean_text(row_data[2])
@@ -354,71 +419,51 @@ def write_to_csv(filename, data_source):
                     acct_no = row_data[6]
                     cp_acct_no = row_data[7]
                     amount = clean_amount(row_data[8])
-                    
-                    # Format for accounting system
+
                     batch_id = "AP-0001"
                     dist_date = format_date_for_export(datetime.now())
-                    
-                    # Build the row with exactly 47 columns to match VCHR_HEADER
-                    vchr_row = ["1-AI_VCHR", vendor_id, invoice_no, batch_id, dist_date, 
-                              invoice_date, invoice_no, "", vendor_name, "0.00",
-                              due_date, invoice_date, "0.00", "0.00", po_no]
-                    
-                    # Add misc amounts (cols 16-20)
-                    for i in range(5):
-                        vchr_row.append("0.00")
-                    
-                    # Add totals (cols 21-24)
-                    vchr_row.append("0.00")  # VCHR_TOT_MISC
-                    vchr_row.append(amount)  # VCHR_SUB_TOT
-                    vchr_row.append(amount)  # VCHR_SUB_TOT_LANDED
-                    vchr_row.append(amount)  # VCHR_TOT
-                    
-                    # Add line misc charges (cols 25-29)
-                    for i in range(5):
-                        vchr_row.append("0.00")
-                    
-                    # TOT_LIN_MISC_CHRG (col 30)
+
+                    vchr_row = ["1-AI_VCHR", vendor_id, invoice_no, batch_id, dist_date,
+                                invoice_date, invoice_no, "", vendor_name, "0.00",
+                                due_date, invoice_date, "0.00", "0.00", po_no]
+                    for _ in range(5): vchr_row.append("0.00")
                     vchr_row.append("0.00")
-                    
-                    # NO_OF_RECVRS (col 31)
+                    vchr_row.append(amount)
+                    vchr_row.append(amount)
+                    vchr_row.append(amount)
+                    for _ in range(5): vchr_row.append("0.00")
+                    vchr_row.append("0.00")
                     vchr_row.append("1")
-                    
-                    # RECVR_MISC_AMT_1 through 5 (cols 32-36)
-                    for i in range(5):
-                        vchr_row.append("0.00")
-                    
-                    # RECVR_TOT_MISC (col 37)
-                    vchr_row.append("0.00")
-                    
-                    # RECVR_SUB_TOT and RECVR_TOT (cols 38-39)
+                    for _ in range(5): vchr_row.append("0.00")
                     vchr_row.append("0.00")
                     vchr_row.append("0.00")
-                    
-                    # TERMS_COD, DUE_DAYS, DISC_DAYS, DISC_PCT (cols 40-43)
+                    vchr_row.append("0.00")
                     vchr_row.append("N30")
                     vchr_row.append("30")
                     vchr_row.append("0")
                     vchr_row.append("0.000")
-                    
-                    # DISC_ACCT_NO, CP_DISC_ACCT_NO, SPEC_TERMS, VEND_TERMS (cols 44-47)
                     vchr_row.append(DEFAULT_DISCOUNT_ACCT)
                     vchr_row.append(DEFAULT_CP_DISCOUNT_ACCT)
                     vchr_row.append("")
                     vchr_row.append("")
-                    
-                    # Verify we have exactly 47 columns
-                    if len(vchr_row) != 47:
-                        print(f"[ERROR] Generated row has {len(vchr_row)} columns instead of 47!")
-                        
+
+                    dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", acct_no, cp_acct_no, amount]
+
+                    pair = (tuple(vchr_row), tuple(dist_row))
+                    if pair in existing_pairs:
+                        rows_skipped_dup += 1
+                        continue
+
                     writer.writerow(vchr_row)
-                    
-                    # Write distribution record
-                    dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", 
-                              acct_no, cp_acct_no, amount]
                     writer.writerow(dist_row)
+                    existing_pairs.add(pair)
+                    rows_written += 1
+
+                if write_headers:
+                    return True, f"Created new file and wrote {rows_written} invoices to {filename}"
+                else:
+                    return True, f"Appended {rows_written} invoices to existing file (skipped {rows_skipped_dup} duplicates)."
                 
-                return True, f"Successfully exported {len(data_source)} invoices to {filename}"
     except Exception as e:
         print(f"[ERROR] Export failed: {str(e)}")
         return False, f"Export failed: {str(e)}"
@@ -434,16 +479,21 @@ def format_and_write_csv(filename, invoice_data_list):
     try:
         print(f"[INFO] Writing {len(invoice_data_list)} invoices to {filename}")
         
-        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        write_headers = _should_write_headers(filename)
+        existing_pairs = _scan_existing_pairs(filename) if not write_headers else set()
+
+        mode = 'a' if not write_headers else 'w'
+        with open(filename, mode, newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
-            
-            # Write the record type headers
-            writer.writerow(VCHR_HEADER)
-            writer.writerow(DIST_HEADER)
-            
-            # Process each invoice
+
+            if write_headers:
+                writer.writerow(VCHR_HEADER)
+                writer.writerow(DIST_HEADER)
+
+            rows_written = 0
+            rows_skipped_dup = 0
+
             for invoice in invoice_data_list:
-                # Extract values from the dictionary
                 vendor_name = invoice["vendor_name"]
                 vendor_id = invoice["vendor_number"]
                 invoice_no = invoice["invoice_number"]
@@ -454,78 +504,55 @@ def format_and_write_csv(filename, invoice_data_list):
                 amount = clean_amount(invoice["total_amount"])
                 acct_no = invoice["acct_no"]
                 cp_acct_no = invoice["cp_acct_no"]
-                
-                # Calculate additional values
+
                 batch_id = "AP-0001"
                 dist_date = format_date_for_export(datetime.now())
                 invoice_date_formatted = format_date_for_export(parse_date(invoice_date))
                 due_date_formatted = format_date_for_export(parse_date(due_date))
-                
-                # Parse terms
+
                 terms_info = parse_terms(terms)
-                
-                # Build the invoice header record (1-AI_VCHR) - exactly 47 columns
-                vchr_row = ["1-AI_VCHR", vendor_id, invoice_no, batch_id, dist_date, 
-                          invoice_date_formatted, invoice_no, "", vendor_name, "0.00",
-                          due_date_formatted, invoice_date_formatted, "0.00", "0.00", po_no]
-                
-                # Add misc amounts (cols 16-20)
-                for i in range(5):
-                    vchr_row.append("0.00")
-                
-                # Add totals (cols 21-24)
-                vchr_row.append("0.00")  # VCHR_TOT_MISC
-                vchr_row.append(amount)  # VCHR_SUB_TOT
-                vchr_row.append(amount)  # VCHR_SUB_TOT_LANDED
-                vchr_row.append(amount)  # VCHR_TOT
-                
-                # Add line misc charges (cols 25-29)
-                for i in range(5):
-                    vchr_row.append("0.00")
-                
-                # TOT_LIN_MISC_CHRG (col 30)
+
+                vchr_row = ["1-AI_VCHR", vendor_id, invoice_no, batch_id, dist_date,
+                            invoice_date_formatted, invoice_no, "", vendor_name, "0.00",
+                            due_date_formatted, invoice_date_formatted, "0.00", "0.00", po_no]
+                for _ in range(5): vchr_row.append("0.00")
                 vchr_row.append("0.00")
-                
-                # NO_OF_RECVRS (col 31)
+                vchr_row.append(amount)
+                vchr_row.append(amount)
+                vchr_row.append(amount)
+                for _ in range(5): vchr_row.append("0.00")
+                vchr_row.append("0.00")
                 vchr_row.append("1")
-                
-                # RECVR_MISC_AMT_1 through 5 (cols 32-36)
-                for i in range(5):
-                    vchr_row.append("0.00")
-                
-                # RECVR_TOT_MISC (col 37)
-                vchr_row.append("0.00")
-                
-                # RECVR_SUB_TOT and RECVR_TOT (cols 38-39)
+                for _ in range(5): vchr_row.append("0.00")
                 vchr_row.append("0.00")
                 vchr_row.append("0.00")
-                
-                # TERMS_COD, DUE_DAYS, DISC_DAYS, DISC_PCT (cols 40-43)
+                vchr_row.append("0.00")
                 vchr_row.append(terms_info['code'])
                 vchr_row.append(str(terms_info['due_days']))
                 vchr_row.append(str(terms_info['disc_days']))
                 vchr_row.append(format_float(terms_info['disc_pct']))
-                
-                # DISC_ACCT_NO, CP_DISC_ACCT_NO, SPEC_TERMS, VEND_TERMS (cols 44-47)
                 vchr_row.append(DEFAULT_DISCOUNT_ACCT)
                 vchr_row.append(DEFAULT_CP_DISCOUNT_ACCT)
                 vchr_row.append("")
                 vchr_row.append("")
-                
-                # Verify we have exactly 47 columns
-                if len(vchr_row) != 47:
-                    print(f"[ERROR] Generated row has {len(vchr_row)} columns instead of 47!")
-                    
+
+                dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", acct_no, cp_acct_no, amount]
+
+                pair = (tuple(vchr_row), tuple(dist_row))
+                if pair in existing_pairs:
+                    rows_skipped_dup += 1
+                    continue
+
                 writer.writerow(vchr_row)
-                
-                # Write distribution record
-                dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", 
-                          acct_no, cp_acct_no, amount]
                 writer.writerow(dist_row)
-                
-                print(f"[INFO] Wrote invoice: {vendor_name} ({vendor_id}) - {invoice_no}")
+                existing_pairs.add(pair)
+                rows_written += 1
+
+            if write_headers:
+                return True, f"Created new file and wrote {rows_written} invoices to {filename}"
+            else:
+                return True, f"Appended {rows_written} invoices to existing file (skipped {rows_skipped_dup} duplicates)."
             
-            return True, f"Successfully exported {len(invoice_data_list)} invoices to {filename}"
     except Exception as e:
         print(f"[ERROR] Export failed: {str(e)}")
         return False, f"Export failed: {str(e)}"

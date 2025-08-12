@@ -1,5 +1,6 @@
 """Table component for invoice data display and manipulation."""
 import os
+from datetime import datetime
 from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     QPushButton, QMessageBox, QWidget, QHBoxLayout, QLabel,
@@ -11,6 +12,18 @@ from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 from assets.constants import COLORS
 from views.components.status_indicator_delegate import StatusIndicatorDelegate
 from views.components.date_selection import DateDelegate
+
+class SortableTableWidgetItem(QTableWidgetItem):
+    """ Table widget item that stores a separate key for sorting. """
+    def __init__(self, text: str, sort_key=None):
+        super().__init__(text)
+        self.sort_key = sort_key
+    
+    def __lt__(self, other):
+        if isinstance(other, SortableTableWidgetItem):
+            if self.sort_key is not None and other.sort_key is not None:
+                return self.sort_key < other.sort_key
+            return super().__lt__(other)
 
 class InvoiceTable(QTableWidget):
     """Enhanced table for displaying and editing invoice data."""
@@ -29,6 +42,55 @@ class InvoiceTable(QTableWidget):
         self.manually_edited = set()  # Track (row, col) of manually edited cells
         self.auto_calculated = set()  # Track (row, col) of auto-calculated cells
         
+        self.duplicate_marking_mode = "color"
+        self._last_duplicate_groups = {}
+
+        self._rehighlighting = False
+
+    # Helper methods for sorting
+    def _parse_date(self, text: str):
+        """Return a datetime object for consistent date sorting."""
+        try:
+            dt = datetime.strptime(text, "%m/%d/%y")
+            if dt.year < 2000:
+                dt = dt.replace(year=dt.year + 100)
+            return dt
+        except Exception:
+            return None
+
+    def _create_item(self, col: int, value, italic: bool = False, bold: bool = False):
+        """Create a sortable table item with styling."""
+        display_value = str(value) if value is not None else ""
+        if col == 0:
+            sort_key = display_value.lower()
+        elif col in (3, 5):
+            sort_key = self._parse_date(display_value)
+        else:
+            sort_key = display_value
+        item = SortableTableWidgetItem(display_value, sort_key)
+        font = item.font()
+        font.setPointSize(font.pointSize() + 2)
+        if italic:
+            font.setItalic(True)
+        if bold:
+            font.setBold(True)
+        item.setFont(font)
+        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        item.setData(Qt.UserRole, display_value)
+        return item
+
+    def _update_item_sort_key(self, item, col):
+        """Refresh the sort key for an item when its text changes."""
+        if not isinstance(item, SortableTableWidgetItem):
+            return
+        text = item.text().strip()
+        if col == 0:
+            item.sort_key = text.lower()
+        elif col in (3, 5):
+            item.sort_key = self._parse_date(text)
+        else:
+            item.sort_key = text
+
     def setup_table(self):
         """Configure table properties and columns."""
         self.setColumnCount(10)
@@ -114,6 +176,8 @@ class InvoiceTable(QTableWidget):
         if self._corner_button:
             self._corner_button.installEventFilter(self)
 
+        self.setSortingEnabled(True)
+
     def delete_row_by_file_path(self, file_path: str, confirm: bool = False) -> bool:
         """Find and delete the first row whose Manual Entry cell matches file_path."""
         if not file_path:
@@ -134,6 +198,7 @@ class InvoiceTable(QTableWidget):
                 self.cleanup_row_data(row)
                 self.removeRow(row)
                 self.row_deleted.emit(row, abs_target)
+                self.update_duplicate_invoice_markers()
                 return True
         return False
 
@@ -224,7 +289,8 @@ class InvoiceTable(QTableWidget):
         
         # Auto-size vendor column
         self.resize_vendor_column()
-        
+
+        self.update_duplicate_invoice_markers()
         return row_position
 
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
@@ -235,13 +301,7 @@ class InvoiceTable(QTableWidget):
             if col == 0 and is_no_ocr:
                 display_value = ""
 
-            item = QTableWidgetItem(display_value)
-            font = item.font()
-            font.setPointSize(font.pointSize() + 2)
-            item.setFont(font)
-            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            # Store original value
-            item.setData(Qt.UserRole, display_value)
+            item = self._create_item(col, display_value)
             self.setItem(row_position, col, item)
 
     def add_source_file_cell(self, row_position, file_path):
@@ -338,11 +398,14 @@ class InvoiceTable(QTableWidget):
                 if (row, col) in self.manually_edited:
                     self.manually_edited.remove((row, col))
             # Reapply coloring after changes
+            self._update_item_sort_key(item, col)
             self.rehighlight_row(row)
             
         finally:
             # Reconnect the signal after changes are done
             self.cellChanged.connect(self.handle_cell_changed)
+        if col == 1:
+            self.update_duplicate_invoice_markers()
 
     def handle_table_click(self, row, col):
         """Handle clicking on a cell in the table."""
@@ -427,28 +490,30 @@ class InvoiceTable(QTableWidget):
         
     def rehighlight_row(self, row):
         """Rehighlight a row after changes."""
-        # Safely disconnect to avoid recursion
-        try:
-            self.cellChanged.disconnect(self.handle_cell_changed)
-            was_connected = True
-        except TypeError:
-            # Signal was not connected
-            was_connected = False
+        if self._rehighlighting:
+            return
+        self._rehighlighting = True
         
         try:
+            try:
+                self.cellChanged.disconnect(self.handle_cell_changed)
+                was_connected = True
+            except TypeError:
+                was_connected = False
+        
             for col in range(8):
                 background, stripe = self.determine_cell_color(row, col)
                 self.set_cell_color(row, col, background, stripe)
+
+            for col in range(8):
+                item = self.item(row, col)
+                if item:
+                    item.setData(Qt.UserRole + 3, item.data(Qt.UserRole + 3))
+
         finally:
-            # Only reconnect if it was connected before
-            if was_connected:
+            if 'was_connected' in locals() and was_connected:
                 self.cellChanged.connect(self.handle_cell_changed)
-        
-        # Force a repaint of the affected cells
-        for col in range(8):
-            item = self.item(row, col)
-            if item:
-                item.setSelected(False)  # Toggle selection to force a repaint
+            self._rehighlighting = False
 
     def cleanup_row_data(self, row):
         """Clean up all data associated with a row."""
@@ -601,6 +666,93 @@ class InvoiceTable(QTableWidget):
         self.manually_edited = set()
         self.auto_calculated = set()
 
+    def _normalize_invoice_number(self, text: str) -> str:
+        """Normalize invoice number for grouping (trim and uppercase)."""
+        return (text or "").strip().upper()
+
+    def update_duplicate_invoice_markers(self):
+        """
+        Find duplicate invoice numbers and mark them.
+        - If mode == "color": light-purple background on Invoice Number cells.
+        - If mode == "tag": also add superscript group label to the display text.
+        """
+        if self.columnCount() < 2 or self.rowCount() == 0:
+            return
+
+        invoice_col = 1
+
+        # 1) Build groups
+        groups = {}
+        for row in range(self.rowCount()):
+            inv = self.get_cell_text(row, invoice_col)
+            norm = self._normalize_invoice_number(inv)
+            if not norm:
+                continue
+            groups.setdefault(norm, []).append(row)
+
+        # 2) Prepare superscripts if needed
+        superscripts = {1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹"}
+
+        # 3) First, restore original text & coloring on all invoice-number cells
+        for row in range(self.rowCount()):
+            item = self.item(row, invoice_col)
+            if not item:
+                continue
+            base_text = item.data(Qt.UserRole) if item.data(Qt.UserRole) is not None else item.text()
+            # Always reset the display text to the base/original (no tags)
+            item.setText(str(base_text))
+            # Reset background/stripe so our normal highlight pipeline can apply later
+            item.setBackground(QColor(COLORS['WHITE']))
+            item.setData(Qt.UserRole + 2, None)  # clear stripe color
+
+        # 4) Apply duplicate markings
+        dup_norms = [k for k, rows in groups.items() if len(rows) > 1]
+        if not dup_norms:
+            self._last_duplicate_groups = {}
+            # reapply row-level coloring to reflect cleared state
+            for r in range(self.rowCount()):
+                self.rehighlight_row(r)
+            return
+
+        # Assign a stable group index for each duplicate set (1..N)
+        dup_norms_sorted = sorted(dup_norms)
+        group_index_map = {norm: idx + 1 for idx, norm in enumerate(dup_norms_sorted)}
+
+        # Light purple for duplicates (does not rely on COLORS dict)
+        dup_bg = QColor("#F5E6FF")
+
+        for norm, rows in groups.items():
+            if len(rows) < 2:
+                continue
+            gidx = group_index_map[norm]
+            tag = superscripts.get(gidx, f"[{gidx}]")
+
+            for row in rows:
+                item = self.item(row, invoice_col)
+                if not item:
+                    continue
+                # Light purple on invoice number cell
+                item.setBackground(dup_bg)
+
+                if self.duplicate_marking_mode == "tag":
+                    # Append superscript group tag to displayed text
+                    base_text = item.data(Qt.UserRole) if item.data(Qt.UserRole) is not None else item.text()
+                    display = f"{base_text} {tag}"
+                    item.setText(display)
+
+                # You can also add a subtle stripe on vendor column if desired:
+                # vendor_item = self.item(row, 0)
+                # if vendor_item:
+                #     vendor_item.setData(Qt.UserRole + 2, "#F5E6FF")  # delegate stripe
+
+        self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
+
+        # Reapply row-level coloring so manual/auto flags still show;
+        # our cell-level background on the invoice number will remain.
+        for r in range(self.rowCount()):
+            self.rehighlight_row(r)
+
+
     def update_row_by_source(self, file_path: str, row_values: list):
         """Update an existing row based on its file path."""
         abs_target = os.path.abspath(file_path)
@@ -608,9 +760,7 @@ class InvoiceTable(QTableWidget):
             row_path = self.get_file_path_for_row(row)
             if row_path and os.path.abspath(row_path) == abs_target:
                 for col, value in enumerate(row_values):
-                    str_value = str(value) if value is not None else ""
-                    item = QTableWidgetItem(str_value)
-                    item.setData(Qt.UserRole, str_value)
+                    item = self._create_item(col, value)
                     self.setItem(row, col, item)
 
                 self.highlight_row(row)
