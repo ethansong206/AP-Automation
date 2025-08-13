@@ -2,9 +2,8 @@ import os
 from copy import deepcopy
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
-    QPushButton, QDialogButtonBox, QSplitter, QWidget, QFormLayout,
-    QComboBox, QMessageBox, QCompleter, QListWidget, QGroupBox,
-    QSizePolicy, QScrollArea, QGridLayout
+    QPushButton, QSplitter, QWidget, QFormLayout, QComboBox, QMessageBox,
+    QCompleter, QListWidget, QGroupBox, QSizePolicy, QScrollArea, QGridLayout
 )
 from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QGuiApplication
@@ -27,10 +26,10 @@ class ManualEntryDialog(QDialog):
 
         # Style tweaks
         self.setStyleSheet("""
-            QLabel { font-size: 13px; }
-            QLineEdit, QComboBox, QDateEdit { font-size: 13px; padding: 4px; }
-            QPushButton { font-size: 13px; padding: 6px 12px; }
-            QGroupBox { font-size: 14px; font-weight: bold; margin-top: 12px; }
+            QLabel { font-size: 15px; }
+            QLineEdit, QComboBox, QDateEdit { font-size: 15px; padding: 5px; }
+            QPushButton { font-size: 15px; padding: 9px 15px; }
+            QGroupBox { font-size: 18px; font-weight: bold; margin-top: 15px; }
         """)
 
         # Data/state
@@ -51,9 +50,9 @@ class ManualEntryDialog(QDialog):
 
         # ===== Center: form =====
         form_layout = QFormLayout()
-        form_layout.setVerticalSpacing(10)
-        form_layout.setHorizontalSpacing(8)
-        form_layout.setContentsMargins(8, 8, 8, 8)
+        form_layout.setVerticalSpacing(11)
+        form_layout.setHorizontalSpacing(10)
+        form_layout.setContentsMargins(10, 10, 10, 10)
 
         self.fields = {}
 
@@ -67,6 +66,7 @@ class ManualEntryDialog(QDialog):
         if comp:
             comp.setCompletionMode(QCompleter.PopupCompletion)
         vendor_layout.addWidget(self.vendor_combo, 1)
+        vendor_layout.addSpacing(10)
         self.add_vendor_btn = QPushButton("New Vendor")
         self.add_vendor_btn.clicked.connect(self.add_new_vendor)
         vendor_layout.addWidget(self.add_vendor_btn)
@@ -98,6 +98,7 @@ class ManualEntryDialog(QDialog):
         self.fields["Due Date"].setDate(QDate.currentDate())
         due_row = QHBoxLayout()
         due_row.addWidget(self.fields["Due Date"], 1)
+        due_row.addSpacing(10)
         self.due_calc_btn = QPushButton("Calculate")
         self.due_calc_btn.setToolTip("Compute Due Date from Discount Terms and Invoice Date")
         self.due_calc_btn.clicked.connect(self._on_calculate_due_date)
@@ -113,9 +114,9 @@ class ManualEntryDialog(QDialog):
         # Quick Calculator (no Tax rows)
         self.quick_calc_group = QGroupBox("Quick Calculator")
         qc = QFormLayout()
-        qc.setVerticalSpacing(10)
-        qc.setHorizontalSpacing(10)
-        qc.setContentsMargins(12, 12, 12, 12)
+        qc.setVerticalSpacing(11)
+        qc.setHorizontalSpacing(12)
+        qc.setContentsMargins(15, 35, 15, 15)
 
         def new_lineedit():
             e = QLineEdit()
@@ -133,6 +134,7 @@ class ManualEntryDialog(QDialog):
 
         # Buttons to push result back into fields (as plain numbers)
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
         self.qc_apply_total = QPushButton("Apply → Total Amount")
         self.qc_apply_discounted = QPushButton("Apply → Discounted Total")
         self.qc_apply_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount"))
@@ -144,7 +146,7 @@ class ManualEntryDialog(QDialog):
         qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
         qc.addRow(QLabel("Discount $:"), self.qc_disc_amt)
         qc.addRow(QLabel("Shipping:"), self.qc_shipping)
-        qc.addRow(QLabel("Other Adj. (+/−):"), self.qc_other)
+        qc.addRow(QLabel("Other Adj. (+/-):"), self.qc_other)
         qc.addRow(QLabel("Grand Total:"), self.qc_grand_total)
         qc.addRow(btn_row)
         self.quick_calc_group.setLayout(qc)
@@ -152,7 +154,7 @@ class ManualEntryDialog(QDialog):
         # Button styles
         primary_btn_css = (
             "QPushButton { background-color: #5E6F5E; color: white; border-radius: 4px; "
-            "padding: 6px 12px; font-weight: bold; } "
+            "padding: 9px 15; font-weight: bold; } "
             "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
@@ -176,7 +178,7 @@ class ManualEntryDialog(QDialog):
         self.next_button.clicked.connect(self._on_next_clicked)
 
         arrows = QHBoxLayout()
-        arrows.setSpacing(8)
+        arrows.setSpacing(12)
         arrows.setContentsMargins(0, 0, 0, 0)
         arrows.addWidget(self.prev_button)
         arrows.addWidget(self.next_button)
@@ -185,23 +187,28 @@ class ManualEntryDialog(QDialog):
         self.delete_btn.setToolTip("Remove this invoice from the list and table")
         self.delete_btn.setStyleSheet(
             "QPushButton { background-color: #C0392B; color: white; border-radius: 4px; "
-            "padding: 6px 12px; font-weight: bold; } "
+            "padding: 9px 15; font-weight: bold; font-size: 15px; } "
             "QPushButton:hover { background-color: #D3543C; } "
             "QPushButton:pressed { background-color: #A93226; }"
         )
         self.delete_btn.clicked.connect(self._confirm_delete_current)
 
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self.on_save)
+        self.save_btn.setStyleSheet(primary_btn_css)
+
         row_container = QWidget()
         row_grid = QGridLayout(row_container)
-        row_grid.setContentsMargins(0, 8, 0, 0)
+        row_grid.setContentsMargins(0, 10, 0, 0)
         row_grid.setHorizontalSpacing(0)
         row_grid.addLayout(arrows, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
         row_grid.addWidget(self.delete_btn, 0, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        row_grid.addWidget(self.save_btn, 1, 0, alignment=Qt.AlignHCenter | Qt.AlignTop)
 
         left_layout = QVBoxLayout()
         left_layout.addLayout(form_layout)
         left_layout.addWidget(self.quick_calc_group)
-        left_layout.addSpacing(12)
+        left_layout.addSpacing(15)
         left_layout.addWidget(row_container)
 
         left_widget = QWidget()
@@ -227,18 +234,10 @@ class ManualEntryDialog(QDialog):
         self.splitter.setStretchFactor(2, 4)
         QTimer.singleShot(0, self._apply_splitter_proportions)
 
-        # ===== Save / Cancel buttons =====
-        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.on_save)        # Save keeps dialog open
-        button_box.rejected.connect(self._on_cancel)     # Guarded close
-        for btn in button_box.buttons():
-            btn.setStyleSheet(primary_btn_css)
-
         # Layout
         content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(8, 8, 8, 8)
+        content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.addWidget(self.splitter)
-        content_layout.addWidget(button_box)
         self.setLayout(content_layout)
 
         # Currency fields we pretty/normalize
@@ -539,10 +538,6 @@ class ManualEntryDialog(QDialog):
             self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx])
         self._dirty = False
         self._flash_saved()
-
-    def _on_cancel(self):
-        # Guarded close via Cancel button
-        self._confirm_unsaved_then(self.reject)
 
     def closeEvent(self, event):
         """Guard window-X close. Ensure 'No' actually closes."""

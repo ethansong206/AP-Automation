@@ -9,6 +9,13 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 
+_SUPERSCRIPT_TRANS = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+
+
+def to_superscript(num: int) -> str:
+    """Return ``num`` rendered using Unicode superscript digits."""
+    return str(num).translate(_SUPERSCRIPT_TRANS)
+
 from assets.constants import COLORS
 from views.components.status_indicator_delegate import StatusIndicatorDelegate
 from views.components.date_selection import DateDelegate
@@ -433,6 +440,8 @@ class InvoiceTable(QTableWidget):
             # Reconnect the signal after changes are done
             self.cellChanged.connect(self.handle_cell_changed)
         if col == 1:
+            # Update stored clean invoice number and refresh duplicate markers
+            item.setData(Qt.UserRole + 20, current_value)
             self.update_duplicate_invoice_markers()
 
     def handle_table_click(self, row, col):
@@ -729,10 +738,7 @@ class InvoiceTable(QTableWidget):
                     continue
                 groups.setdefault(norm, []).append(row)
 
-        # 2) Prepare superscripts if needed
-            superscripts = {1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹"}
-
-            # 3) First, restore original text & coloring on all invoice-number cells
+        # 2) First, restore original text & coloring on all invoice-number cells
             for row in range(self.rowCount()):
                 item = self.item(row, invoice_col)
                 if not item:
@@ -747,13 +753,15 @@ class InvoiceTable(QTableWidget):
                 item.setData(Qt.UserRole + 2, None)  # clear stripe color
                 item.setData(Qt.UserRole + 20, str(base_text))
 
-            # 4) Apply duplicate markings
+            # After clearing the invoice-number cells, reapply row-level coloring
+            # so that manual/auto highlights remain before we mark duplicates.
+            for r in range(self.rowCount()):
+                self.rehighlight_row(r)
+
+            # 3) Apply duplicate markings
             dup_norms = [k for k, rows in groups.items() if len(rows) > 1]
             if not dup_norms:
                 self._last_duplicate_groups = {}
-                # reapply row-level coloring to reflect cleared state
-                for r in range(self.rowCount()):
-                    self.rehighlight_row(r)
                 return
 
             # Assign a stable group index for each duplicate set (1..N)
@@ -767,7 +775,7 @@ class InvoiceTable(QTableWidget):
                 if len(rows) < 2:
                     continue
                 gidx = group_index_map[norm]
-                tag = superscripts.get(gidx, f"[{gidx}]")
+                tag = to_superscript(gidx)
 
                 for row in rows:
                     item = self.item(row, invoice_col)
@@ -787,10 +795,6 @@ class InvoiceTable(QTableWidget):
 
             self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
 
-            # Reapply row-level coloring so manual/auto flags still show;
-            # our cell-level background on the invoice number will remain.
-            for r in range(self.rowCount()):
-                self.rehighlight_row(r)
         finally:
             if was_connected:
                 self.cellChanged.connect(self.handle_cell_changed)
