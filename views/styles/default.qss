@@ -1,8 +1,14 @@
 /* Main Application Styles */
 
+/* Font declarations */
+@font-face {
+    font-family: 'Montserrat';
+    src: url('assets/fonts/Montserrat-Regular.ttf');
+}
+
 /* General widget styling */
 QWidget {
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: 'Montserrat', Arial, sans-serif;
     font-size: 10pt;
 }
 
