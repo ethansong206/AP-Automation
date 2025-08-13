@@ -38,6 +38,7 @@ class ManualEntryDialog(QDialog):
         self.pdf_paths = list(pdf_paths or [])
         self.values_list = values_list or [[""] * 8 for _ in self.pdf_paths]
         self.flag_states = list(flag_states or [False] * len(self.pdf_paths))
+        self.saved_flag_states = list(self.flag_states)
         self.saved_values_list = deepcopy(self.values_list)  # last-saved snapshot
         self.current_index = start_index if 0 <= start_index < len(self.pdf_paths) else 0
         self._deleted_files = []
@@ -364,6 +365,7 @@ class ManualEntryDialog(QDialog):
         self.values_list.pop(idx)
         self.saved_values_list.pop(idx)
         self.flag_states.pop(idx)
+        self.saved_flag_states(idx)
         self._deleted_files.append(path)
 
         # Remove from UI list
@@ -565,6 +567,7 @@ class ManualEntryDialog(QDialog):
         if self.pdf_paths:
             idx = self.current_index
             self.saved_values_list[idx] = deepcopy(self.values_list[idx])
+            self.saved_flag_states[idx] = self.flag_states[idx]
             self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx], self.flag_states[idx])
         self._dirty = False
         self._flash_saved()
@@ -576,6 +579,8 @@ class ManualEntryDialog(QDialog):
         def proceed_accept_close():
             # Mark that we should persist changes and accept the close
             self.save_changes = True
+            # Ensure dialog returns QDialog.Accepted so caller processes flag updates
+            self.setResult(QDialog.Accepted)
             event.accept()
 
         self._confirm_unsaved_then(proceed_accept_close)
@@ -663,6 +668,7 @@ class ManualEntryDialog(QDialog):
             self._update_file_item(item, text, self.flag_states[idx])
         if idx == self.current_index:
             self._update_flag_button()
+        self._dirty = True
 
     def _file_list_mouse_press(self, event):
         item = self.file_list.itemAt(event.pos())
@@ -898,6 +904,13 @@ class ManualEntryDialog(QDialog):
             snapshot = self.saved_values_list[idx]
             self._load_values_into_widgets(snapshot)   # guarded -> won't mark dirty
             self.values_list[idx] = deepcopy(snapshot)
+        self.flag_states = list(self.saved_flag_states)
+        for i, path in enumerate(self.pdf_paths):
+            item = self.file_list.item(i)
+            text = os.path.basename(path) if path else ""
+            if item:
+                self._update_file_item(item, text, self.flag_states[i])
+        self._update_flag_button()
         self._dirty = False
 
     def _confirm_unsaved_then(self, proceed_action):
