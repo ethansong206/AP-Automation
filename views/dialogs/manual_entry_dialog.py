@@ -183,6 +183,16 @@ class ManualEntryDialog(QDialog):
         arrows.addWidget(self.prev_button)
         arrows.addWidget(self.next_button)
 
+        # Tracker showing current file position
+        self.file_tracker_label = QLabel("")
+        self.file_tracker_label.setAlignment(Qt.AlignCenter)
+
+        nav_layout = QVBoxLayout()
+        nav_layout.setSpacing(4)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.addLayout(arrows)
+        nav_layout.addWidget(self.file_tracker_label)
+
         self.delete_btn = QPushButton("Delete This Invoice")
         self.delete_btn.setToolTip("Remove this invoice from the list and table")
         self.delete_btn.setStyleSheet(
@@ -201,7 +211,7 @@ class ManualEntryDialog(QDialog):
         row_grid = QGridLayout(row_container)
         row_grid.setContentsMargins(0, 10, 0, 0)
         row_grid.setHorizontalSpacing(0)
-        row_grid.addLayout(arrows, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
+        row_grid.addLayout(nav_layout, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
         row_grid.addWidget(self.delete_btn, 0, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
         row_grid.addWidget(self.save_btn, 1, 0, alignment=Qt.AlignHCenter | Qt.AlignTop)
 
@@ -431,10 +441,14 @@ class ManualEntryDialog(QDialog):
 
     def load_invoice(self, index):
         if not self.pdf_paths:
+            self.file_tracker_label.setText("0/0")
             return
         index = max(0, min(index, len(self.pdf_paths) - 1))
         self.current_index = index
         self.mark_file_viewed(index)
+
+        #Update tracker label
+        self.file_tracker_label.setText(f"{index + 1}/{len(self.pdf_paths)}")
 
         # Load widgets (guard prevents dirty)
         self._load_values_into_widgets(self.values_list[index])
