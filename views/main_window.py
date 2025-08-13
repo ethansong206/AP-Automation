@@ -153,8 +153,8 @@ class InvoiceApp(QWidget):
     
     def handle_cell_edited(self, row, col):
         """Handle when a cell is manually edited."""
-        # Check if this was the discount terms column (4)
-        if col == 4:
+        # Check if this was the discount terms column (5)
+        if col == 5:
             self.invoice_controller.recalculate_dependent_fields(row)
     
     # --- UI Action methods ---
@@ -166,50 +166,61 @@ class InvoiceApp(QWidget):
         """Open the manual entry dialog for all files starting at a specific row."""
         file_paths = []
         values_list = []
+        flag_states = []
         for r in range(self.table.rowCount()):
             file_paths.append(self.table.get_file_path_for_row(r))
-            row_values = [self.table.get_cell_text(r, c) for c in range(8)]
+            row_values = [self.table.get_cell_text(r, c) for c in range(1, 9)]
             values_list.append(row_values)
+            flag_states.append(self.table.is_row_flagged(r))
 
-        dialog = ManualEntryDialog(file_paths, self, values_list, start_index=row)
+        dialog = ManualEntryDialog(file_paths, self, values_list, flag_states, start_index=row)
         dialog.file_deleted.connect(self._on_dialog_deleted_file)
 
         dialog.row_saved.connect(self.on_manual_row_saved)
 
         if dialog.exec_() == QDialog.Accepted and dialog.save_changes:
             all_data = dialog.get_all_data()
+            flag_states = dialog.get_flag_states()
 
-            for r, data in enumerate(all_data):
-                file_path = file_paths[r]
+            for path, data in zip(file_paths, all_data):
+                row_idx = self.table.find_row_by_file_path(path)
+                if row_idx < 0:
+                    continue
 
-                for col, value in enumerate(data):
+                for idx, value in enumerate(data):
+                    col = idx + 1
                     str_value = str(value) if value is not None else ""
 
-                    existing_item = self.table.item(r, col)
+                    existing_item = self.table.item(row_idx, col)
                     original_value = existing_item.data(Qt.UserRole) if existing_item else ""
 
                     item = QTableWidgetItem(str_value)
                     item.setData(Qt.UserRole, str_value)
-                    self.table.setItem(r, col, item)
+                    self.table.setItem(row_idx, col, item)
 
-                    if str_value != original_value and col != 5:
-                        self.table.manually_edited.add((r, col))
+                    if str_value != original_value and col != 6:
+                        self.table.manually_edited.add((row_idx, col))
 
                 for r_edit, c_edit in list(self.table.manually_edited):
-                    if r_edit == r and c_edit == 5:
+                    if r_edit == row_idx and c_edit == 6:
                         self.table.manually_edited.remove((r_edit, c_edit))
 
-                if file_path and not self.table.item(r, 8):
-                    self.table.add_source_file_cell(r, file_path)
+                if path and not self.table.item(row_idx, 9):
+                    self.table.add_source_file_cell(row_idx, path)
 
-                if not self.table.item(r, 9):
-                    self.table.add_delete_cell(r)
+                if not self.table.item(row_idx, 10):
+                    self.table.add_delete_cell(row_idx)
 
-                if file_path:
-                    self.file_controller.loaded_files.add(file_path)
+                if path:
+                    self.file_controller.loaded_files.add(path)
 
-                self.table.highlight_row(r)
-                self.invoice_controller.recalculate_dependent_fields(r)
+                self.table.highlight_row(row_idx)
+                self.invoice_controller.recalculate_dependent_fields(row_idx)
+
+            for path, flagged in zip(file_paths, flag_states):
+                row_idx = self.table.find_row_by_file_path(path)
+                if row_idx >= 0 and self.table.is_row_flagged(row_idx) != flagged:
+                    self.table.toggle_row_flag(row_idx)
 
             self.update_total_amount()
     
@@ -252,11 +263,11 @@ class InvoiceApp(QWidget):
         total = 0.0
         for row in range(self.table.rowCount()):
             # Try discounted total first
-            amount = self.table.get_cell_text(row, 6)
+            amount = self.table.get_cell_text(row, 7)
             
             # If no discounted total, use regular total
             if not amount:
-                amount = self.table.get_cell_text(row, 7)
+                amount = self.table.get_cell_text(row, 8)
                 
             # Clean amount string and convert to float
             if amount:
@@ -276,9 +287,11 @@ class InvoiceApp(QWidget):
         # No confirm prompt here—the dialog already confirmed.
         self.table.delete_row_by_file_path(file_path, confirm=False)
 
-    def on_manual_row_saved(self, file_path: str, row_values: list):
-        """Update the table row for the given file path with new values."""
-        self.table.update_row_by_source(file_path, row_values)
+    def on_manual_row_saved(self, file_path: str, row_values: list, flagged: bool):
+        """Update the table row for the given file path with new values and flag state."""
+        row = self.table.update_row_by_source(file_path, row_values)
+        if row >= 0 and self.table.is_row_flagged(row) != flagged:
+            self.table.toggle_row_flag(row)
         self.update_total_amount()
 
     # --- Export functionality ---
@@ -342,13 +355,13 @@ class InvoiceApp(QWidget):
             if not file_path or not os.path.isfile(file_path):
                 continue
 
-            vendor = self._sanitize_filename(self.table.get_cell_text(row, 0)) or "UNKNOWN"
-            po_number = self._sanitize_filename(self.table.get_cell_text(row, 2)) or "PO"
-            invoice_number = self._sanitize_filename(self.table.get_cell_text(row, 1)) or "INV"
+            vendor = self._sanitize_filename(self.table.get_cell_text(row, 1)) or "UNKNOWN"
+            po_number = self._sanitize_filename(self.table.get_cell_text(row, 3)) or "PO"
+            invoice_number = self._sanitize_filename(self.table.get_cell_text(row, 2)) or "INV"
 
             new_name = f"{vendor}_{po_number}_{invoice_number}.pdf"
 
-            date_str = self.table.get_cell_text(row, 3)
+            date_str = self.table.get_cell_text(row, 4)
             date_obj = self._parse_invoice_date(date_str)
             if date_obj:
                 dest_dir = month_dirs[date_obj.month - 1]

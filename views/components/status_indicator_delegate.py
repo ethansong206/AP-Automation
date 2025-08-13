@@ -36,8 +36,8 @@ class StatusIndicatorDelegate(QStyledItemDelegate):
                                  self.stripe_width, option.rect.height())
             painter.fillRect(stripe_rect, QColor(color_data))
         
-        # Determine padding for the Vendor Name column (column 0)
-        padding = 12 if index.column() == 0 else 6
+        # Determine padding for the Vendor Name column (column 1)
+        padding = 12 if index.column() == 1 else 6
 
         # Draw the cell text with the appropriate padding
         text = index.data(Qt.DisplayRole)

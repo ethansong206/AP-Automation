@@ -3,23 +3,25 @@ from copy import deepcopy
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QSplitter, QWidget, QFormLayout, QComboBox, QMessageBox,
-    QCompleter, QListWidget, QGroupBox, QSizePolicy, QScrollArea, QGridLayout
+    QCompleter, QListWidget, QListWidgetItem, QGroupBox, QSizePolicy, 
+    QScrollArea, QGridLayout
 )
 from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal
-from PyQt5.QtGui import QBrush, QGuiApplication
+from PyQt5.QtGui import QBrush, QGuiApplication, QColor
 
 # Project components
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_dialog import AddVendorFlow
 from extractors.utils import get_vendor_list, calculate_discount_due_date  # <<<< used for Due Date calc
+from assets.constants import COLORS
 
 
 class ManualEntryDialog(QDialog):
     """Dialog for manual entry of invoice fields with PDF viewer and quick calc."""
     file_deleted = pyqtSignal(str)           # emitted when a file is deleted here
-    row_saved = pyqtSignal(str, list)        # (file_path, row_values) — Save without closing
+    row_saved = pyqtSignal(str, list, bool)        # (file_path, row_values, flagged)
 
-    def __init__(self, pdf_paths, parent=None, values_list=None, start_index=0):
+    def __init__(self, pdf_paths, parent=None, values_list=None, flag_states=None, start_index=0):
         super().__init__(parent)
         self.setWindowTitle("Manual Entry")
         self.setMinimumSize(1100, 650)
@@ -35,6 +37,7 @@ class ManualEntryDialog(QDialog):
         # Data/state
         self.pdf_paths = list(pdf_paths or [])
         self.values_list = values_list or [[""] * 8 for _ in self.pdf_paths]
+        self.flag_states = list(flag_states or [False] * len(self.pdf_paths))
         self.saved_values_list = deepcopy(self.values_list)  # last-saved snapshot
         self.current_index = start_index if 0 <= start_index < len(self.pdf_paths) else 0
         self._deleted_files = []
@@ -45,8 +48,12 @@ class ManualEntryDialog(QDialog):
 
         # ===== Left: file list =====
         self.file_list = QListWidget()
-        for path in self.pdf_paths:
-            self.file_list.addItem(os.path.basename(path) if path else "")
+        self.file_list.mousePressEvent = self._file_list_mouse_press
+        for path, flagged in zip(self.pdf_paths, self.flag_states):
+            text = os.path.basename(path) if path else ""
+            item = QListWidgetItem()
+            self._update_file_item(item, text, flagged)
+            self.file_list.addItem(item)
 
         # ===== Center: form =====
         form_layout = QFormLayout()
@@ -177,6 +184,12 @@ class ManualEntryDialog(QDialog):
         self.prev_button.clicked.connect(self._on_prev_clicked)
         self.next_button.clicked.connect(self._on_next_clicked)
 
+        self.flag_button = QPushButton("⚑")
+        self.flag_button.setStyleSheet(nav_css)
+        self.flag_button.setFixedSize(60, 60)
+        self.flag_button.setToolTip("Toggle follow-up flag for this invoice")
+        self.flag_button.clicked.connect(lambda: self.toggle_file_flag(self.current_index))
+
         arrows = QHBoxLayout()
         arrows.setSpacing(12)
         arrows.setContentsMargins(0, 0, 0, 0)
@@ -213,6 +226,7 @@ class ManualEntryDialog(QDialog):
         row_grid.setHorizontalSpacing(0)
         row_grid.addLayout(nav_layout, 0, 0, alignment=Qt.AlignHCenter | Qt.AlignVCenter)
         row_grid.addWidget(self.delete_btn, 0, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        row_grid.addWidget(self.flag_button, 0, 0, alignment=Qt.AlignLeft | Qt.AlignVCenter)
         row_grid.addWidget(self.save_btn, 1, 0, alignment=Qt.AlignHCenter | Qt.AlignTop)
 
         left_layout = QVBoxLayout()
@@ -349,6 +363,7 @@ class ManualEntryDialog(QDialog):
         self.pdf_paths.pop(idx)
         self.values_list.pop(idx)
         self.saved_values_list.pop(idx)
+        self.flag_states.pop(idx)
         self._deleted_files.append(path)
 
         # Remove from UI list
@@ -456,6 +471,7 @@ class ManualEntryDialog(QDialog):
         # Enable/disable nav
         self.prev_button.setDisabled(index == 0)
         self.next_button.setDisabled(index == len(self.pdf_paths) - 1)
+        self._update_flag_button()
 
         # Sync list selection without triggering guard
         if self.file_list.currentRow() != index:
@@ -549,7 +565,7 @@ class ManualEntryDialog(QDialog):
         if self.pdf_paths:
             idx = self.current_index
             self.saved_values_list[idx] = deepcopy(self.values_list[idx])
-            self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx])
+            self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx], self.flag_states[idx])
         self._dirty = False
         self._flash_saved()
 
@@ -558,7 +574,8 @@ class ManualEntryDialog(QDialog):
         event.ignore()
 
         def proceed_accept_close():
-            # Accept this close event
+            # Mark that we should persist changes and accept the close
+            self.save_changes = True
             event.accept()
 
         self._confirm_unsaved_then(proceed_accept_close)
@@ -620,6 +637,45 @@ class ManualEntryDialog(QDialog):
         item = self.file_list.item(index)
         if item is not None:
             item.setForeground(QBrush(Qt.gray))
+
+    # ---------- Flag helpers ----------
+    def _update_file_item(self, item, text, flagged):
+        icon = "🚩" if flagged else "⚑"
+        item.setText(f"{icon} {text}")
+        if flagged:
+            item.setBackground(QColor(COLORS['LIGHT_RED']))
+        else:
+            item.setBackground(QBrush())
+
+    def _update_flag_button(self):
+        if not self.flag_states:
+            return
+        flagged = self.flag_states[self.current_index]
+        self.flag_button.setText("🚩" if flagged else "⚑")
+
+    def toggle_file_flag(self, idx):
+        if idx < 0 or idx >= len(self.flag_states):
+            return
+        self.flag_states[idx] = not self.flag_states[idx]
+        item = self.file_list.item(idx)
+        text = os.path.basename(self.pdf_paths[idx]) if idx < len(self.pdf_paths) else ""
+        if item:
+            self._update_file_item(item, text, self.flag_states[idx])
+        if idx == self.current_index:
+            self._update_flag_button()
+
+    def _file_list_mouse_press(self, event):
+        item = self.file_list.itemAt(event.pos())
+        if item:
+            rect = self.file_list.visualItemRect(item)
+            if event.pos().x() - rect.x() < 20:
+                idx = self.file_list.row(item)
+                self.toggle_file_flag(idx)
+                return
+        QListWidget.mousePressEvent(self.file_list, event)
+
+    def get_flag_states(self):
+        return self.flag_states
 
     # ---------- Vendors ----------
     def load_vendors(self):

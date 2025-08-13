@@ -17,8 +17,8 @@ class InvoiceController:
     def recalculate_dependent_fields(self, row):
         """Recalculate fields that depend on other fields."""
         # First, recalculate the due date from discount terms
-        discount_terms = self.main_window.table.get_cell_text(row, 4).strip()
-        invoice_date = self.main_window.table.get_cell_text(row, 3).strip()
+        discount_terms = self.main_window.table.get_cell_text(row, 5).strip()
+        invoice_date = self.main_window.table.get_cell_text(row, 4).strip()
         
         # Always force recalculation of due date if there are terms and invoice date
         if discount_terms and invoice_date:
@@ -27,10 +27,10 @@ class InvoiceController:
                 due_date = calculate_discount_due_date(discount_terms, invoice_date)
                 if due_date:
                     # FORCE UPDATE: Always update the due date regardless of any tracking state
-                    self.main_window.table.update_calculated_field(row, 5, due_date, True)
+                    self.main_window.table.update_calculated_field(row, 6, due_date, True)
                     
                     # CRITICAL: Ensure due date is REMOVED from manually_edited
-                    key = (row, 5)
+                    key = (row, 6)
                     if key in self.main_window.table.manually_edited:
                         self.main_window.table.manually_edited.remove(key)
             except Exception as e:
@@ -90,17 +90,17 @@ class InvoiceController:
         
         for row in range(table.rowCount()):
             # Get data from table cells and clean thoroughly
-            raw_vendor_name = table.get_cell_text(row, 0)
+            raw_vendor_name = table.get_cell_text(row, 1)
             vendor_name = ' '.join(raw_vendor_name.strip().split())
             
             # Get other invoice data
-            invoice_number = ' '.join(table.get_cell_text(row, 1).strip().split())
-            po_number = ' '.join(table.get_cell_text(row, 2).strip().split())
-            invoice_date = ' '.join(table.get_cell_text(row, 3).strip().split())
-            terms = ' '.join(table.get_cell_text(row, 4).strip().split())
-            due_date = ' '.join(table.get_cell_text(row, 5).strip().split())
-            discounted_total = ' '.join(table.get_cell_text(row, 6).strip().split())
-            total_amount = ' '.join(table.get_cell_text(row, 7).strip().split())
+            invoice_number = ' '.join(table.get_cell_text(row, 2).strip().split())
+            po_number = ' '.join(table.get_cell_text(row, 3).strip().split())
+            invoice_date = ' '.join(table.get_cell_text(row, 4).strip().split())
+            terms = ' '.join(table.get_cell_text(row, 5).strip().split())
+            due_date = ' '.join(table.get_cell_text(row, 6).strip().split())
+            discounted_total = ' '.join(table.get_cell_text(row, 7).strip().split())
+            total_amount = ' '.join(table.get_cell_text(row, 8).strip().split())
             
             # Skip incomplete rows
             if not vendor_name or not invoice_number or not invoice_date or not total_amount:

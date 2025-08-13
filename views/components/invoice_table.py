@@ -67,9 +67,9 @@ class InvoiceTable(QTableWidget):
     def _create_item(self, col: int, value, italic: bool = False, bold: bool = False):
         """Create a sortable table item with styling."""
         display_value = str(value) if value is not None else ""
-        if col == 0:
+        if col == 1:
             sort_key = display_value.lower()
-        elif col in (3, 5):
+        elif col in (4, 6):
             sort_key = self._parse_date(display_value)
         else:
             sort_key = display_value
@@ -90,44 +90,45 @@ class InvoiceTable(QTableWidget):
         if not isinstance(item, SortableTableWidgetItem):
             return
         text = item.text().strip()
-        if col == 0:
+        if col == 1:
             item.sort_key = text.lower()
-        elif col in (3, 5):
+        elif col in (4, 6):
             item.sort_key = self._parse_date(text)
         else:
             item.sort_key = text
 
     def setup_table(self):
         """Configure table properties and columns."""
-        self.setColumnCount(10)
+        self.setColumnCount(11)
         self.setHorizontalHeaderLabels([
-            "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
+            "", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
             "Discount Terms", "Due Date",
             "Discounted Total", "Total Amount",
             "Manual Entry", "Delete"
         ])
         
         # Set column widths for fixed-width columns
-        self.setColumnWidth(0, 140)  # Vendor Name
-        self.setColumnWidth(1, 110)  # Invoice Number
-        self.setColumnWidth(2, 110)  # PO Number
-        self.setColumnWidth(3, 100)  # Invoice Date
-        self.setColumnWidth(4, 110)  # Discount Terms
-        self.setColumnWidth(5, 100)  # Due Date
-        self.setColumnWidth(6, 120)  # Discounted Total
-        self.setColumnWidth(7, 100)  # Total Amount
-        # Don't set width for column 8 (Manual Entry) - we'll stretch it
-        self.setColumnWidth(9, 60)   # Delete
+        self.setColumnWidth(0, 30)   # Flag column
+        self.setColumnWidth(1, 140)  # Vendor Name
+        self.setColumnWidth(2, 110)  # Invoice Number
+        self.setColumnWidth(3, 110)  # PO Number
+        self.setColumnWidth(4, 100)  # Invoice Date
+        self.setColumnWidth(5, 110)  # Discount Terms
+        self.setColumnWidth(6, 100)  # Due Date
+        self.setColumnWidth(7, 120)  # Discounted Total
+        self.setColumnWidth(8, 100)  # Total Amount
+        # Don't set width for column 9 (Manual Entry) - we'll stretch it
+        self.setColumnWidth(10, 60)   # Delete
 
         # Set the resize modes for each column
         header = self.horizontalHeader()
         
         # Fixed width columns
-        for col in [0, 1, 2, 3, 4, 5, 6, 7, 9]:
+        for col in [0, 1, 2, 3, 4, 5, 6, 7, 8, 10]:
             header.setSectionResizeMode(col, QHeaderView.Fixed)
             
         # Make "Manual Entry" column stretch to fill available space
-        header.setSectionResizeMode(8, QHeaderView.Stretch)
+        header.setSectionResizeMode(9, QHeaderView.Stretch)
         
         # Prevent the last column from stretching automatically
         header.setStretchLastSection(False)
@@ -148,9 +149,9 @@ class InvoiceTable(QTableWidget):
         
         # Apply delegates to appropriate columns - this is the key change
         for col in range(self.columnCount()):
-            if col == 3 or col == 5:  # Date columns
+            if col == 4 or col == 6:  # Date columns
                 self.setItemDelegateForColumn(col, self.date_delegate)
-            elif col < 8:  # Regular data columns (not manual entry or delete)
+            elif 1 <= col <= 8:  # Regular data columns (not manual entry or delete)
                 self.setItemDelegateForColumn(col, self.indicator_delegate)
     
         # Remove this line that was causing the conflict:
@@ -240,14 +241,17 @@ class InvoiceTable(QTableWidget):
         else:
             sort_col = sort_order = None
         
-        # Ensure row_data has at least 8 elements (for all columns)
+        # Ensure row_data has at least 8 elements (for all data columns)
         while len(row_data) < 8:
             row_data.append("")
             
         row_position = self.rowCount()
         self.insertRow(row_position)
 
-        # Add each cell in the row (first 8 columns)
+        # Add flag cell
+        self.add_flag_cell(row_position)
+
+        # Add each cell in the row (data columns)
         self.populate_row_cells(row_position, row_data, is_no_ocr)
         
         # Add the Manual Entry cell
@@ -293,7 +297,7 @@ class InvoiceTable(QTableWidget):
             layout.addWidget(button)
             
             # Set the container as the cell widget
-            self.setCellWidget(row_position, 8, container)
+            self.setCellWidget(row_position, 9, container)
         else:
             # Add clickable link for OCR'd rows
             self.add_source_file_cell(row_position, file_path)
@@ -329,14 +333,22 @@ class InvoiceTable(QTableWidget):
 
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
         """Populate the cells of a row with data."""
-        for col, value in enumerate(row_data):
-            # Create cell with larger font
+        for idx, value in enumerate(row_data):
+            col = idx + 1 # Offset for flag column
             display_value = str(value) if value is not None else ""
-            if col == 0 and is_no_ocr:
+            if col == 1 and is_no_ocr:
                 display_value = ""
 
             item = self._create_item(col, display_value)
             self.setItem(row_position, col, item)
+
+    def add_flag_cell(self, row_position):
+        """Add the clickable flag cell."""
+        flag_item = QTableWidgetItem("⚑")
+        flag_item.setTextAlignment(Qt.AlignCenter)
+        flag_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        flag_item.setData(Qt.UserRole, False)
+        self.setItem(row_position, 0, flag_item)
 
     def add_source_file_cell(self, row_position, file_path):
         """Add the manual entry cell with a clickable link and edit icon."""
@@ -384,7 +396,7 @@ class InvoiceTable(QTableWidget):
         cell_widget.setCursor(Qt.PointingHandCursor)
         
         # Set the widget in the table cell
-        self.setCellWidget(row_position, 8, cell_widget)
+        self.setCellWidget(row_position, 9, cell_widget)
 
     def add_delete_cell(self, row_position):
         """Add the delete cell with a delete icon."""
@@ -392,12 +404,12 @@ class InvoiceTable(QTableWidget):
         delete_item.setTextAlignment(Qt.AlignCenter)
         delete_item.setFlags(Qt.ItemIsEnabled)
         delete_item.setBackground(QColor(COLORS['LIGHT_GREY']))
-        self.setItem(row_position, 9, delete_item)
+        self.setItem(row_position, 10, delete_item)
 
     def handle_cell_changed(self, row, col):
         """Handle when a cell's content is changed by the user."""
         # Only handle editable columns (0-7)
-        if col > 7:
+        if col == 0 or col > 8:
             return
     
         item = self.item(row, col)
@@ -416,15 +428,15 @@ class InvoiceTable(QTableWidget):
                 self.manually_edited.add((row, col))
                 self.cell_manually_edited.emit(row, col)
 
-                if col == 3:  # Invoice Date column
-                    terms = self.get_cell_text(row, 4).strip()
+                if col == 4:  # Invoice Date column
+                    terms = self.get_cell_text(row, 5).strip()
                     if terms:
                         from extractors.utils import calculate_discount_due_date
                         try:
                             invoice_date = current_value
                             due_date = calculate_discount_due_date(terms, invoice_date)
                             if due_date:
-                                self.update_calculated_field(row, 5, due_date, True)
+                                self.update_calculated_field(row, 6, due_date, True)
                         except Exception as e:
                             print(f"[WARN] Could not compute due date: {e}")
             else:
@@ -438,13 +450,17 @@ class InvoiceTable(QTableWidget):
         finally:
             # Reconnect the signal after changes are done
             self.cellChanged.connect(self.handle_cell_changed)
-        if col == 1:
+        if col == 2:
             # Update stored clean invoice number and refresh duplicate markers
             item.setData(Qt.UserRole + 20, current_value)
             self.update_duplicate_invoice_markers()
 
     def handle_table_click(self, row, col):
         """Handle clicking on a cell in the table."""
+        if col == 0:
+            self.toggle_row_flag(row)
+            return
+        
         header = self.horizontalHeaderItem(col).text()
         file_path = self.get_file_path_for_row(row)
         
@@ -476,11 +492,11 @@ class InvoiceTable(QTableWidget):
                     self.row_deleted.emit(row, file_path)
 
     def get_file_path_for_row(self, row):
-        """Get the file path for a row from any type of cell in column 8."""
+        """Get the file path for a row from any type of cell in column 9."""
         file_path = None
         
         # First check if there's a custom widget
-        cell_widget = self.cellWidget(row, 8)
+        cell_widget = self.cellWidget(row, 9)
         if cell_widget:
             # Try to get file path directly from the container widget first
             file_path = cell_widget.property("file_path")
@@ -498,7 +514,7 @@ class InvoiceTable(QTableWidget):
     
         # Check for regular QTableWidgetItem as fallback
         if not file_path:
-            file_item = self.item(row, 8)
+            file_item = self.item(row, 9)
             if file_item:
                 file_path = file_item.data(Qt.UserRole)
                 if not file_path:
@@ -510,16 +526,50 @@ class InvoiceTable(QTableWidget):
     
         return file_path
 
+    def find_row_by_file_path(self, file_path: str) -> int:
+        """Return the row index for the given file path, or -1 if not found."""
+        if not file_path:
+            return -1
+        abs_target = os.path.abspath(file_path)
+        for row in range(self.rowCount()):
+            row_path = self.get_file_path_for_row(row)
+            if row_path and os.path.abspath(row_path) == abs_target:
+                return row
+        return -1
+
+    def is_row_flagged(self, row):
+        """Check if the row is marked for later."""
+        item = self.item(row, 0)
+        return bool(item and item.data(Qt.UserRole))
+
+    def toggle_row_flag(self, row):
+        """Toggle the flag state for a row."""
+        item = self.item(row, 0)
+        if not item:
+            return
+        flagged = not bool(item.data(Qt.UserRole))
+        item.setData(Qt.UserRole, flagged)
+        item.setText("🚩" if flagged else "⚑")
+
+        # Reapply current sorting so the row moves to the correct position
+        sort_col = self.horizontalHeader().sortIndicatorSection()
+        sort_order = self.horizontalHeader().sortIndicatorOrder()
+        self.sortItems(sort_col, sort_order)
+
+        # Rehighlight all rows to ensure stripes match new order
+        for r in range(self.rowCount()):
+            self.rehighlight_row(r)
+
     # --- Additional helper methods (omitted for brevity) ---
     def highlight_row(self, row_position):
         """Highlight the row based on its content"""
-        for col in range(8):
+        for col in range(1, 9):
             background, stripe = self.determine_cell_color(row_position, col)
             self.set_cell_color(row_position, col, background, stripe)
 
     def resize_vendor_column(self):
         """Auto-resize the vendor column based on content."""
-        vendor_col = 0
+        vendor_col = 1
         self.resizeColumnToContents(vendor_col)
         current_width = self.columnWidth(vendor_col)
         self.setColumnWidth(vendor_col, current_width + 50)
@@ -537,11 +587,11 @@ class InvoiceTable(QTableWidget):
             except TypeError:
                 was_connected = False
         
-            for col in range(8):
+            for col in range(1, 9):
                 background, stripe = self.determine_cell_color(row, col)
                 self.set_cell_color(row, col, background, stripe)
 
-            for col in range(8):
+            for col in range(1, 9):
                 item = self.item(row, col)
                 if item:
                     item.setData(Qt.UserRole + 3, item.data(Qt.UserRole + 3))
@@ -608,7 +658,7 @@ class InvoiceTable(QTableWidget):
 
         row_empty = self.is_row_empty(row)
         row_complete = self.is_row_complete(row)
-        vendor_missing = not self.get_cell_text(row, 0).strip()
+        vendor_missing = not self.get_cell_text(row, 1).strip()
 
         background = None
         stripe = None
@@ -618,7 +668,7 @@ class InvoiceTable(QTableWidget):
         else:
             if not text:
                 background = COLORS['YELLOW']
-            if not row_complete and col == 0:
+            if not row_complete and col == 1:
                 stripe = COLORS['YELLOW']
 
         if (row, col) in self.manually_edited:
@@ -628,6 +678,9 @@ class InvoiceTable(QTableWidget):
             background = COLORS['LIGHT_BLUE']
         elif (row, col) in self.auto_calculated:
             background = "#E6F3FF"
+
+        if self.is_row_flagged(row) and col == 1:
+            stripe = COLORS['RED']
 
         return background, stripe
 
@@ -643,17 +696,17 @@ class InvoiceTable(QTableWidget):
 
     def is_row_empty(self, row):
         """Check if all data cells in the row are empty."""
-        for col in range(8):
+        for col in range(1, 9):
             if self.get_cell_text(row, col).strip():
                 return False
         return True
 
     def is_row_complete(self, row):
         """Check if all required fields in the row are filled."""
-        # Check first 8 columns (all except Manual Entry and Delete)
-        for col in range(8):
-            # Skip checking column 2 (PO Number) as it's optional
-            if col == 2:
+        # Check data columns (all except Manual Entry and Delete)
+        for col in range(1, 9):
+            # Skip checking column 3 (PO Number) as it's optional
+            if col == 3:
                 continue
                 
             value = self.get_cell_text(row, col)
@@ -666,7 +719,7 @@ class InvoiceTable(QTableWidget):
         item = self.item(row, col)
         if not item:
             return ""
-        if col == 1:
+        if col == 2:
             clean = item.data(Qt.UserRole + 20)
             if clean is not None:
                 return str(clean)
@@ -727,7 +780,7 @@ class InvoiceTable(QTableWidget):
             was_connected = False
 
         try:
-            invoice_col = 1
+            invoice_col = 2
 
             # 1) Build groups
             groups = {}
@@ -804,9 +857,11 @@ class InvoiceTable(QTableWidget):
         for row in range(self.rowCount()):
             row_path = self.get_file_path_for_row(row)
             if row_path and os.path.abspath(row_path) == abs_target:
-                for col, value in enumerate(row_values):
+                for idx, value in enumerate(row_values):
+                    col = idx + 1
                     item = self._create_item(col, value)
                     self.setItem(row, col, item)
 
                 self.highlight_row(row)
-                return
+                return row
+            return -1

@@ -2,7 +2,8 @@
 import os
 import subprocess
 
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog
+from PyQt5.QtCore import Qt
 from pdf_reader import extract_text_data_from_pdfs
 from extractor import extract_fields
 
@@ -22,11 +23,27 @@ class FileController:
             return False
 
         print(f"[INFO] Processing {len(new_files)} new files...")
-        self.loaded_files.update(os.path.normpath(f) for f in new_files)
-        
-        text_blocks = extract_text_data_from_pdfs(new_files)
-        extracted_data = extract_fields(text_blocks)
-        return list(zip(extracted_data, new_files))
+        progress = QProgressDialog("Processing files...", "Cancel", 0, len(new_files), self.main_window)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+
+        results = []
+        for i, file in enumerate(new_files, 1):
+            if progress.wasCanceled():
+                break
+
+            text_blocks = extract_text_data_from_pdfs([file])
+            extracted = extract_fields(text_blocks)
+            data = extracted[0] if extracted else []
+            results.append((data, file))
+            self.loaded_files.add(os.path.normpath(file))
+
+            progress.setValue(i)
+            QApplication.processEvents()
+
+        progress.close()
+        return results
         
     def filter_new_files(self, files):
         """Filter out already processed files."""

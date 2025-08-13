@@ -95,7 +95,7 @@ def export_accounting_csv(filename, invoice_table):
                 print(f"[INFO] Processing row {row}")
                 
                 # Get vendor name for lookup - ensure aggressive cleaning
-                raw_vendor_name = invoice_table.get_cell_text(row, 0)
+                raw_vendor_name = invoice_table.get_cell_text(row, 1)
                 vendor_name = re.sub(r'\s+', ' ', raw_vendor_name.strip())
                 if not vendor_name:
                     print(f"[INFO] Skipping row {row}: Invalid vendor '{vendor_name}'")
@@ -107,13 +107,13 @@ def export_accounting_csv(filename, invoice_table):
                     print(f"[WARN] Using default vendor ID for '{vendor_name}'")
                 
                 # Get other invoice data
-                invoice_no = clean_text(invoice_table.get_cell_text(row, 1))
-                po_no = clean_text(invoice_table.get_cell_text(row, 2))
-                invoice_date = clean_text(invoice_table.get_cell_text(row, 3))
-                terms = clean_text(invoice_table.get_cell_text(row, 4))
-                due_date = clean_text(invoice_table.get_cell_text(row, 5))
-                disc_amount = clean_text(invoice_table.get_cell_text(row, 6))
-                total_amount = clean_text(invoice_table.get_cell_text(row, 7))
+                invoice_no = clean_text(invoice_table.get_cell_text(row, 2))
+                po_no = clean_text(invoice_table.get_cell_text(row, 3))
+                invoice_date = clean_text(invoice_table.get_cell_text(row, 4))
+                terms = clean_text(invoice_table.get_cell_text(row, 5))
+                due_date = clean_text(invoice_table.get_cell_text(row, 6))
+                disc_amount = clean_text(invoice_table.get_cell_text(row, 7))
+                total_amount = clean_text(invoice_table.get_cell_text(row, 8))
                 
                 # Validate required fields
                 if not invoice_no or not invoice_date or not total_amount:
@@ -208,10 +208,10 @@ def export_accounting_csv(filename, invoice_table):
 def is_row_valid_for_export(invoice_table, row):
     """Check if row is valid for export (no errors, complete data)"""
     # Get required fields
-    vendor_name = invoice_table.get_cell_text(row, 0)
-    invoice_no = invoice_table.get_cell_text(row, 1)
-    invoice_date = invoice_table.get_cell_text(row, 3)
-    total_amount = invoice_table.get_cell_text(row, 7)
+    vendor_name = invoice_table.get_cell_text(row, 1)
+    invoice_no = invoice_table.get_cell_text(row, 2)
+    invoice_date = invoice_table.get_cell_text(row, 4)
+    total_amount = invoice_table.get_cell_text(row, 8)
     
     # Log validation details
     print(f"Validating row {row}: Vendor='{vendor_name}', Invoice='{invoice_no}', Total='{total_amount}'")
