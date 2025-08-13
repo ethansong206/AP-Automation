@@ -30,7 +30,7 @@ class SortableTableWidgetItem(QTableWidgetItem):
         if isinstance(other, SortableTableWidgetItem):
             if self.sort_key is not None and other.sort_key is not None:
                 return self.sort_key < other.sort_key
-            return super().__lt__(other)
+        return super().__lt__(other)
 
 class InvoiceTable(QTableWidget):
     """Enhanced table for displaying and editing invoice data."""
