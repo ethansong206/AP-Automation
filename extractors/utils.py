@@ -23,29 +23,32 @@ def clean_currency(value):
     return value.replace("$", "").replace(",", "").strip()
 
 
-# --- Calculate due date based on NET terms ---
+# --- Calculate due date based on payment terms ---
 def calculate_discount_due_date(terms, invoice_date):
     """
-    Parses discount terms and calculates due date based on NET terms.
+    Parse payment terms and calculate the due date. Supports terms with
+    or without the explicit word "NET" (e.g., "2% 10 NET 30", "8% 75", "NET 30").
     
     Args:
-        terms (str): Payment terms string (e.g., "2% 10 NET 30", "NET 30")
-        invoice_date (str): Invoice date string in supported format
+        terms (str): Payment terms string.
+        invoice_date (str): Invoice date string in supported format.
         
     Returns:
-        str: Due date in MM/DD/YY format or None if no NET term found
+        str: Due date in MM/DD/YY format or None if no days can be determined.
     """
-    # Extract discount due date
-    disc_match = re.search(r"(\d{2,3})\s*NET", terms, re.IGNORECASE)
-    if not disc_match:
-        net_match = re.search(r"NET\s*(\d+)", terms, re.IGNORECASE)
-        if not net_match:
-            return None
-    if disc_match:
-        net_days = int(disc_match.group(1))
-    else:
+    terms_upper = terms.upper()
+
+    # First, look for explicit NET terms
+    net_match = re.search(r"NET\s*(\d+)", terms_upper)
+    if net_match:
         net_days = int(net_match.group(1))
-    
+    else:
+        # No NET found; try to interpret last number as NET days (e.g., "8% 75")
+        numbers = re.findall(r"\d+", terms_upper)
+        if not numbers:
+            return None
+        net_days = int(numbers[-1])
+
     # Parse invoice date in multiple formats
     try:
         inv_date = datetime.strptime(invoice_date, "%Y-%m-%d")

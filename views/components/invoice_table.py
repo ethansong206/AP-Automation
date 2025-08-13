@@ -49,7 +49,6 @@ class InvoiceTable(QTableWidget):
         self.manually_edited = set()  # Track (row, col) of manually edited cells
         self.auto_calculated = set()  # Track (row, col) of auto-calculated cells
         
-        self.duplicate_marking_mode = "color"
         self._last_duplicate_groups = {}
 
         self._rehighlighting = False
@@ -712,10 +711,11 @@ class InvoiceTable(QTableWidget):
         return (text or "").strip().upper()
 
     def update_duplicate_invoice_markers(self):
-        """
-        Find duplicate invoice numbers and mark them.
-        - If mode == "color": light-purple background on Invoice Number cells.
-        - If mode == "tag": also add superscript group label to the display text.
+        """Highlight and tag duplicate invoice numbers.
+
+        Duplicate invoice numbers are grouped and each group is assigned a
+        superscript index. The invoice number cells are colored light purple
+        and the superscript index is appended to the displayed text.
         """
         if self.columnCount() < 2 or self.rowCount() == 0:
             return
@@ -784,14 +784,13 @@ class InvoiceTable(QTableWidget):
                     # Light purple on invoice number cell
                     item.setBackground(dup_bg)
 
-                    if self.duplicate_marking_mode == "tag":
-                        # Append superscript group tag to displayed text
-                        clean_text = item.data(Qt.UserRole + 20)
-                        if clean_text is None:
-                            clean_text = item.text()
-                        item.setData(Qt.UserRole + 20, str(clean_text))  # ensure cache is set
-                        display = f"{clean_text} {tag}"
-                        item.setText(display)
+                    # Append superscript group tag to displayed text
+                    clean_text = item.data(Qt.UserRole + 20)
+                    if clean_text is None:
+                        clean_text = item.text()
+                    item.setData(Qt.UserRole + 20, str(clean_text))  # ensure cache is set
+                    display = f"{clean_text} {tag}"
+                    item.setText(display)
 
             self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
 

@@ -564,7 +564,7 @@ class ManualEntryDialog(QDialog):
             QMessageBox.warning(
                 self, "Cannot Calculate Due Date",
                 "I couldn't determine a due date from those Discount Terms.\n"
-                "Try formats like 'NET 30', '2%10 NET 30', etc."
+                "Try formats like 'NET 30', '2%10 NET 30', '8% 75', etc."
             )
             return
 

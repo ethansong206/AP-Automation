@@ -350,21 +350,38 @@ def parse_terms(terms_string):
     if not terms_string:
         return result
         
-    # Look for common patterns
+    # Normalize input for regex matching
     terms_string = terms_string.upper().strip()
     
-    # Net X days (e.g., NET 30, N30)
-    net_match = re.search(r'N(?:ET)?\s*(\d+)', terms_string)
+    # Primary patterns
+    net_match = re.search(r'N(?:ET)?\s*(\d+)', terms_string)  # NET 30 or N30
+    disc_match = re.search(r'(\d+(?:\.\d+)?)\s*[/%]\s*(\d+)', terms_string)  # 2/10 or 2%10
+    
     if net_match:
+        # Explicit NET term provided
         days = int(net_match.group(1))
-        result['code'] = f"N{days}"  # Ensure format is Nxx not NET xx
+        result['code'] = f"N{days}"
         result['due_days'] = days
-        
-        # Check for discount terms (e.g., 2/10 NET 30)
-        disc_match = re.search(r'(\d+(?:\.\d+)?)\s*[/%]\s*(\d+)', terms_string)
+
         if disc_match:
             result['disc_pct'] = float(disc_match.group(1))
             result['disc_days'] = int(disc_match.group(2))
+
+    elif disc_match:
+        # Handle formats without explicit NET (e.g., "8% 75")
+        days = int(disc_match.group(2))
+        result['code'] = f"N{days}"
+        result['due_days'] = days
+        result['disc_pct'] = float(disc_match.group(1))
+        result['disc_days'] = 0
+
+    else:
+        # Fallback: any standalone number becomes NET days
+        num_match = re.search(r'(\d+)', terms_string)
+        if num_match:
+            days = int(num_match.group(1))
+            result['code'] = f"N{days}"
+            result['due_days'] = days
     
     return result
 
