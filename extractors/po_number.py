@@ -382,6 +382,22 @@ def extract_po_number(words, vendor_name):
     
     po_label_positions = find_label_positions(normalized_words, label_type="po")
     
+    # Yakima uses "Purchaser Order No." instead of standard PO labels
+    if vendor_name and "yakima" in vendor_name.lower():
+        for i in range(len(normalized_words) - 2):
+            first = normalized_words[i]
+            second = normalized_words[i + 1]
+            third = normalized_words[i + 2]
+            if (
+                first["text"] == "purchaser"
+                and second["text"] == "order"
+                and third["text"] in ["no", "no.", "number", "num", "#"]
+            ):
+                po_label_positions.append((first["x0"], third["x1"], first["top"]))
+                print(
+                    f"[DEBUG] Added Yakima 'Purchaser Order No.' label at position ({first['x0']}, {third['x1']}, {first['top']})"
+                )
+
     print(f"[DEBUG] Found {len(po_label_positions)} initial PO label positions")
     
     # Add "P.O. No." labels

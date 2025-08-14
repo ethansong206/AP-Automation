@@ -50,9 +50,9 @@ class ManualEntryDialog(QDialog):
         # ===== Left: file list =====
         self.file_list = QListWidget()
         self.file_list.mousePressEvent = self._file_list_mouse_press
-        for path, flagged in zip(self.pdf_paths, self.flag_states):
-            text = os.path.basename(path) if path else ""
+        for i, (path, flagged) in enumerate(zip(self.pdf_paths, self.flag_states)):
             item = QListWidgetItem()
+            text = self._get_display_text(i)
             self._update_file_item(item, text, flagged)
             self.file_list.addItem(item)
 
@@ -73,6 +73,7 @@ class ManualEntryDialog(QDialog):
         comp = self.vendor_combo.completer()
         if comp:
             comp.setCompletionMode(QCompleter.PopupCompletion)
+        self.vendor_combo.currentTextChanged.connect(self._on_display_fields_changed)
         vendor_layout.addWidget(self.vendor_combo, 1)
         vendor_layout.addSpacing(10)
         self.add_vendor_btn = QPushButton("New Vendor")
@@ -83,6 +84,7 @@ class ManualEntryDialog(QDialog):
 
         # Core fields
         self.fields["Invoice Number"] = QLineEdit()
+        self.fields["Invoice Number"].textChanged.connect(self._on_display_fields_changed)
         form_layout.addRow(QLabel("Invoice Number:"), self.fields["Invoice Number"])
 
         self.fields["PO Number"] = QLineEdit()
@@ -644,6 +646,35 @@ class ManualEntryDialog(QDialog):
         if item is not None:
             item.setForeground(QBrush(Qt.gray))
 
+    def _get_display_text(self, idx):
+        """Return "Vendor_Invoice" for index if available; otherwise use filename."""
+        if idx == self.current_index and hasattr(self, "fields") and "Invoice Number" in self.fields:
+            vendor = getattr(self, "vendor_combo", None)
+            v = vendor.currentText().strip() if vendor else ""
+            inv = self.fields["Invoice Number"].text().strip()
+            display = f"{v}_{inv}" if v and inv else (v or inv)
+            if display:
+                return display
+            use_saved = False
+        else:
+            use_saved = True
+        if use_saved and 0 <= idx < len(self.values_list):
+            v = self.values_list[idx][0].strip()
+            inv = self.values_list[idx][1].strip()
+            display = f"{v}_{inv}" if v and inv else (v or inv)
+            if display:
+                return display
+        path = self.pdf_paths[idx] if 0 <= idx < len(self.pdf_paths) else ""
+        return os.path.basename(path) if path else ""
+
+    def _on_display_fields_changed(self, *args):
+        idx = self.current_index
+        item = self.file_list.item(idx)
+        if not item:
+            return
+        display = self._get_display_text(idx)
+        self._update_file_item(item, display, self.flag_states[idx])
+
     # ---------- Flag helpers ----------
     def _update_file_item(self, item, text, flagged):
         icon = "🚩" if flagged else "⚑"
@@ -664,7 +695,7 @@ class ManualEntryDialog(QDialog):
             return
         self.flag_states[idx] = not self.flag_states[idx]
         item = self.file_list.item(idx)
-        text = os.path.basename(self.pdf_paths[idx]) if idx < len(self.pdf_paths) else ""
+        text = self._get_display_text(idx)
         if item:
             self._update_file_item(item, text, self.flag_states[idx])
         if idx == self.current_index:
@@ -912,8 +943,8 @@ class ManualEntryDialog(QDialog):
         self.flag_states = list(self.saved_flag_states)
         for i, path in enumerate(self.pdf_paths):
             item = self.file_list.item(i)
-            text = os.path.basename(path) if path else ""
             if item:
+                text = self._get_display_text(i)
                 self._update_file_item(item, text, self.flag_states[i])
         self._update_flag_button()
         self._dirty = False

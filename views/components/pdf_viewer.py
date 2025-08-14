@@ -138,6 +138,7 @@ class InteractivePDFViewer(QWidget):
         self.doc = None
         self.page_index = 0
         self.scale = 1.25  # render scale relative to 72dpi points → pixels (1.0 = 72 dpi)
+        self.rotation = 0
         self._pix_item = None
 
         # ---- Top toolbar ----
@@ -159,14 +160,16 @@ class InteractivePDFViewer(QWidget):
         self.btn_fitw = QPushButton("Fit Width")
         self.btn_fitp = QPushButton("Fit Page")
         self.btn_zoomin = QPushButton("+")
-        self.btn_zoomout = QPushButton("−")
+        self.btn_zoomout = QPushButton("-")
         self.btn_reset = QPushButton("Reset")
+        self.btn_rotate = QPushButton("Rotate")
         for b, tip in [
             (self.btn_fitw, "Scale to fit width (W)"),
             (self.btn_fitp, "Scale to fit page (P)"),
             (self.btn_zoomin, "Zoom In (Ctrl+=)"),
             (self.btn_zoomout, "Zoom Out (Ctrl+-)"),
             (self.btn_reset, "Reset Zoom (Ctrl+0)"),
+            (self.btn_rotate, "Rotate 90° clockwise (R)"),
         ]:
             self._mk_btn(b, tip)
             top.addWidget(b)
@@ -193,6 +196,7 @@ class InteractivePDFViewer(QWidget):
         QShortcut(QKeySequence("P"), self, activated=self.fit_page)
         QShortcut(QKeySequence.MoveToPreviousPage, self, activated=self.prev_page)
         QShortcut(QKeySequence.MoveToNextPage, self, activated=self.next_page)
+        QShortcut(QKeySequence("R"), self, activated=self.rotate_clockwise)
 
         # ---- Signals ----
         self.btn_prev.clicked.connect(self.prev_page)
@@ -202,6 +206,7 @@ class InteractivePDFViewer(QWidget):
         self.btn_zoomin.clicked.connect(self.zoom_in)
         self.btn_zoomout.clicked.connect(self.zoom_out)
         self.btn_reset.clicked.connect(self.reset_zoom)
+        self.btn_rotate.clicked.connect(self.rotate_clockwise)
 
         # ---- Load initial PDF ----
         self.load_pdf(pdf_path)
@@ -237,6 +242,7 @@ class InteractivePDFViewer(QWidget):
         self._pix_item = None
         self.doc = None
         self.page_index = 0
+        self.rotation = 0
         if not pdf_path or not os.path.isfile(pdf_path):
             self.scene.addText("Unable to load PDF").setDefaultTextColor(Qt.red)
             self._update_page_label()
@@ -257,7 +263,7 @@ class InteractivePDFViewer(QWidget):
             return
         page = self.doc.load_page(self.page_index)
         # Render at current scale (points * scale = pixels)
-        mat = fitz.Matrix(self.scale, self.scale)
+        mat = fitz.Matrix(self.scale, self.scale).prerotate(self.rotation)
         pix = page.get_pixmap(matrix=mat, alpha=False)
         img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
         # Keep a deep copy (PyMuPDF buffer goes out of scope)
@@ -305,7 +311,8 @@ class InteractivePDFViewer(QWidget):
             return
         page = self.doc.load_page(self.page_index)
         target = max(1, self.view.viewport().width() - 24)  # minus a bit for scrollbars
-        scale = target / page.rect.width
+        width = page.rect.height if self.rotation in (90, 270) else page.rect.width
+        scale = target / width
         self._set_scale(scale)
 
     def fit_page(self):
@@ -316,8 +323,12 @@ class InteractivePDFViewer(QWidget):
         if vp.width() <= 0 or vp.height() <= 0:
             return
         page = self.doc.load_page(self.page_index)
-        scale_w = (vp.width() - 24) / page.rect.width
-        scale_h = (vp.height() - 24) / page.rect.height
+        if self.rotation in (90, 270):
+            page_w, page_h = page.rect.height, page.rect.width
+        else:
+            page_w, page_h = page.rect.width, page.rect.height
+        scale_w = (vp.width() - 24) / page_w
+        scale_h = (vp.height() - 24) / page_h
         self._set_scale(min(scale_w, scale_h))
 
     # Called by the child view to handle ctrl+wheel centrally
@@ -345,6 +356,13 @@ class InteractivePDFViewer(QWidget):
             self.page_index -= 1
             self._render_page()
             self._update_page_label()
+
+    def rotate_clockwise(self):
+        """Rotate the current page 90 degrees clockwise."""
+        if not self.doc:
+            return
+        self.rotation = (self.rotation + 90) % 360
+        self._render_page()
 
     # -----------------------------
     # Selection → text extraction

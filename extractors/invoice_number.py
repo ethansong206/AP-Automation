@@ -22,6 +22,14 @@ def extract_invoice_number(words, vendor_name):
             if w["text"] == "number":
                 label_positions.append((w["x0"], w["x1"], w["top"]))
     
+    # Vendor-specific: Add "Invoice ID" as a label for Darn Tough
+    if vendor_name == "Darn Tough":
+        for i in range(len(normalized_words) - 1):
+            first = normalized_words[i]
+            second = normalized_words[i + 1]
+            if first["text"] == "invoice" and second["text"] == "id":
+                label_positions.append((first["x0"], second["x1"], second["top"]))
+
     # Add credit memo/note labels
     for i in range(len(normalized_words) - 1):
         first = normalized_words[i]

@@ -18,6 +18,7 @@ def extract_total_amount(words, vendor_name):
         "Fulling Mill Fly Fishing LLC": "amount to pay",
         "Treadlabs": "outstanding",
         "Industrial Revolution, Inc": "remaining amount",
+        "Yakima": "Balance:",
     }
 
     label = special_vendor_labels.get(vendor_name)

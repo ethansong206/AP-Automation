@@ -163,7 +163,7 @@ class InvoiceTable(QTableWidget):
         self.cellChanged.connect(self.handle_cell_changed)
         
         # Row selection behavior
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         # Set a taller default row height for all rows
@@ -896,4 +896,4 @@ class InvoiceTable(QTableWidget):
 
                 self.highlight_row(row)
                 return row
-            return -1
+        return -1
