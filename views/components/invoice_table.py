@@ -4,7 +4,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     QPushButton, QMessageBox, QWidget, QHBoxLayout, QLabel,
-    QAbstractButton
+    QAbstractButton, QDialog
 )
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent
@@ -19,6 +19,8 @@ def to_superscript(num: int) -> str:
 from assets.constants import COLORS
 from views.components.status_indicator_delegate import StatusIndicatorDelegate
 from views.components.date_selection import DateDelegate
+from extractors.utils import get_vendor_list
+from views.dialogs.vendor_dialog import AddVendorFlow
 
 class SortableTableWidgetItem(QTableWidgetItem):
     """ Table widget item that stores a separate key for sorting. """
@@ -428,7 +430,37 @@ class InvoiceTable(QTableWidget):
                 self.manually_edited.add((row, col))
                 self.cell_manually_edited.emit(row, col)
 
-                if col == 4:  # Invoice Date column
+                if col == 1:  # Vendor Name column
+                    vendors = {v.strip().lower() for v in get_vendor_list()}
+                    if current_value and current_value.lower() not in vendors:
+                        warn = QMessageBox.warning(
+                            self,
+                            "Unknown Vendor",
+                            (
+                                f"‘{current_value}’ isn’t in your vendor list.\n\n"
+                                "You’ll need to add it first (Vendor Name → Vendor Number → optional Identifier).\n"
+                                "Vendor Number is required; Identifier is optional."
+                            ),
+                            QMessageBox.Ok | QMessageBox.Cancel,
+                            QMessageBox.Ok,
+                        )
+                        if warn == QMessageBox.Cancel:
+                            item.setText(original_value)
+                            if (row, col) in self.manually_edited:
+                                self.manually_edited.remove((row, col))
+                            self._update_item_sort_key(item, col)
+                            self.rehighlight_row(row)
+                            return
+                        pdf_path = self.get_file_path_for_row(row) or ""
+                        flow = AddVendorFlow(pdf_path=pdf_path, parent=self, prefill_vendor_name=current_value)
+                        if flow.exec_() != QDialog.Accepted:
+                            item.setText(original_value)
+                            if (row, col) in self.manually_edited:
+                                self.manually_edited.remove((row, col))
+                            self._update_item_sort_key(item, col)
+                            self.rehighlight_row(row)
+                            return
+                elif col == 4:  # Invoice Date column
                     terms = self.get_cell_text(row, 5).strip()
                     if terms:
                         from extractors.utils import calculate_discount_due_date

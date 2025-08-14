@@ -2,6 +2,7 @@
 import os
 import re
 import shutil
+import json
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -9,7 +10,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QHBoxLayout, QDialog, QTableWidgetItem
 )
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QStandardPaths, QTimer
 
 from views.components.invoice_table import InvoiceTable
 from views.components.drop_area import FileDropArea
@@ -38,9 +39,17 @@ class InvoiceApp(QWidget):
         self.file_controller = FileController(self)
         self.invoice_controller = InvoiceController(self)
         
+        # Session management
+        self.session_file = self._get_session_file()
+        self._loading_session = False
+
         # Set up UI components
         self.setup_ui()
         self.setAcceptDrops(True)
+
+        # Autosave and restore
+        self.setup_autosave()
+        self.load_session()
 
     def setup_ui(self):
         """Set up the main UI components."""
@@ -120,9 +129,11 @@ class InvoiceApp(QWidget):
     def setup_table_connections(self):
         """Set up signal connections for the table."""
         self.table.row_deleted.connect(self.handle_row_deleted)
+        self.table.row_deleted.connect(lambda *_: self.save_session())
         self.table.source_file_clicked.connect(self.open_file)
         self.table.manual_entry_clicked.connect(self.open_manual_entry_dialog)
         self.table.cell_manually_edited.connect(self.handle_cell_edited)
+        self.table.cellChanged.connect(lambda *_: self.save_session())
 
     # --- File handling methods ---
     def browse_files(self):
@@ -144,12 +155,14 @@ class InvoiceApp(QWidget):
             self.table.add_row(invoice.to_row_data(), file_path, invoice.is_no_ocr)
             
         self.update_total_amount()
+        self.save_session()
     
     # --- Event handlers ---
     def handle_row_deleted(self, row, file_path):
         """Handle when a row is deleted from the table."""
         self.file_controller.remove_file(file_path)
         self.update_total_amount()
+        self.save_session()
     
     def handle_cell_edited(self, row, col):
         """Handle when a cell is manually edited."""
@@ -237,6 +250,7 @@ class InvoiceApp(QWidget):
             self.table.clear_tracking_data()  # Add this line to clear all tracking data
             self.file_controller.clear_all_files()
             self.update_total_amount()
+            self.remove_session_file()
 
     def delete_selected_rows(self):
         """Delete the selected rows from the table."""
@@ -257,6 +271,7 @@ class InvoiceApp(QWidget):
                 self.table.removeRow(row)
                 self.file_controller.remove_file(file_path)
             self.update_total_amount()
+            self.save_session()
             
     def update_total_amount(self):
         """Update the total amount display."""
@@ -293,6 +308,7 @@ class InvoiceApp(QWidget):
         if row >= 0 and self.table.is_row_flagged(row) != flagged:
             self.table.toggle_row_flag(row)
         self.update_total_amount()
+        self.save_session()
 
     # --- Export functionality ---
     def export_to_csv(self):
@@ -324,6 +340,7 @@ class InvoiceApp(QWidget):
         if success:
             QMessageBox.information(self, "Export Successful", message)
             print(f"[INFO] {message}")
+            self.remove_session_file()
         else:
             QMessageBox.critical(self, "Export Failed", f"Error: {message}")
             print(f"[ERROR] Failed to export: {message}")
@@ -379,6 +396,104 @@ class InvoiceApp(QWidget):
                 print(f"[ERROR] Failed to copy '{file_path}' to '{dest_path}': {e}")
 
         QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")
+
+    # --- Session persistence ---
+    def _get_session_file(self):
+        """Return path to the autosave session file."""
+        base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        if not os.path.exists(base):
+            os.makedirs(base, exist_ok=True)
+        return os.path.join(base, "session.json")
+
+    def setup_autosave(self):
+        """Set up periodic autosaving of the session."""
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setInterval(60000)
+        self.autosave_timer.timeout.connect(self.save_session)
+        self.autosave_timer.start()
+
+    def save_session(self):
+        """Persist current table state and loaded files to disk."""
+        if self._loading_session:
+            return
+        if self.table.rowCount() == 0:
+            self.remove_session_file()
+            return
+        rows = []
+        for row in range(self.table.rowCount()):
+            values = [self.table.get_cell_text(row, col) for col in range(1, 9)]
+            rows.append({
+                "values": values,
+                "flagged": self.table.is_row_flagged(row),
+                "file_path": self.table.get_file_path_for_row(row)
+            })
+        payload = {
+            "rows": rows,
+            "loaded_files": list(self.file_controller.loaded_files),
+            "timestamp": datetime.now().isoformat(),
+        }
+        try:
+            with open(self.session_file, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+        except Exception as e:
+            print(f"[ERROR] Failed to save session: {e}")
+
+    def load_session(self):
+        """Load saved session data if available."""
+        if not os.path.exists(self.session_file):
+            return
+        try:
+            with open(self.session_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as e:
+            print(f"[ERROR] Failed to load session: {e}")
+            return
+        ts = data.get("timestamp")
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts)
+                ts_str = dt.strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                ts_str = ts
+        else:
+            try:
+                mtime = os.path.getmtime(self.session_file)
+                dt = datetime.fromtimestamp(mtime)
+                ts_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                ts_str = "unknown time"
+        reply = QMessageBox.question(
+            self,
+            "Restore Session",
+            f"An autosave from {ts_str} was found. Would you like to restore it?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self._loading_session = True
+        try:
+            self.table.setRowCount(0)
+            self.table.clear_tracking_data()
+            for row in data.get("rows", []):
+                values = row.get("values", [])
+                file_path = row.get("file_path", "")
+                flagged = row.get("flagged", False)
+                self.table.add_row(values, file_path, False)
+                idx = self.table.rowCount() - 1
+                if flagged:
+                    self.table.toggle_row_flag(idx)
+            self.file_controller.load_saved_files(data.get("loaded_files", []))
+            self.update_total_amount()
+        finally:
+            self._loading_session = False
+
+    def remove_session_file(self):
+        """Delete the autosave session file if it exists."""
+        if os.path.exists(self.session_file):
+            try:
+                os.remove(self.session_file)
+            except Exception as e:
+                print(f"[ERROR] Failed to remove session file: {e}")
 
     # --- Helper methods ---
     def _sanitize_filename(self, text):

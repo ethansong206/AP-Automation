@@ -93,3 +93,10 @@ class FileController:
     def clear_all_files(self):
         """Clear all loaded files."""
         self.loaded_files.clear()
+
+    def load_saved_files(self, files):
+        """Load previously saved file paths into the controller."""
+        if not files:
+            self.loaded_files.clear()
+            return
+        self.loaded_files = {os.path.normpath(f) for f in files if f}

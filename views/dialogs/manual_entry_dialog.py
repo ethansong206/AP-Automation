@@ -365,7 +365,7 @@ class ManualEntryDialog(QDialog):
         self.values_list.pop(idx)
         self.saved_values_list.pop(idx)
         self.flag_states.pop(idx)
-        self.saved_flag_states(idx)
+        self.saved_flag_states.pop(idx)
         self._deleted_files.append(path)
 
         # Remove from UI list
@@ -538,7 +538,7 @@ class ManualEntryDialog(QDialog):
                 QMessageBox.Ok
             )
             if warn == QMessageBox.Cancel:
-                return  # abort save; let the user decide later
+                return False # abort save; let the user decide later
 
             # Launch the exact same guided flow as the New Vendor button
             current_pdf = (
@@ -548,7 +548,7 @@ class ManualEntryDialog(QDialog):
             )
             flow = AddVendorFlow(pdf_path=current_pdf, parent=self, prefill_vendor_name=typed_vendor)
             if flow.exec_() != QDialog.Accepted:
-                return  # user canceled adding the vendor; don't save yet
+                return False # user canceled adding the vendor; don't save yet
 
             # Refresh dropdown and select the new vendor
             self.load_vendors()
@@ -558,7 +558,7 @@ class ManualEntryDialog(QDialog):
             else:
                 # Safety: if for some reason we didn't get a name back, bail to avoid saving with unknown vendor
                 QMessageBox.warning(self, "Vendor Not Added", "The vendor wasn’t added. Please try again.")
-                return
+                return False
 
         # Persist into working list
         self.save_current_invoice()
@@ -571,6 +571,7 @@ class ManualEntryDialog(QDialog):
             self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx], self.flag_states[idx])
         self._dirty = False
         self._flash_saved()
+        return True
 
     def closeEvent(self, event):
         """Guard window-X close. Ensure 'No' actually closes."""
@@ -889,6 +890,10 @@ class ManualEntryDialog(QDialog):
                 w.textChanged.connect(self._mark_dirty)
             if hasattr(w, "currentIndexChanged"):
                 w.currentIndexChanged.connect(self._mark_dirty)
+            if hasattr(w, "currentTextChanged"):
+                w.currentTextChanged.connect(self._mark_dirty)
+            if hasattr(w, "editTextChanged"):
+                w.editTextChanged.connect(self._mark_dirty)
             if isinstance(w, QDateEdit):
                 w.dateChanged.connect(self._mark_dirty)
 
@@ -936,8 +941,8 @@ class ManualEntryDialog(QDialog):
 
         clicked = box.clickedButton()
         if clicked is yes_btn:
-            self.on_save()
-            proceed_action()
+            if self.on_save():
+                proceed_action()
         elif clicked is keep_btn:
             pass  # stay put
         elif clicked is no_btn:
