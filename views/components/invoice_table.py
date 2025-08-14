@@ -322,16 +322,31 @@ class InvoiceTable(QTableWidget):
         return row_position
     
     def _emit_manual_entry_from_widget(self, widget, button=None):
-        """Emit manual entry signal using the widget's current row.
-
-        This determines the row at click time so that sorting the table
-        doesn't cause the Manual Entry dialog to open for the wrong file.
-        """
+        """Emit manual entry signal using stable file-path matching."""
         if not widget:
             return
-        index = self.indexAt(widget.pos())
-        row = index.row()
-        self.manual_entry_clicked.emit(row, button)
+
+        # Prefer the container's property
+        file_path = widget.property("file_path")
+
+        # If called with a button, fall back to its property
+        if not file_path and button is not None:
+            file_path = button.property("file_path")
+
+        # Last resort: try to find a QPushButton child with the property
+        if not file_path:
+            for child in widget.children():
+                if isinstance(child, QPushButton):
+                    file_path = child.property("file_path")
+                    if file_path:
+                        break
+
+        if not file_path:
+            return  # Can't resolve stably; do not guess via indexAt()
+
+        row = self.find_row_by_file_path(file_path)
+        if row >= 0:
+            self.manual_entry_clicked.emit(row, button)
 
     def populate_row_cells(self, row_position, row_data, is_no_ocr):
         """Populate the cells of a row with data."""
@@ -884,16 +899,35 @@ class InvoiceTable(QTableWidget):
                 self.cellChanged.connect(self.handle_cell_changed)
 
     def update_row_by_source(self, file_path: str, row_values: list):
-        """Update an existing row based on its file path."""
+        """Update an existing row based on its file path in a sort-stable way."""
         abs_target = os.path.abspath(file_path)
-        for row in range(self.rowCount()):
-            row_path = self.get_file_path_for_row(row)
-            if row_path and os.path.abspath(row_path) == abs_target:
-                for idx, value in enumerate(row_values):
-                    col = idx + 1
-                    item = self._create_item(col, value)
-                    self.setItem(row, col, item)
 
-                self.highlight_row(row)
-                return row
-        return -1
+        # Capture current sort state
+        header = self.horizontalHeader()
+        was_sorting = self.isSortingEnabled()
+        sort_section = header.sortIndicatorSection() if was_sorting else -1
+        sort_order = header.sortIndicatorOrder() if was_sorting else Qt.AscendingOrder
+
+        # Temporarily disable sorting to avoid rows jumping during the write
+        if was_sorting:
+            self.setSortingEnabled(False)
+
+        try:
+            for row in range(self.rowCount()):
+                row_path = self.get_file_path_for_row(row)
+                if row_path and os.path.abspath(row_path) == abs_target:
+                    for idx, value in enumerate(row_values):
+                        col = idx + 1  # data columns are 1..8
+                        item = self._create_item(col, value)
+                        self.setItem(row, col, item)
+
+                    self.highlight_row(row)
+                    return row
+            return -1
+        finally:
+            # Restore sorting exactly as it was
+            if was_sorting:
+                self.setSortingEnabled(True)
+                # Re-apply the same sort column & order
+                if sort_section >= 0:
+                    self.sortItems(sort_section, sort_order)

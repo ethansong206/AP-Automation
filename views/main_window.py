@@ -189,53 +189,20 @@ class InvoiceApp(QWidget):
         dialog = ManualEntryDialog(file_paths, self, values_list, flag_states, start_index=row)
         dialog.file_deleted.connect(self._on_dialog_deleted_file)
 
+        # Live per-row updates flow through this signal; it's the single source of truth.
         dialog.row_saved.connect(self.on_manual_row_saved)
 
+        # --- IMPORTANT CHANGE: remove bulk rewrite of all cells on close ---
         if dialog.exec_() == QDialog.Accepted and dialog.save_changes:
-            all_data = dialog.get_all_data()
-            flag_states = dialog.get_flag_states()
-
-            for path, data in zip(file_paths, all_data):
-                row_idx = self.table.find_row_by_file_path(path)
-                if row_idx < 0:
-                    continue
-
-                for idx, value in enumerate(data):
-                    col = idx + 1
-                    str_value = str(value) if value is not None else ""
-
-                    existing_item = self.table.item(row_idx, col)
-                    original_value = existing_item.data(Qt.UserRole) if existing_item else ""
-
-                    item = QTableWidgetItem(str_value)
-                    item.setData(Qt.UserRole, str_value)
-                    self.table.setItem(row_idx, col, item)
-
-                    if str_value != original_value and col != 6:
-                        self.table.manually_edited.add((row_idx, col))
-
-                for r_edit, c_edit in list(self.table.manually_edited):
-                    if r_edit == row_idx and c_edit == 6:
-                        self.table.manually_edited.remove((r_edit, c_edit))
-
-                if path and not self.table.item(row_idx, 9):
-                    self.table.add_source_file_cell(row_idx, path)
-
-                if not self.table.item(row_idx, 10):
-                    self.table.add_delete_cell(row_idx)
-
-                if path:
-                    self.file_controller.loaded_files.add(path)
-
-                self.table.highlight_row(row_idx)
-                self.invoice_controller.recalculate_dependent_fields(row_idx)
-
-            for path, flagged in zip(file_paths, flag_states):
+            # Only sync flags at the end (optional), since flags don't affect sorting keys
+            new_flag_states = dialog.get_flag_states()
+            for path, flagged in zip(file_paths, new_flag_states):
                 row_idx = self.table.find_row_by_file_path(path)
                 if row_idx >= 0 and self.table.is_row_flagged(row_idx) != flagged:
                     self.table.toggle_row_flag(row_idx)
 
             self.update_total_amount()
+            self.save_session()
     
     def clear_all_rows(self):
         """Clear all rows from the table after confirmation."""

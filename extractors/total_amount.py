@@ -6,6 +6,50 @@ from .utils import clean_currency
 def extract_total_amount(words, vendor_name):
     """Extract the total amount from OCR words, returns a float or empty string."""
 
+     # --- Currency pattern ---
+    amount_pattern = r'^-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
+
+    def is_currency(text):
+        value = preprocess_currency_text(text.strip())
+        return re.match(amount_pattern, value) is not None
+
+    # --- ON Running special-case ---
+    if vendor_name == "ON Running":
+        print(f"[DEBUG] Special-case vendor detected: {vendor_name} (searching lowest 'Total')")
+
+        def normalize_label(text):
+            return ''.join(c for c in text.lower() if c not in string.punctuation).strip()
+
+        total_labels = [w for w in words if normalize_label(w.get("text", "")) == "total"]
+
+        if total_labels:
+            label_word = max(total_labels, key=lambda w: (w.get("page_num", 0), w.get("top", 0)))
+            label_page = label_word.get("page_num", 0)
+            label_y = label_word.get("top", 0)
+            label_x1 = label_word.get("x1", 0)
+
+            y_buffer = 10
+            candidates = [
+                w for w in words
+                if w.get("page_num", 0) == label_page
+                and w.get("x0", 0) > label_x1
+                and abs(w.get("top", 0) - label_y) <= y_buffer
+                and is_currency(w.get("text", ""))
+            ]
+
+            if candidates:
+                best = sorted(candidates, key=lambda w: abs(w.get("top", 0) - label_y))[0]
+                value = best.get("text", "")
+                cleaned = clean_currency(preprocess_currency_text(value))
+                try:
+                    amount = float(cleaned)
+                    print(f"[DEBUG] Selected ON Running amount: {value} → {amount:.2f}")
+                    return f"{amount:.2f}"
+                except Exception:
+                    print(f"[DEBUG] Failed to convert '{value}' to float for ON Running")
+
+        print("[DEBUG] ON Running special-case failed, falling back to general logic.")
+
     # --- Special-case vendor/label mapping ---
     special_vendor_labels = {
         "Topo Designs LLC": "amount due",
@@ -22,13 +66,6 @@ def extract_total_amount(words, vendor_name):
     }
 
     label = special_vendor_labels.get(vendor_name)
-
-    # --- Currency pattern ---
-    amount_pattern = r'^-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
-
-    def is_currency(text):
-        value = preprocess_currency_text(text.strip())
-        return re.match(amount_pattern, value) is not None
 
     normalized_words = normalize_words(words, first_page_only=True)
 
