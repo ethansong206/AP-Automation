@@ -1,933 +1,904 @@
-"""Table component for invoice data display and manipulation."""
-import os
-from datetime import datetime
-from PyQt5.QtWidgets import (
-    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
-    QPushButton, QMessageBox, QWidget, QHBoxLayout, QLabel,
-    QAbstractButton, QDialog
-)
-from PyQt5.QtGui import QFont, QColor
-from PyQt5.QtCore import Qt, pyqtSignal, QEvent
+from __future__ import annotations
 
+import os
+import re
+from datetime import datetime
+from typing import List, Dict, Tuple, Optional, Set
+
+from PyQt5.QtCore import (
+    Qt, QModelIndex, QAbstractTableModel, QVariant, pyqtSignal, QRect, QRectF, QPoint,
+    QSortFilterProxyModel
+)
+from PyQt5.QtGui import (
+    QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QRegion, QPalette, QBrush
+)
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QFrame, QTableView,
+    QStyledItemDelegate, QStyleOptionViewItem, QMessageBox, QHeaderView, QAbstractItemView,
+    QLineEdit, QStyle
+)
+
+# =============================================================
+# Helpers
+# =============================================================
 _SUPERSCRIPT_TRANS = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
-def to_superscript(num: int) -> str:
-    """Return ``num`` rendered using Unicode superscript digits."""
-    return str(num).translate(_SUPERSCRIPT_TRANS)
+def to_superscript(n: int) -> str:
+    return str(n).translate(_SUPERSCRIPT_TRANS)
 
-from assets.constants import COLORS
-from views.components.status_indicator_delegate import StatusIndicatorDelegate
-from views.components.date_selection import DateDelegate
-from extractors.utils import get_vendor_list
-from views.dialogs.vendor_dialog import AddVendorFlow
 
-class SortableTableWidgetItem(QTableWidgetItem):
-    """ Table widget item that stores a separate key for sorting. """
-    def __init__(self, text: str, sort_key=None):
-        super().__init__(text)
-        self.sort_key = sort_key
-    
-    def __lt__(self, other):
-        if isinstance(other, SortableTableWidgetItem):
-            if self.sort_key is not None and other.sort_key is not None:
-                return self.sort_key < other.sort_key
-        return super().__lt__(other)
+def _parse_date(text: str) -> Optional[datetime]:
+    text = (text or "").strip()
+    if not text:
+        return None
+    fmts = ["%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%m/%d/%y"]
+    for f in fmts:
+        try:
+            return datetime.strptime(text, f)
+        except ValueError:
+            pass
+    return None
 
-class InvoiceTable(QTableWidget):
-    """Enhanced table for displaying and editing invoice data."""
-    
-    # Define signals for events
-    row_deleted = pyqtSignal(int, str)  # row_index, file_path
-    source_file_clicked = pyqtSignal(str)  # file_path
-    manual_entry_clicked = pyqtSignal(int, object)  # row, button
-    cell_manually_edited = pyqtSignal(int, int)  # row, col
-    
+
+def _parse_money(text: str) -> Optional[float]:
+    if text is None:
+        return None
+    s = re.sub(r"[^\d\.\-]", "", str(text))
+    if s in {"", "-", ".", "-.", ".-"}:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _natural_key(s: str) -> Tuple:
+    """Case-insensitive natural sort key."""
+    return tuple(int(t) if t.isdigit() else t.lower() for t in re.findall(r'\d+|\D+', s or ""))
+
+
+def _normalize_invoice_number(s: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', (s or "").lower())
+
+
+# =============================================================
+# Columns / Headers
+# =============================================================
+C_FLAG = 0
+C_VENDOR = 1
+C_INVOICE = 2
+C_PO = 3
+C_INV_DATE = 4
+C_TERMS = 5
+C_DUE = 6
+C_DISC_TOTAL = 7
+C_TOTAL = 8
+C_ACTIONS = 9
+
+HEADERS = [
+    "", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
+    "Discount Terms", "Due Date", "Discounted Total", "Total Amount",
+    "Actions"
+]
+
+# Body columns used for export/save (no flag/actions)
+BODY_COLS = range(1, 9)
+
+
+# =============================================================
+# Data Model
+# =============================================================
+class InvoiceRow:
+    __slots__ = ("flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
+                 "disc_total", "total", "file_path", "edited_cells")
+
+    def __init__(self, values: List[str], file_path: str):
+        # values: [vendor, invoice, po, inv_date, terms, due, disc_total, total]
+        (self.vendor, self.invoice, self.po, self.inv_date, self.terms,
+         self.due, self.disc_total, self.total) = (values + [""] * 8)[:8]
+        self.file_path = file_path or ""
+        self.flag = False
+        self.edited_cells: Set[int] = set()
+
+
+class InvoiceTableModel(QAbstractTableModel):
+    # Emitted when an editable body cell changes (source model coordinates)
+    rawEdited = pyqtSignal(int, int)  # (row, col)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setup_table()
-        
-        # Data tracking
-        self.manually_edited = set()  # Track (row, col) of manually edited cells
-        self.auto_calculated = set()  # Track (row, col) of auto-calculated cells
-        
-        self._last_duplicate_groups = {}
+        self._rows: List[InvoiceRow] = []
+        # normalized invoice number -> list of source row indexes (duplicates only)
+        self._dup_map: Dict[str, List[int]] = {}
 
-        self._rehighlighting = False
+    # --- Qt plumbing ---
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._rows)
 
-    # Helper methods for sorting
-    def _parse_date(self, text: str):
-        """Return a datetime object for consistent date sorting."""
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(HEADERS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal:
+            if role == Qt.DisplayRole:
+                # Show a flag icon glyph in the header for the flag column
+                if section == C_FLAG:
+                    return "⚑"
+                return HEADERS[section]
+            if role == Qt.TextAlignmentRole:
+                # Center the glyph in the flag header
+                if section == C_FLAG:
+                    return Qt.AlignCenter
+            if role == Qt.ToolTipRole and section == C_FLAG:
+                return "Flag"
+        return super().headerData(section, orientation, role)
+
+    def flags(self, index: QModelIndex):
+        if not index.isValid():
+            return Qt.NoItemFlags
+        col = index.column()
+        base = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        if col in BODY_COLS:
+            base |= Qt.ItemIsEditable
+        return base
+
+    # --- data roles ---
+    def data(self, index: QModelIndex, role=Qt.DisplayRole):
+        if not index.isValid():
+            return QVariant()
+        r, c = index.row(), index.column()
+        row = self._rows[r]
+
+        # Backgrounds (cell-level)
+        if role == Qt.BackgroundRole:
+            if c in BODY_COLS:
+                # Row-level emptiness to drive red full-row highlight
+                vals = self.row_values(r)
+                filled = [bool(str(v).strip()) for v in vals]
+                all_empty = not any(filled)
+                if all_empty:
+                    return QColor("#FDE2E2")  # red highlight when entire row is empty
+                # Cell-level states
+                value = self._get_cell_value(r, c)
+                if (value is None) or (str(value).strip() == ""):
+                    return QColor("#FFF1A6")  # brighter yellow for empty cell
+                # Discount Terms validation: highlight blue only if it has NEITHER 'NET' nor any number
+                if c == C_TERMS:
+                    terms = str(value or "")
+                    t = terms.strip().lower()
+                    if t:
+                        has_number = bool(re.search(r"\d", t))
+                        has_net = ("net" in t)
+                        if (not has_number) and (not has_net):
+                            return QColor("#CCE7FF")  # clearer blue for invalid terms
+                # Manually edited fallback highlight
+                if c in row.edited_cells:
+                    return QColor("#DCFCE7")  # soft green for manually edited
+            return QVariant()
+
+        # Display content
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            if c == C_FLAG:
+                return "⚑" if row.flag else "⚐"  # visual; delegate handles click
+            if c == C_VENDOR:
+                return row.vendor
+            if c == C_INVOICE:
+                base = row.invoice or ""
+                sup = self._duplicate_number_for_row(r)
+                return f"{base}{to_superscript(sup)}" if sup else base
+            if c == C_PO:
+                return row.po
+            if c == C_INV_DATE:
+                return row.inv_date
+            if c == C_TERMS:
+                return row.terms
+            if c == C_DUE:
+                return row.due
+            if c == C_DISC_TOTAL:
+                return row.disc_total
+            if c == C_TOTAL:
+                return row.total
+            if c == C_ACTIONS:
+                return "✎  ✖"  # placeholder text; delegate paints icons
+        return QVariant()
+
+    def setData(self, index: QModelIndex, value, role=Qt.EditRole):
+        if role != Qt.EditRole or not index.isValid():
+            return False
+        r, c = index.row(), index.column()
+        row = self._rows[r]
+        old = self._get_cell_value(r, c)
+
+        def set_and_mark(val):
+            if c == C_VENDOR:
+                row.vendor = val
+            elif c == C_INVOICE:
+                row.invoice = val
+            elif c == C_PO:
+                row.po = val
+            elif c == C_INV_DATE:
+                row.inv_date = val
+            elif c == C_TERMS:
+                row.terms = val
+            elif c == C_DUE:
+                row.due = val
+            elif c == C_DISC_TOTAL:
+                row.disc_total = val
+            elif c == C_TOTAL:
+                row.total = val
+            else:
+                return
+            row.edited_cells.add(c)
+
+        set_and_mark(str(value) if value is not None else "")
+
+        # Recompute duplicates if invoice number changed
+        if c == C_INVOICE:
+            self._rebuild_duplicates()
+
+        # (Due Date recompute removed; controller handles it)
+        if old != value:
+            self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
+            self.rawEdited.emit(r, c)
+        return True
+
+    # --- helpers ---
+    def _get_cell_value(self, row: int, col: int) -> Optional[str]:
+        r = self._rows[row]
+        return {
+            C_VENDOR: r.vendor,
+            C_INVOICE: r.invoice,
+            C_PO: r.po,
+            C_INV_DATE: r.inv_date,
+            C_TERMS: r.terms,
+            C_DUE: r.due,
+            C_DISC_TOTAL: r.disc_total,
+            C_TOTAL: r.total,
+        }.get(col, "")
+
+    def _duplicate_number_for_row(self, r: int) -> int:
+        inv = _normalize_invoice_number(self._rows[r].invoice)
+        if not inv:
+            return 0
+        group = self._dup_map.get(inv, [])
+        if len(group) <= 1:
+            return 0
         try:
-            dt = datetime.strptime(text, "%m/%d/%y")
-            if dt.year < 2000:
-                dt = dt.replace(year=dt.year + 100)
-            return dt
-        except Exception:
-            return None
+            return group.index(r) + 1  # 1-based within dup group
+        except ValueError:
+            return 0
 
-    def _create_item(self, col: int, value, italic: bool = False, bold: bool = False):
-        """Create a sortable table item with styling."""
-        display_value = str(value) if value is not None else ""
-        if col == 1:
-            sort_key = display_value.lower()
-        elif col in (4, 6):
-            sort_key = self._parse_date(display_value)
-        else:
-            sort_key = display_value
-        item = SortableTableWidgetItem(display_value, sort_key)
-        font = item.font()
-        font.setPointSize(font.pointSize() + 2)
-        if italic:
-            font.setItalic(True)
-        if bold:
-            font.setBold(True)
-        item.setFont(font)
-        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        item.setData(Qt.UserRole, display_value)
-        return item
+    def _rebuild_duplicates(self):
+        d: Dict[str, List[int]] = {}
+        for i, row in enumerate(self._rows):
+            key = _normalize_invoice_number(row.invoice)
+            if not key:
+                continue
+            d.setdefault(key, []).append(i)
+        self._dup_map = {k: v for k, v in d.items() if len(v) > 1}
+        if self._rows:
+            top = self.index(0, C_INVOICE)
+            bottom = self.index(self.rowCount() - 1, C_INVOICE)
+            self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
 
-    def _update_item_sort_key(self, item, col):
-        """Refresh the sort key for an item when its text changes."""
-        if not isinstance(item, SortableTableWidgetItem):
+    # --- mutations used by view wrapper ---
+    def add_row(self, values: List[str], file_path: str):
+        self.beginInsertRows(QModelIndex(), len(self._rows), len(self._rows))
+        self._rows.append(InvoiceRow(values, file_path))
+        self.endInsertRows()
+        self._rebuild_duplicates()
+
+    def remove_row(self, src_row: int):
+        if 0 <= src_row < len(self._rows):
+            self.beginRemoveRows(QModelIndex(), src_row, src_row)
+            del self._rows[src_row]
+            self.endRemoveRows()
+            self._rebuild_duplicates()
+
+    def clear(self):
+        if not self._rows:
             return
-        text = item.text().strip()
-        if col == 1:
-            item.sort_key = text.lower()
-        elif col in (4, 6):
-            item.sort_key = self._parse_date(text)
+        self.beginRemoveRows(QModelIndex(), 0, len(self._rows) - 1)
+        self._rows.clear()
+        self.endRemoveRows()
+        self._dup_map.clear()
+
+    def row_values(self, src_row: int) -> List[str]:
+        r = self._rows[src_row]
+        return [r.vendor, r.invoice, r.po, r.inv_date, r.terms, r.due, r.disc_total, r.total]
+
+    def get_file_path(self, src_row: int) -> str:
+        return self._rows[src_row].file_path
+
+    def set_file_path(self, src_row: int, path: str):
+        self._rows[src_row].file_path = path or ""
+
+    def get_flag(self, src_row: int) -> bool:
+        return self._rows[src_row].flag
+
+    def set_flag(self, src_row: int, val: bool):
+        if self._rows[src_row].flag != val:
+            self._rows[src_row].flag = val
+            idx = self.index(src_row, C_FLAG)
+            self.dataChanged.emit(idx, idx, [Qt.DisplayRole])
+
+    def update_row_by_source(self, file_path: str, row_values: List[str]) -> int:
+        """Return src row index or -1 if not found."""
+        abs_target = os.path.abspath(file_path or "")
+        for i, r in enumerate(self._rows):
+            if os.path.abspath(r.file_path or "") == abs_target:
+                for c, val in zip(BODY_COLS, (row_values + [""] * 8)[:8]):
+                    self.setData(self.index(i, c), val, Qt.EditRole)
+                return i
+        return -1
+
+
+# =============================================================
+# Sorting Proxy
+# =============================================================
+class InvoiceSortProxy(QSortFilterProxyModel):
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        c = left.column()
+        l = left.model().data(left, Qt.EditRole)
+        r = right.model().data(right, Qt.EditRole)
+
+        if c == C_FLAG:
+            return (l == "⚑") and (r != "⚑")  # flagged first on that column
+
+        if c in (C_VENDOR, C_TERMS):
+            return (l or "").lower() < (r or "").lower()
+
+        if c in (C_INVOICE, C_PO):
+            return _natural_key(l or "") < _natural_key(r or "")
+
+        if c in (C_INV_DATE, C_DUE):
+            ld, rd = _parse_date(l or ""), _parse_date(r or "")
+            if ld and rd:
+                return ld < rd
+            if ld and not rd:
+                return True
+            if rd and not ld:
+                return False
+            return (l or "") < (r or "")
+
+        if c in (C_DISC_TOTAL, C_TOTAL):
+            lf, rf = _parse_money(l), _parse_money(r)
+            if lf is None and rf is None:
+                return (l or "") < (r or "")
+            if lf is None:
+                return False
+            if rf is None:
+                return True
+            return lf < rf
+
+        return (l or "") < (r or "")
+
+
+# =============================================================
+# Delegates (Stripe, Flag, Actions)
+
+class BodyEditDelegate(QStyledItemDelegate):
+    """Opaque in-place editor + ensure model-provided BackgroundRole wins.
+    Paint order: 1) base/zebra, 2) model highlight, 3) text, 4) stripe/divider.
+    """
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setAutoFillBackground(True)
+        editor.setStyleSheet("background:#FFFFFF; color:#000000; padding:0 4px; margin:0;")
+        editor.setFrame(False)
+        return editor
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        opt = QStyleOptionViewItem(option)
+        # If currently editing, don't draw underlying text/stripe; let editor show cleanly
+        if opt.state & QStyle.State_Editing:
+            painter.save()
+            painter.fillRect(opt.rect, opt.palette.base())
+            painter.restore()
+            return
+
+        # 1) Initialize style option to let Qt compute zebra/selection etc.
+        self.initStyleOption(opt, index)
+
+        # 2) If model provides a background, apply it explicitly so it overrides zebra
+        bgdata = index.data(Qt.BackgroundRole)
+        brush = None
+        if isinstance(bgdata, QColor):
+            brush = QBrush(bgdata)
+        elif isinstance(bgdata, QBrush):
+            brush = bgdata
+
+        if brush is not None:
+            # Pre-fill with our highlight to guarantee visibility
+            painter.save()
+            painter.fillRect(opt.rect, brush)
+            painter.restore()
+            # Also set both backgroundBrush and palette so default painting doesn't undo it
+            opt.backgroundBrush = brush
+            opt.palette.setBrush(QPalette.Base, brush)
+            opt.palette.setBrush(QPalette.AlternateBase, brush)
+
+        # 3) Default painting (text, focus, etc.)
+        QStyledItemDelegate.paint(self, painter, opt, index)
+
+        # 4) Vendor-only left stripe on top
+        if index.column() == C_VENDOR:
+            # Map to source to inspect entire row
+            model = index.model()
+            src_model = model
+            src_index = index
+            if isinstance(model, QSortFilterProxyModel):
+                src_model = model.sourceModel()
+                src_index = model.mapToSource(index)
+            r = src_index.row()
+            vals = src_model.row_values(r)
+            filled = [bool(str(v).strip()) for v in vals]
+            any_empty = any(not f for f in filled)
+            all_empty = not any(filled)
+            if any_empty and not all_empty:
+                painter.save()
+                painter.fillRect(QRect(option.rect.left(), option.rect.top(), 3, option.rect.height()), QColor("#FFEB80"))
+                painter.restore()
+
+        # Vertical divider between columns (no divider after last column)
+        try:
+            last_col = index.model().columnCount() - 1
+        except Exception:
+            last_col = 0
+        if index.column() < last_col:
+            painter.save()
+            pen = QPen(QColor("#D0D6DF"))
+            painter.setPen(pen)
+            x = option.rect.right()
+            painter.drawLine(x, option.rect.top() + 1, x, option.rect.bottom() - 1)
+            painter.restore()
+
+
+class FlagDelegate(QStyledItemDelegate):
+    """Clickable flag icon in column 0."""
+    def __init__(self, parent=None, icon_font: Optional[QFont] = None):
+        super().__init__(parent)
+        self._icon_font = icon_font
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == event.MouseButtonRelease and event.button() == Qt.LeftButton:
+            src_model = model
+            src_index = index
+            if isinstance(model, QSortFilterProxyModel):
+                src_model = model.sourceModel()
+                src_index = model.mapToSource(index)
+            flag = src_model.get_flag(src_index.row())
+            src_model.set_flag(src_index.row(), not flag)
+            return True
+        return super().editorEvent(event, model, option, index)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        painter.save()
+        if self._icon_font is not None:
+            painter.setFont(self._icon_font)
+        text = index.data(Qt.DisplayRole) or ""
+        painter.drawText(option.rect, Qt.AlignCenter, text)
+        painter.restore()
+        # Divider after paint so it sits on top
+        try:
+            last_col = index.model().columnCount() - 1
+        except Exception:
+            last_col = 0
+        if index.column() < last_col:
+            painter.save()
+            pen = QPen(QColor("#D0D6DF"))
+            painter.setPen(pen)
+            x = option.rect.right()
+            painter.drawLine(x, option.rect.top() + 1, x, option.rect.bottom() - 1)
+            painter.restore()
+
+
+class ActionsDelegate(QStyledItemDelegate):
+    """Two click targets in one cell: ✎ (Manual Entry) and ✖ (Delete)."""
+    editClicked = pyqtSignal(int)    # source row
+    deleteClicked = pyqtSignal(int)  # source row
+
+    def __init__(self, parent=None, icon_font: Optional[QFont] = None):
+        super().__init__(parent)
+        self._icon_font = icon_font
+
+    def _split_rects(self, rect: QRect) -> Tuple[QRect, QRect]:
+        w = rect.width()
+        h = rect.height()
+        pad = max(4, int(h * 0.15))
+        half = (w - pad) // 2
+        left = QRect(rect.left() + pad // 2, rect.top(), half, h)
+        right = QRect(left.right() + pad, rect.top(), half, h)
+        return left, right
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == event.MouseButtonRelease and event.button() == Qt.LeftButton:
+            src_model = model
+            src_index = index
+            if isinstance(model, QSortFilterProxyModel):
+                src_model = model.sourceModel()
+                src_index = model.mapToSource(index)
+
+            left, right = self._split_rects(option.rect)
+            pos: QPoint = event.pos()
+            if left.contains(pos):
+                self.editClicked.emit(src_index.row())
+                return True
+            if right.contains(pos):
+                self.deleteClicked.emit(src_index.row())
+                return True
+        return super().editorEvent(event, model, option, index)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        painter.save()
+        if self._icon_font is not None:
+            painter.setFont(self._icon_font)
+        left, right = self._split_rects(option.rect)
+        painter.drawText(left, Qt.AlignCenter, "✎")
+        pen = QPen(QColor("#D11A2A"))
+        painter.setPen(pen)
+        painter.drawText(right, Qt.AlignCenter, "✖")
+        painter.restore()
+        # Divider after paint so it sits on top
+        try:
+            last_col = index.model().columnCount() - 1
+        except Exception:
+            last_col = 0
+        if index.column() < last_col:
+            painter.save()
+            pen = QPen(QColor("#D0D6DF"))
+            painter.setPen(pen)
+            x = option.rect.right()
+            painter.drawLine(x, option.rect.top() + 1, x, option.rect.bottom() - 1)
+            painter.restore()
+
+
+# =============================================================
+# Rounded clipper to hard-cut the table to rounded corners
+# =============================================================
+class RoundedClipper(QFrame):
+    """Child frame that clips its contents to a rounded rect so children
+    (the table) don't bleed under the parent's rounded corners."""
+    def __init__(self, radius: int = 17, parent=None):
+        super().__init__(parent)
+        self._radius = radius
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setObjectName("RoundedClipper")
+
+    def setRadius(self, r: int):
+        self._radius = r
+        self._updateMask()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._updateMask()
+
+    def _updateMask(self):
+        rect = self.rect()
+        if rect.isEmpty():
+            return
+        path = QPainterPath()
+        # Use QRectF + float radii to satisfy overload
+        path.addRoundedRect(QRectF(rect), float(self._radius), float(self._radius))
+        region = QRegion(path.toFillPolygon().toPolygon())
+        self.setMask(region)
+
+
+# =============================================================
+# Public View Wrapper (compat API)
+# =============================================================
+class InvoiceTable(QWidget):
+    """
+    Public-facing widget that:
+      - exposes the same API/signals as the former QTableWidget version,
+      - renders a QTableView inside a rounded, bordered mini-card,
+      - wires model + proxy + delegates.
+    """
+    # Signals preserved for controller wiring
+    row_deleted = pyqtSignal(int, str)              # (view_row, file_path)
+    source_file_clicked = pyqtSignal(str)           # file_path
+    manual_entry_clicked = pyqtSignal(int, object)  # (view_row, button=None)
+    cell_manually_edited = pyqtSignal(int, int)     # (view_row, view_col)
+    cellChanged = pyqtSignal(int, int)              # mirror QTableWidget cellChanged
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # --- Outer mini-card container ---
+        self._card = QFrame(self)
+        self._card.setObjectName("TableCard")
+        self._card.setFrameShape(QFrame.NoFrame)
+        self._card.setGraphicsEffect(None)  # no shadow per latest design
+
+        # QTableView itself
+        self.table = QTableView(self._card)
+        self.table.setObjectName("InvoiceQTableView")
+        
+        # Increase body (data) font by ~+4pt
+        body_font = self.table.font()
+        if body_font.pointSizeF() > 0:
+            body_font.setPointSizeF(body_font.pointSizeF() + 4.0)
         else:
-            item.sort_key = text
+            body_font.setPixelSize(max(body_font.pixelSize() + 6, 14))
+        self.table.setFont(body_font)
+        metrics = self.table.fontMetrics()
+        row_h = max(32, metrics.height() + 12)
 
-    def setup_table(self):
-        """Configure table properties and columns."""
-        self.setColumnCount(11)
-        self.setHorizontalHeaderLabels([
-            "", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-            "Discount Terms", "Due Date",
-            "Discounted Total", "Total Amount",
-            "Manual Entry", "Delete"
-        ])
-        
-        # Set column widths for fixed-width columns
-        self.setColumnWidth(0, 30)   # Flag column
-        self.setColumnWidth(1, 140)  # Vendor Name
-        self.setColumnWidth(2, 110)  # Invoice Number
-        self.setColumnWidth(3, 110)  # PO Number
-        self.setColumnWidth(4, 100)  # Invoice Date
-        self.setColumnWidth(5, 110)  # Discount Terms
-        self.setColumnWidth(6, 100)  # Due Date
-        self.setColumnWidth(7, 120)  # Discounted Total
-        self.setColumnWidth(8, 100)  # Total Amount
-        # Don't set width for column 9 (Manual Entry) - we'll stretch it
-        self.setColumnWidth(10, 60)   # Delete
+        # Icon font ~25% larger than body (used for flag + action glyphs)
+        self._icon_font = QFont(body_font)
+        if self._icon_font.pointSizeF() > 0:
+            self._icon_font.setPointSizeF(self._icon_font.pointSizeF() * 1.25)
+        else:
+            self._icon_font.setPixelSize(int(max(int(body_font.pixelSize() * 1.25), body_font.pixelSize() + 3)))
 
-        # Set the resize modes for each column
-        header = self.horizontalHeader()
-        
-        # Fixed width columns
-        for col in [0, 1, 2, 3, 4, 5, 6, 7, 8, 10]:
-            header.setSectionResizeMode(col, QHeaderView.Fixed)
+        icon_metrics = QFontMetrics(self._icon_font)
+        row_h = max(row_h, icon_metrics.height() + 12)
+        self.table.verticalHeader().setDefaultSectionSize(row_h)
+
+        # Layout: main → card → clipper → table
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self._card)
+
+        card_layout = QVBoxLayout(self._card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Clipper ensures the table is hard-clipped to rounded corners
+        self._clipper = RoundedClipper(radius=17, parent=self._card)
+        self._clipper.setStyleSheet("background: transparent;")
+        card_layout.addWidget(self._clipper)
+
+        inner = QVBoxLayout(self._clipper)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.addWidget(self.table)
+        self.table.setViewportMargins(0, 0, 0, 0)
+
+        # Styling
+        self.setStyleSheet(
+            """
+            QFrame#TableCard {
+                background: #FFFFFF;
+                border: 2px solid #C4CAD3;   /* thicker, slightly darker gray border */
+                border-radius: 16px;
+            }
+            QFrame#RoundedClipper { background: transparent; }
+
+            QTableView#InvoiceQTableView {
+                background: transparent;        /* shows white below */
+                border: none;
+                gridline-color: #EEF1F4;
+                selection-background-color: #E6F2FF;
+                selection-color: #000000;
+                /* alternate row color handled via palette AlternateBase */
+            }
+            QTableView#InvoiceQTableView::item { border: none; }
             
-        # Make "Manual Entry" column stretch to fill available space
-        header.setSectionResizeMode(9, QHeaderView.Stretch)
-        
-        # Prevent the last column from stretching automatically
-        header.setStretchLastSection(False)
-        
-        # Set a taller default row height for all rows
-        self.verticalHeader().setDefaultSectionSize(42)
-    
-        # Force consistent row heights - don't allow resizing
-        self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        
-        # Rest of your existing setup...
-        self.setEditTriggers(QAbstractItemView.AllEditTriggers)
-        self.cellClicked.connect(self.handle_table_click)
-        
-        # Create delegates
-        self.date_delegate = DateDelegate(self)
-        self.indicator_delegate = StatusIndicatorDelegate(self)
-        
-        # Apply delegates to appropriate columns - this is the key change
-        for col in range(self.columnCount()):
-            if col == 4 or col == 6:  # Date columns
-                self.setItemDelegateForColumn(col, self.date_delegate)
-            elif 1 <= col <= 8:  # Regular data columns (not manual entry or delete)
-                self.setItemDelegateForColumn(col, self.indicator_delegate)
-    
-        # Remove this line that was causing the conflict:
-        # self.setItemDelegate(self.indicator_delegate)
-    
-        # Connect cell changed signal
-        self.cellChanged.connect(self.handle_cell_changed)
-        
-        # Row selection behavior
-        self.setSelectionBehavior(QAbstractItemView.SelectItems)
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            /* Ensure editors are opaque so typed text doesn't overlap with painted text */
+            QTableView#InvoiceQTableView QLineEdit,
+            QTableView#InvoiceQTableView QTextEdit,
+            QTableView#InvoiceQTableView QPlainTextEdit {
+                background: #FFFFFF;
+                color: #000000;
+                padding: 0 4px;
+            }
 
-        # Set a taller default row height for all rows
-        self.verticalHeader().setDefaultSectionSize(42)  # Increased from 28 to 32
+            QHeaderView::section {
+                background: #FFFFFF;            /* white header */
+                padding: 6px;
+                border: none;
+                border-bottom: 1px solid #E0E4EA; /* divider */
+            }
+            QTableCornerButton::section {
+                background: #FFFFFF;
+                border: none;
+                border-bottom: 1px solid #E0E4EA;
+                border-right: 1px solid #E0E4EA;
+            }
+            """
+        )
+
+        # Model + Proxy
+        self._model = InvoiceTableModel(self)
+        self._proxy = InvoiceSortProxy(self)
+        self._proxy.setSourceModel(self._model)
+        self.table.setModel(self._proxy)
+
+        # Zebra rows via palette so model BackgroundRole (e.g., yellow empties) still wins
+        pal = self.table.palette()
+        pal.setColor(QPalette.AlternateBase, QColor("#F1F4F8"))  # slightly darker than before
+        self.table.setPalette(pal)
+
+        # View behavior
+        self.table.setSortingEnabled(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.setFrameShape(QFrame.NoFrame)
+        self.table.setShowGrid(False)
+        self.table.setSelectionBehavior(QTableView.SelectItems)
+        self.table.setSelectionMode(QTableView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked | QAbstractItemView.EditKeyPressed)
+        self.table.verticalHeader().setVisible(False)   # hide row numbers
+        self.table.setCornerButtonEnabled(False)        # hide corner button
+        self.table.setMouseTracking(True)
+
+        # Compatibility with legacy controller code
+        self.manually_edited = set()
+
+        # Columns: stretch body to fill; keep flag/actions compact
+        header = self.table.horizontalHeader()
+        header.setDefaultSectionSize(120)
+        header.setMinimumSectionSize(24)
+        for c in BODY_COLS:
+            header.setSectionResizeMode(c, QHeaderView.Stretch)
+        # Make flag column square: fix width to current row height and keep in sync
+        header.setSectionResizeMode(C_FLAG, QHeaderView.Fixed)
+        header.resizeSection(C_FLAG, row_h)
+        self.table.verticalHeader().sectionResized.connect(self._on_row_height_changed)
+        # Actions auto-size
+        header.setSectionResizeMode(C_ACTIONS, QHeaderView.ResizeToContents)
+
+        # Delegates
+  # base stripe for all cells
+
+        self._flag_delegate = FlagDelegate(self.table, self._icon_font)
+        self.table.setItemDelegateForColumn(C_FLAG, self._flag_delegate)
+
+        self._actions_delegate = ActionsDelegate(self.table, self._icon_font)
+        self.table.setItemDelegateForColumn(C_ACTIONS, self._actions_delegate)
+        self._actions_delegate.editClicked.connect(self._emit_manual_entry)
+        self._actions_delegate.deleteClicked.connect(self._handle_delete_clicked)
+
+        # Body editor delegate: opaque editors + no underlying paint while editing
+        self._body_delegate = BodyEditDelegate(self.table)
+        for c in BODY_COLS:
+            self.table.setItemDelegateForColumn(c, self._body_delegate)
+
+        # Edits → compatibility signals
+        self._model.rawEdited.connect(self._bubble_edit_signal)
+
+    # ---------------------------------------------------------
+    # Signal bubbling / helpers
+    # ---------------------------------------------------------
+    def _on_row_height_changed(self, logical_index: int, old_size: int, new_size: int):
+        # Keep the flag column square by matching its width to the row height
+        self.table.horizontalHeader().resizeSection(C_FLAG, new_size)
+
     
-        # Force consistent row heights - don't allow resizing
-        self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-    
-        # Track whether the entire table is selected
-        self._all_selected = False
+    def _bubble_edit_signal(self, src_row: int, src_col: int):
+        view_row = self._source_to_view_row(src_row)
+        view_col = src_col
+        self.cell_manually_edited.emit(view_row, view_col)
+        self.cellChanged.emit(view_row, view_col)
 
-        # Store reference to the corner button for select-all toggling
-        self._corner_button = self.findChild(QAbstractButton)
+    def _emit_manual_entry(self, src_row: int):
+        # placeholder for button param to keep signature
+        self.manual_entry_clicked.emit(self._source_to_view_row(src_row), None)
 
-        # Update selection state when it changes
-        self.itemSelectionChanged.connect(self.update_all_selected_state)
+    def _handle_delete_clicked(self, src_row: int):
+        file_path = self._model.get_file_path(src_row)
+        confirm = QMessageBox.question(
+            self, "Delete Row", "Are you sure you want to delete this row?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            view_row = self._source_to_view_row(src_row)
+            self._model.remove_row(src_row)
+            self.row_deleted.emit(view_row, file_path)
 
-        # Allow toggling select-all via the top-left corner button
-        if self._corner_button:
-            self._corner_button.installEventFilter(self)
+    def _open_source_file(self, vrow: int):
+        src_row = self._view_to_source_row(vrow)
+        if src_row < 0:
+            return
+        path = self._model.get_file_path(src_row)
+        if path:
+            self.source_file_clicked.emit(path)
 
-        self.setSortingEnabled(True)
+    def update_calculated_field(self, view_row: int, col: int, value: str, force: bool = True):
+        """Compatibility method used by the legacy controller:
+        write a computed value into the model at (row, col)."""
+        src = self._view_to_source_row(view_row)
+        if src < 0:
+            return
+        idx = self._model.index(src, col)
+        self._model.setData(idx, value, Qt.EditRole)
+
+    # ---------------------------------------------------------
+    # Public API (compat with your existing code)
+    # ---------------------------------------------------------
+    def add_row(self, row_data: List[str], file_path: str, is_no_ocr: bool = False):
+        """row_data = [vendor, invoice, po, inv_date, terms, due, disc_total, total]"""
+        self._model.add_row(row_data, file_path)
+
+    def update_row_by_source(self, file_path: str, row_values: List[str]):
+        self._model.update_row_by_source(file_path, row_values)
+
+    def get_file_path_for_row(self, view_row: int) -> str:
+        src = self._view_to_source_row(view_row)
+        return "" if src < 0 else self._model.get_file_path(src)
+
+    def get_cell_text(self, view_row: int, col: int) -> str:
+        src = self._view_to_source_row(view_row)
+        if src < 0:
+            return ""
+        # Return RAW (no superscript) for export/save
+        vals = self._model.row_values(src)
+        mapping = {
+            C_VENDOR: 0, C_INVOICE: 1, C_PO: 2, C_INV_DATE: 3,
+            C_TERMS: 4, C_DUE: 5, C_DISC_TOTAL: 6, C_TOTAL: 7
+        }
+        if col in mapping:
+            return vals[mapping[col]] or ""
+        return ""
+
+    def is_row_flagged(self, view_row: int) -> bool:
+        src = self._view_to_source_row(view_row)
+        return False if src < 0 else self._model.get_flag(src)
+
+    def toggle_row_flag(self, view_row: int):
+        src = self._view_to_source_row(view_row)
+        if src >= 0:
+            self._model.set_flag(src, not self._model.get_flag(src))
+
+    def find_row_by_file_path(self, file_path: str) -> int:
+        abs_target = os.path.abspath(file_path or "")
+        for i in range(self._model.rowCount()):
+            if os.path.abspath(self._model.get_file_path(i) or "") == abs_target:
+                return self._source_to_view_row(i)
+        return -1
 
     def delete_row_by_file_path(self, file_path: str, confirm: bool = False) -> bool:
-        """Find and delete the first row whose Manual Entry cell matches file_path."""
-        if not file_path:
-            return False
-        abs_target = os.path.abspath(file_path)
-        for row in range(self.rowCount()):
-            row_path = self.get_file_path_for_row(row)
-            if row_path and os.path.abspath(row_path) == abs_target:
+        abs_target = os.path.abspath(file_path or "")
+        for i in range(self._model.rowCount()):
+            if os.path.abspath(self._model.get_file_path(i) or "") == abs_target:
                 if confirm:
                     ans = QMessageBox.question(
-                        self, "Delete Row",
-                        f"Delete invoice for file:\n{os.path.basename(abs_target)}?",
-                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                        self, "Delete Row", "Are you sure you want to delete this row?",
+                        QMessageBox.Yes | QMessageBox.No
                     )
                     if ans != QMessageBox.Yes:
                         return False
-                # Clean up tracking, remove, and emit
-                self.cleanup_row_data(row)
-                self.removeRow(row)
-                self.row_deleted.emit(row, abs_target)
-                self.update_duplicate_invoice_markers()
+                view_row = self._source_to_view_row(i)
+                self._model.remove_row(i)
+                self.row_deleted.emit(view_row, file_path)
                 return True
         return False
 
-    def update_all_selected_state(self):
-        """Update internal flag indicating if the whole table is selected."""
-        total_items = self.rowCount() * self.columnCount()
-        self._all_selected = (
-            total_items > 0 and len(self.selectedIndexes()) == total_items
-        )
-
-    def handle_corner_button_click(self):
-        """Toggle select-all behaviour when the corner button is clicked."""
-        if self._all_selected:
-            self.clearSelection()
-        else:
-            self.selectAll()
-
-    def eventFilter(self, source, event):
-        """Intercept corner button clicks to implement toggle behaviour."""
-        if source is getattr(self, "_corner_button", None) and event.type() == QEvent.MouseButtonPress:
-            self.handle_corner_button_click()
-            return True
-        return super().eventFilter(source, event)
-
-    def add_row(self, row_data, file_path, is_no_ocr=False):
-        """Add a new row to the table."""
-        sorting_enabled = self.isSortingEnabled()
-        if sorting_enabled:
-            header = self.horizontalHeader()
-            sort_col = header.sortIndicatorSection()
-            sort_order = header.sortIndicatorOrder()
-            self.setSortingEnabled(False)
-        else:
-            sort_col = sort_order = None
-        
-        # Ensure row_data has at least 8 elements (for all data columns)
-        while len(row_data) < 8:
-            row_data.append("")
-            
-        row_position = self.rowCount()
-        self.insertRow(row_position)
-
-        # Add flag cell
-        self.add_flag_cell(row_position)
-
-        # Add each cell in the row (data columns)
-        self.populate_row_cells(row_position, row_data, is_no_ocr)
-        
-        # Add the Manual Entry cell
-        if is_no_ocr:
-            # Create a container widget with layout for proper centering
-            container = QWidget()
-            layout = QHBoxLayout(container)
-            layout.setContentsMargins(2, 0, 2, 0)
-            layout.setSpacing(0)
-            layout.setAlignment(Qt.AlignCenter)
-
-            # Create the MANUAL ENTRY button with smaller text
-            button = QPushButton("MANUAL ENTRY")
-            # Store the file path on both the button AND the container
-            button.setProperty("file_path", file_path)
-            container.setProperty("file_path", file_path)
-            # Determine row at click time to support sorting
-            button.clicked.connect(
-                lambda _, w=container, b=button: self._emit_manual_entry_from_widget(w, b)
-            )
-
-            # Make button shorter
-            button.setStyleSheet("""
-                QPushButton {
-                    background-color: #FFC0CB; 
-                    color: black; 
-                    font-weight: bold; 
-                    font-size: 8pt;  /* Smaller font */
-                    padding: 0px 6px;  /* No vertical padding */
-                    border-radius: 2px;
-                    min-height: 20px;  /* Smaller height */
-                    max-height: 20px;
-                }
-                QPushButton:hover {
-                    background-color: #FFB0BB;
-                }
-            """)
-
-            # Set an even smaller fixed height
-            button.setFixedHeight(20)  
-
-            # Add button to the layout
-            layout.addWidget(button)
-            
-            # Set the container as the cell widget
-            self.setCellWidget(row_position, 9, container)
-        else:
-            # Add clickable link for OCR'd rows
-            self.add_source_file_cell(row_position, file_path)
-    
-        # Add delete cell
-        self.add_delete_cell(row_position)
-        
-        # Highlight row based on content
-        self.highlight_row(row_position)
-        
-        # Auto-size vendor column
-        self.resize_vendor_column()
-
-        self.update_duplicate_invoice_markers()
-
-        if sorting_enabled:
-            self.setSortingEnabled(True)
-            self.sortByColumn(sort_col, sort_order)
-
-        return row_position
-    
-    def _emit_manual_entry_from_widget(self, widget, button=None):
-        """Emit manual entry signal using stable file-path matching."""
-        if not widget:
-            return
-
-        # Prefer the container's property
-        file_path = widget.property("file_path")
-
-        # If called with a button, fall back to its property
-        if not file_path and button is not None:
-            file_path = button.property("file_path")
-
-        # Last resort: try to find a QPushButton child with the property
-        if not file_path:
-            for child in widget.children():
-                if isinstance(child, QPushButton):
-                    file_path = child.property("file_path")
-                    if file_path:
-                        break
-
-        if not file_path:
-            return  # Can't resolve stably; do not guess via indexAt()
-
-        row = self.find_row_by_file_path(file_path)
-        if row >= 0:
-            self.manual_entry_clicked.emit(row, button)
-
-    def populate_row_cells(self, row_position, row_data, is_no_ocr):
-        """Populate the cells of a row with data."""
-        for idx, value in enumerate(row_data):
-            col = idx + 1 # Offset for flag column
-            display_value = str(value) if value is not None else ""
-            if col == 1 and is_no_ocr:
-                display_value = ""
-
-            item = self._create_item(col, display_value)
-            self.setItem(row_position, col, item)
-
-    def add_flag_cell(self, row_position):
-        """Add the clickable flag cell."""
-        flag_item = QTableWidgetItem("⚑")
-        flag_item.setTextAlignment(Qt.AlignCenter)
-        flag_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-        flag_item.setData(Qt.UserRole, False)
-        self.setItem(row_position, 0, flag_item)
-
-    def add_source_file_cell(self, row_position, file_path):
-        """Add the manual entry cell with a clickable link and edit icon."""
-        # Create a custom widget with an icon and text label
-        cell_widget = QWidget()
-        layout = QHBoxLayout(cell_widget)
-        
-        # Improve vertical spacing with better margins
-        layout.setContentsMargins(4, 3, 4, 3)  # Left, Top, Right, Bottom
-        layout.setSpacing(4)
-        
-        # Use a small pencil icon
-        icon_label = QLabel("✎")
-        icon_label.setStyleSheet("color: #0066cc; font-weight: bold;")
-        layout.addWidget(icon_label)
-        
-        # Add filename label with proper vertical alignment
-        if file_path:
-            filename = os.path.basename(file_path)
-            if len(filename) > 30:
-                filename = filename[:27] + "..."
-        else:
-            filename = "Edit Invoice"
-            
-        text_label = QLabel(filename)
-        text_label.setStyleSheet("color: #0066cc; text-decoration: underline; font-weight: bold;")
-        text_label.setToolTip(file_path)
-        text_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        layout.addWidget(text_label, 1)  # 1 = stretch factor
-    
-        # Ensure the widget takes up the whole cell and text is properly aligned
-        layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        
-        # CRITICAL: Store file path as property on the widget
-        cell_widget.setProperty("file_path", file_path)
-        
-        # CRITICAL: Add a custom event to handle clicks on the widget
-        # Determine the row at click time so sorting doesn't break selection
-        def mouse_release_handler(event, w=cell_widget):
-            self._emit_manual_entry_from_widget(w)
-    
-        cell_widget.mouseReleaseEvent = mouse_release_handler
-    
-        # Set cursor to indicate it's clickable
-        cell_widget.setCursor(Qt.PointingHandCursor)
-        
-        # Set the widget in the table cell
-        self.setCellWidget(row_position, 9, cell_widget)
-
-    def add_delete_cell(self, row_position):
-        """Add the delete cell with a delete icon."""
-        delete_item = QTableWidgetItem("❌")
-        delete_item.setTextAlignment(Qt.AlignCenter)
-        delete_item.setFlags(Qt.ItemIsEnabled)
-        delete_item.setBackground(QColor(COLORS['LIGHT_GREY']))
-        self.setItem(row_position, 10, delete_item)
-
-    def handle_cell_changed(self, row, col):
-        """Handle when a cell's content is changed by the user."""
-        # Only handle editable columns (0-7)
-        if col == 0 or col > 8:
-            return
-    
-        item = self.item(row, col)
-        if not item:
-            return
-
-        # Temporarily disconnect to prevent recursion during processing
-        self.cellChanged.disconnect(self.handle_cell_changed)
-
-        try:
-            original_value = item.data(Qt.UserRole) or ""
-            current_value = item.text().strip()
-
-            if current_value != original_value:
-                # Mark cell as manually edited
-                self.manually_edited.add((row, col))
-                self.cell_manually_edited.emit(row, col)
-
-                if col == 1:  # Vendor Name column
-                    vendors = {v.strip().lower() for v in get_vendor_list()}
-                    if current_value and current_value.lower() not in vendors:
-                        warn = QMessageBox.warning(
-                            self,
-                            "Unknown Vendor",
-                            (
-                                f"‘{current_value}’ isn’t in your vendor list.\n\n"
-                                "You’ll need to add it first (Vendor Name → Vendor Number → optional Identifier).\n"
-                                "Vendor Number is required; Identifier is optional."
-                            ),
-                            QMessageBox.Ok | QMessageBox.Cancel,
-                            QMessageBox.Ok,
-                        )
-                        if warn == QMessageBox.Cancel:
-                            item.setText(original_value)
-                            if (row, col) in self.manually_edited:
-                                self.manually_edited.remove((row, col))
-                            self._update_item_sort_key(item, col)
-                            self.rehighlight_row(row)
-                            return
-                        pdf_path = self.get_file_path_for_row(row) or ""
-                        flow = AddVendorFlow(pdf_path=pdf_path, parent=self, prefill_vendor_name=current_value)
-                        if flow.exec_() != QDialog.Accepted:
-                            item.setText(original_value)
-                            if (row, col) in self.manually_edited:
-                                self.manually_edited.remove((row, col))
-                            self._update_item_sort_key(item, col)
-                            self.rehighlight_row(row)
-                            return
-                elif col == 4:  # Invoice Date column
-                    terms = self.get_cell_text(row, 5).strip()
-                    if terms:
-                        from extractors.utils import calculate_discount_due_date
-                        try:
-                            invoice_date = current_value
-                            due_date = calculate_discount_due_date(terms, invoice_date)
-                            if due_date:
-                                self.update_calculated_field(row, 6, due_date, True)
-                        except Exception as e:
-                            print(f"[WARN] Could not compute due date: {e}")
-            else:
-                # Remove from tracking if reverted to original
-                if (row, col) in self.manually_edited:
-                    self.manually_edited.remove((row, col))
-            # Reapply coloring after changes
-            self._update_item_sort_key(item, col)
-            self.rehighlight_row(row)
-            
-        finally:
-            # Reconnect the signal after changes are done
-            self.cellChanged.connect(self.handle_cell_changed)
-        if col == 2:
-            # Update stored clean invoice number and refresh duplicate markers
-            item.setData(Qt.UserRole + 20, current_value)
-            self.update_duplicate_invoice_markers()
-
-    def handle_table_click(self, row, col):
-        """Handle clicking on a cell in the table."""
-        if col == 0:
-            self.toggle_row_flag(row)
-            return
-        
-        header = self.horizontalHeaderItem(col).text()
-        file_path = self.get_file_path_for_row(row)
-        
-        if header == "Manual Entry":
-            # Check if we have a cell widget (for custom implementation)
-            cell_widget = self.cellWidget(row, col)
-            if cell_widget:
-                # Custom widget click will be handled by its mouseReleaseEvent
-                # But we need a way to handle regular clicks on the widget
-                # This is handled by connecting a click signal in the widget
-                pass
-            else:
-                # For regular items
-                file_path = self.get_file_path_for_row(row)
-                if file_path:
-                    self.manual_entry_clicked.emit(row, None)
-    
-        elif header == "Delete":
-            # Only ask for confirmation if row exists
-            if row < self.rowCount():
-                confirm = QMessageBox.question(
-                    self, "Delete Row", f"Are you sure you want to delete row {row + 1}?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                if confirm == QMessageBox.Yes:
-                    # Ensure we clean up tracking data BEFORE removing the row
-                    self.cleanup_row_data(row)
-                    self.removeRow(row)
-                    self.row_deleted.emit(row, file_path)
-
-    def get_file_path_for_row(self, row):
-        """Get the file path for a row from any type of cell in column 9."""
-        file_path = None
-        
-        # First check if there's a custom widget
-        cell_widget = self.cellWidget(row, 9)
-        if cell_widget:
-            # Try to get file path directly from the container widget first
-            file_path = cell_widget.property("file_path")
-            
-            # If container doesn't have it, check if it's a button
-            if not file_path and isinstance(cell_widget, QPushButton):
-                file_path = cell_widget.property("file_path")
-            
-            # For QHBoxLayout containers, find the button inside
-            if not file_path:
-                for child in cell_widget.children():
-                    if isinstance(child, QPushButton):
-                        file_path = child.property("file_path")
-                        break
-    
-        # Check for regular QTableWidgetItem as fallback
-        if not file_path:
-            file_item = self.item(row, 9)
-            if file_item:
-                file_path = file_item.data(Qt.UserRole)
-                if not file_path:
-                    file_path = file_item.toolTip()
-
-        # Convert to absolute path if needed
-        if file_path:
-            file_path = os.path.abspath(file_path)
-    
-        return file_path
-
-    def find_row_by_file_path(self, file_path: str) -> int:
-        """Return the row index for the given file path, or -1 if not found."""
-        if not file_path:
-            return -1
-        abs_target = os.path.abspath(file_path)
-        for row in range(self.rowCount()):
-            row_path = self.get_file_path_for_row(row)
-            if row_path and os.path.abspath(row_path) == abs_target:
-                return row
-        return -1
-
-    def is_row_flagged(self, row):
-        """Check if the row is marked for later."""
-        item = self.item(row, 0)
-        return bool(item and item.data(Qt.UserRole))
-
-    def toggle_row_flag(self, row):
-        """Toggle the flag state for a row."""
-        item = self.item(row, 0)
-        if not item:
-            return
-        flagged = not bool(item.data(Qt.UserRole))
-        item.setData(Qt.UserRole, flagged)
-        item.setText("🚩" if flagged else "⚑")
-
-        # Reapply current sorting so the row moves to the correct position
-        sort_col = self.horizontalHeader().sortIndicatorSection()
-        sort_order = self.horizontalHeader().sortIndicatorOrder()
-        self.sortItems(sort_col, sort_order)
-
-        # Rehighlight all rows to ensure stripes match new order
-        for r in range(self.rowCount()):
-            self.rehighlight_row(r)
-
-    # --- Additional helper methods (omitted for brevity) ---
-    def highlight_row(self, row_position):
-        """Highlight the row based on its content"""
-        for col in range(1, 9):
-            background, stripe = self.determine_cell_color(row_position, col)
-            self.set_cell_color(row_position, col, background, stripe)
-
-    def resize_vendor_column(self):
-        """Auto-resize the vendor column based on content."""
-        vendor_col = 1
-        self.resizeColumnToContents(vendor_col)
-        current_width = self.columnWidth(vendor_col)
-        self.setColumnWidth(vendor_col, current_width + 50)
-        
-    def rehighlight_row(self, row):
-        """Rehighlight a row after changes."""
-        if self._rehighlighting:
-            return
-        self._rehighlighting = True
-        
-        try:
-            try:
-                self.cellChanged.disconnect(self.handle_cell_changed)
-                was_connected = True
-            except TypeError:
-                was_connected = False
-        
-            for col in range(1, 9):
-                background, stripe = self.determine_cell_color(row, col)
-                self.set_cell_color(row, col, background, stripe)
-
-            for col in range(1, 9):
-                item = self.item(row, col)
-                if item:
-                    item.setData(Qt.UserRole + 3, item.data(Qt.UserRole + 3))
-
-        finally:
-            if 'was_connected' in locals() and was_connected:
-                self.cellChanged.connect(self.handle_cell_changed)
-            self._rehighlighting = False
-
-    def cleanup_row_data(self, row):
-        """Clean up all data associated with a row."""
-        # Remove from manually_edited
-        keys_to_remove = [(r, c) for r, c in self.manually_edited if r == row]
-        for key in keys_to_remove:
-            self.manually_edited.remove(key)
-        
-        # Remove from auto_calculated
-        keys_to_remove = [(r, c) for r, c in self.auto_calculated if r == row]
-        for key in keys_to_remove:
-            self.auto_calculated.remove(key)
-        
-        # Reindex the remaining data for rows after this one
-        self.reindex_tracking_data(row)
-
-    def reindex_tracking_data(self, deleted_row):
-        """Reindex tracking sets after a row is deleted."""
-        # Reindex manually_edited
-        new_set = set()
-        for r, c in self.manually_edited:
-            if r > deleted_row:
-                new_set.add((r - 1, c))
-            elif r < deleted_row:
-                new_set.add((r, c))
-        self.manually_edited = new_set
-        
-        # Reindex auto_calculated
-        new_set = set()
-        for r, c in self.auto_calculated:
-            if r > deleted_row:
-                new_set.add((r - 1, c))
-            elif r < deleted_row:
-                new_set.add((r, c))
-        self.auto_calculated = new_set
-        
-    def set_cell_color(self, row, col, background=None, stripe=None):
-        """Set the background and stripe color for a cell."""
-        item = self.item(row, col)
-        if not item:
-            return
-
-        # Set stripe color for delegate
-        item.setData(Qt.UserRole + 2, stripe)
-
-        # Set background color
-        if background:
-            item.setBackground(QColor(background))
-        else:
-            item.setBackground(QColor(COLORS['WHITE']))
-
-    def determine_cell_color(self, row, col):
-        """Determine background and stripe colors for a cell."""
-        text = self.get_cell_text(row, col).strip()
-        text_upper = text.upper()
-
-        row_empty = self.is_row_empty(row)
-        row_complete = self.is_row_complete(row)
-        vendor_missing = not self.get_cell_text(row, 1).strip()
-
-        background = None
-        stripe = None
-
-        if row_empty or vendor_missing:
-            background = COLORS['LIGHT_RED']
-        else:
-            if not text:
-                background = COLORS['YELLOW']
-            if not row_complete and col == 1:
-                stripe = COLORS['YELLOW']
-
-        if (row, col) in self.manually_edited:
-            background = COLORS['GREEN']
-            stripe = None
-        elif self.contains_special_keyword(text_upper):
-            background = COLORS['LIGHT_BLUE']
-        elif (row, col) in self.auto_calculated:
-            background = "#E6F3FF"
-
-        if self.is_row_flagged(row) and col == 1:
-            stripe = COLORS['RED']
-
-        return background, stripe
-
-    def contains_special_keyword(self, text):
-        """Check if text contains any special keywords."""
-        keywords = [
-            "CREDIT MEMO", "CREDIT NOTE", "WARRANTY", "RETURN AUTHORIZATION", "DEFECTIVE", "STATEMENT", "NO CHARGE"
-        ]
-        return any(keyword in text for keyword in keywords)
-
-    def is_cell_empty(self, row, col):
-        return not self.get_cell_text(row, col).strip()
-
-    def is_row_empty(self, row):
-        """Check if all data cells in the row are empty."""
-        for col in range(1, 9):
-            if self.get_cell_text(row, col).strip():
-                return False
-        return True
-
-    def is_row_complete(self, row):
-        """Check if all required fields in the row are filled."""
-        # Check data columns (all except Manual Entry and Delete)
-        for col in range(1, 9):
-            # Skip checking column 3 (PO Number) as it's optional
-            if col == 3:
-                continue
-                
-            value = self.get_cell_text(row, col)
-            if not value.strip():
-                return False
-        return True
-
-    def get_cell_text(self, row, col):
-        """Safely get the text from a cell."""
-        item = self.item(row, col)
-        if not item:
-            return ""
-        if col == 2:
-            clean = item.data(Qt.UserRole + 20)
-            if clean is not None:
-                return str(clean)
-        return item.text()
-
-    def update_calculated_field(self, row, col, value, is_auto_calculated=True):
-        """Update a cell with a calculated value."""
-        # Create the item with the value
-        item = QTableWidgetItem(str(value) if value is not None else "")
-        
-        # Add visual indicators that this is calculated
-        font = item.font()
-        font.setItalic(True)
-        font.setBold(True)
-        font.setPointSize(font.pointSize() + 1)  # Increase font size
-        item.setFont(font)
-        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-    
-        # Set the cell value
-        self.setItem(row, col, item)
-        
-        # Mark as auto-calculated in our tracking set
-        if is_auto_calculated:
-            self.auto_calculated.add((row, col))
-        elif (row, col) in self.auto_calculated:
-            self.auto_calculated.remove((row, col))
-
-        # Store original value on the item
-        item.setData(Qt.UserRole, str(value) if value is not None else "")
-
-        # Reapply coloring for the row
-        self.rehighlight_row(row)
-
     def clear_tracking_data(self):
-        """Reset all data tracking mechanisms."""
-        # Clear all tracking structures
-        self.manually_edited = set()
-        self.auto_calculated = set()
+        for i in range(self._model.rowCount()):
+            self._model._rows[i].edited_cells.clear()
+        self._model._rebuild_duplicates()
 
-    def _normalize_invoice_number(self, text: str) -> str:
-        """Normalize invoice number for grouping (trim and uppercase)."""
-        return (text or "").strip().upper()
+    def cleanup_row_data(self, row: int):
+        # compatibility no-op; keep for callers that expect it
+        pass
 
-    def update_duplicate_invoice_markers(self):
-        """Highlight and tag duplicate invoice numbers.
+    # Qt-style helpers mirrored
+    def rowCount(self) -> int:
+        return self._proxy.rowCount()
 
-        Duplicate invoice numbers are grouped and each group is assigned a
-        superscript index. The invoice number cells are colored light purple
-        and the superscript index is appended to the displayed text.
-        """
-        if self.columnCount() < 2 or self.rowCount() == 0:
-            return
+    def setRowCount(self, n: int):
+        if n == 0:
+            self._model.clear()
 
-        try:
-            self.cellChanged.disconnect(self.handle_cell_changed)
-            was_connected = True
-        except TypeError:
-            was_connected = False
+    def removeRow(self, view_row: int):
+        src = self._view_to_source_row(view_row)
+        if src >= 0:
+            self._model.remove_row(src)
 
-        try:
-            invoice_col = 2
+    def selectedIndexes(self):
+        return self.table.selectedIndexes()
 
-            # 1) Build groups
-            groups = {}
-            for row in range(self.rowCount()):
-                inv = self.get_cell_text(row, invoice_col)
-                norm = self._normalize_invoice_number(inv)
-                if not norm:
-                    continue
-                groups.setdefault(norm, []).append(row)
-
-        # 2) First, restore original text & coloring on all invoice-number cells
-            for row in range(self.rowCount()):
-                item = self.item(row, invoice_col)
-                if not item:
-                    continue
-                base_text = item.data(Qt.UserRole + 20)
-                if base_text is None:
-                    base_text = item.text()
-                # Always reset the display text to the base/original (no tags)
-                item.setText(str(base_text))
-                # Reset background/stripe so our normal highlight pipeline can apply later
-                item.setBackground(QColor(COLORS['WHITE']))
-                item.setData(Qt.UserRole + 2, None)  # clear stripe color
-                item.setData(Qt.UserRole + 20, str(base_text))
-
-            # After clearing the invoice-number cells, reapply row-level coloring
-            # so that manual/auto highlights remain before we mark duplicates.
-            for r in range(self.rowCount()):
-                self.rehighlight_row(r)
-
-            # 3) Apply duplicate markings
-            dup_norms = [k for k, rows in groups.items() if len(rows) > 1]
-            if not dup_norms:
-                self._last_duplicate_groups = {}
-                return
-
-            # Assign a stable group index for each duplicate set (1..N)
-            dup_norms_sorted = sorted(dup_norms)
-            group_index_map = {norm: idx + 1 for idx, norm in enumerate(dup_norms_sorted)}
-
-            # Light purple for duplicates (does not rely on COLORS dict)
-            dup_bg = QColor("#F5E6FF")
-
-            for norm, rows in groups.items():
-                if len(rows) < 2:
-                    continue
-                gidx = group_index_map[norm]
-                tag = to_superscript(gidx)
-
-                for row in rows:
-                    item = self.item(row, invoice_col)
-                    if not item:
-                        continue
-                    # Light purple on invoice number cell
-                    item.setBackground(dup_bg)
-
-                    # Append superscript group tag to displayed text
-                    clean_text = item.data(Qt.UserRole + 20)
-                    if clean_text is None:
-                        clean_text = item.text()
-                    item.setData(Qt.UserRole + 20, str(clean_text))  # ensure cache is set
-                    display = f"{clean_text} {tag}"
-                    item.setText(display)
-
-            self._last_duplicate_groups = {k: v[:] for k, v in groups.items() if len(v) > 1}
-
-        finally:
-            if was_connected:
-                self.cellChanged.connect(self.handle_cell_changed)
-
-    def update_row_by_source(self, file_path: str, row_values: list):
-        """Update an existing row based on its file path in a sort-stable way."""
-        abs_target = os.path.abspath(file_path)
-
-        # Capture current sort state
-        header = self.horizontalHeader()
-        was_sorting = self.isSortingEnabled()
-        sort_section = header.sortIndicatorSection() if was_sorting else -1
-        sort_order = header.sortIndicatorOrder() if was_sorting else Qt.AscendingOrder
-
-        # Temporarily disable sorting to avoid rows jumping during the write
-        if was_sorting:
-            self.setSortingEnabled(False)
-
-        try:
-            for row in range(self.rowCount()):
-                row_path = self.get_file_path_for_row(row)
-                if row_path and os.path.abspath(row_path) == abs_target:
-                    for idx, value in enumerate(row_values):
-                        col = idx + 1  # data columns are 1..8
-                        item = self._create_item(col, value)
-                        self.setItem(row, col, item)
-
-                    self.highlight_row(row)
-                    return row
+    # Mapping helpers
+    def _view_to_source_row(self, vrow: int) -> int:
+        if vrow < 0 or vrow >= self._proxy.rowCount():
             return -1
-        finally:
-            # Restore sorting exactly as it was
-            if was_sorting:
-                self.setSortingEnabled(True)
-                # Re-apply the same sort column & order
-                if sort_section >= 0:
-                    self.sortItems(sort_section, sort_order)
+        src = self._proxy.mapToSource(self._proxy.index(vrow, 0))
+        return src.row()
+
+    def _source_to_view_row(self, srow: int) -> int:
+        if srow < 0 or srow >= self._model.rowCount():
+            return -1
+        v = self._proxy.mapFromSource(self._model.index(srow, 0))
+        return v.row()
