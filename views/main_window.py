@@ -57,9 +57,9 @@ class InvoiceApp(QWidget):
         self.layout = QVBoxLayout()
         
         # Add title at the top
-        title_label = QLabel("GOPC\nInvoice App")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("""
+        self.title_label = QLabel("GOPC\nInvoice App")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("""
             font-family: 'Montserrat', Arial, sans-serif;
             font-size: 28px;
             font-weight: bold;
@@ -68,7 +68,7 @@ class InvoiceApp(QWidget):
             margin-bottom: 8px;
             line-height: 1;
         """)
-        self.layout.addWidget(title_label)
+        self.layout.addWidget(self.title_label)
         
         # Replace the old label and button with the new drop area
         self.drop_area = FileDropArea()

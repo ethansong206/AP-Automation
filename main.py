@@ -99,23 +99,31 @@ def handle_exception(exc_type, exc_value, exc_traceback):
             QCoreApplication.exit(1)
 
 
+USE_SHELL = True  # ⟵ flip to False anytime to compare with your normal window
+
 def main():
     """Application entry point."""
-    logging.basicConfig(
-        level=logging.ERROR,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
-
-    # Route uncaught exceptions to our handler
+    logging.basicConfig(level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s")
     sys.excepthook = handle_exception
 
     app = QApplication(sys.argv)
-    invoice_app = InvoiceApp()
-    invoice_app.show()
 
-    # Let true uncaught exceptions bubble to sys.excepthook
-    sys.exit(app.exec_())
+    if USE_SHELL:
+        # import the shell (robust for both run-from-root and inside views/)
+        try:
+            from views.app_shell import AppShell
+        except Exception:
+            from app_shell import AppShell  # fallback if placed next to main.py
 
+        # Wrap your existing main widget in the frameless shell
+        win = AppShell(InvoiceApp)  # pass the factory (class) itself
+        win.show()
+        sys.exit(app.exec_())
+    else:
+        # Original path (no shell)
+        invoice_app = InvoiceApp()
+        invoice_app.show()
+        sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
