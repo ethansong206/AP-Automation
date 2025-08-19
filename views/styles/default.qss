@@ -2,13 +2,13 @@
 
 /* Font declarations */
 @font-face {
-    font-family: 'Montserrat';
-    src: url('assets/fonts/Montserrat-Regular.ttf');
+    font-family: 'Inter';
+    src: url('assets/fonts/Inter-Regular.ttf');
 }
 
 /* General widget styling */
 QWidget {
-    font-family: 'Montserrat', Arial, sans-serif;
+    font-family: 'Inter', Arial, sans-serif;
     font-size: 10pt;
 }
 
@@ -21,7 +21,7 @@ InvoiceApp {
 QPushButton {
     background-color: #4a86e8;
     color: white;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 8px 15px;
     font-weight: bold;
     min-height: 20px;
@@ -33,6 +33,15 @@ QPushButton:hover {
 
 QPushButton:pressed {
     background-color: #2a66c8;
+}
+
+/* Search bar styling */
+QLineEdit#searchEdit {
+    border: 1px solid #c0c0c0;
+    border-radius: 15px;
+    padding: 6px 12px;
+    background-color: white;
+    min-height: 20px;
 }
 
 /* Table styling */
@@ -59,18 +68,44 @@ QHeaderView::section:checked {
 /* Special buttons with consistent sizing */
 QPushButton#exportButton {
     background-color: #5E6F5E;
-    font-size: 11pt;
+    font-size: 10pt;
     min-width: 150px;
 }
 
 QPushButton#clearAllButton {
-    background-color: #db6969;
+    background: #C62828;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
     min-width: 120px;
 }
 
 QPushButton#deleteSelectedButton {
-    background-color: #dd956c;
+    background: #F57C00;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
     min-width: 120px;
+}
+
+QPushButton#filterButton {
+    background-color: #808080;
+    color: white;
+}
+
+QPushButton#filterButton:hover {
+    background-color: #6e6e6e;
+}
+
+QPushButton#filterButton:pressed {
+    background-color: #5e5e5e;
+}
+
+QPushButton#filterButton::menu-indicator {
+    image: none;
+    width: 0;
 }
 
 /* Status area */

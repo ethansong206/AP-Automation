@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import Qt, QModelIndex, QAbstractTableModel, QVariant, pyqtSignal, QSortFilterProxyModel
 from PyQt5.QtGui import QColor
@@ -10,7 +10,6 @@ from PyQt5.QtGui import QColor
 from .utils import (
     to_superscript,
     _parse_date,
-    _parse_money,
     _natural_key,
     _normalize_invoice_number,
 )
@@ -18,7 +17,7 @@ from .utils import (
 # =============================================================
 # Columns / Headers
 # =============================================================
-C_FLAG = 0
+C_SELECT = 0
 C_VENDOR = 1
 C_INVOICE = 2
 C_PO = 3
@@ -35,7 +34,7 @@ HEADERS = [
     "Actions",
 ]
 
-# Body columns used for export/save (no flag/actions)
+# Body columns used for export/save (no select/actions)
 BODY_COLS = range(1, 9)
 
 
@@ -43,7 +42,7 @@ BODY_COLS = range(1, 9)
 # Data Model
 # =============================================================
 class InvoiceRow:
-    __slots__ = ("flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
+    __slots__ = ("selected", "flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
                  "disc_total", "total", "file_path", "edited_cells")
 
     def __init__(self, values: List[str], file_path: str):
@@ -51,7 +50,8 @@ class InvoiceRow:
         (self.vendor, self.invoice, self.po, self.inv_date, self.terms,
          self.due, self.disc_total, self.total) = (values + [""] * 8)[:8]
         self.file_path = file_path or ""
-        self.flag = False
+        self.selected = False         # NEW: user 'Select' checkbox state
+        self.flag = False             # kept: flag is now shown inside Actions
         self.edited_cells: Set[int] = set()
 
 
@@ -75,16 +75,10 @@ class InvoiceTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal:
             if role == Qt.DisplayRole:
-                # Show a flag icon glyph in the header for the flag column
-                if section == C_FLAG:
-                    return "⚑"
                 return HEADERS[section]
-            if role == Qt.TextAlignmentRole:
-                # Center the glyph in the flag header
-                if section == C_FLAG:
-                    return Qt.AlignCenter
-            if role == Qt.ToolTipRole and section == C_FLAG:
-                return "Flag"
+            # Optional: center the select header
+            if role == Qt.TextAlignmentRole and section == C_SELECT:
+                return Qt.AlignCenter
         return super().headerData(section, orientation, role)
 
     def flags(self, index: QModelIndex):
@@ -92,6 +86,9 @@ class InvoiceTableModel(QAbstractTableModel):
             return Qt.NoItemFlags
         col = index.column()
         base = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        if col == C_SELECT:
+            base |= Qt.ItemIsUserCheckable
+            return base
         if col in BODY_COLS:
             base |= Qt.ItemIsEditable
         return base
@@ -106,17 +103,14 @@ class InvoiceTableModel(QAbstractTableModel):
         # Backgrounds (cell-level)
         if role == Qt.BackgroundRole:
             if c in BODY_COLS:
-                # Row-level emptiness to drive red full-row highlight
                 vals = self.row_values(r)
                 filled = [bool(str(v).strip()) for v in vals]
                 all_empty = not any(filled)
                 if all_empty:
                     return QColor("#FDE2E2")  # red highlight when entire row is empty
-                # Cell-level states
                 value = self._get_cell_value(r, c)
                 if (value is None) or (str(value).strip() == ""):
                     return QColor("#FFF1A6")  # brighter yellow for empty cell
-                # Discount Terms validation: highlight blue only if it has NEITHER 'NET' nor any number
                 if c == C_TERMS:
                     terms = str(value or "")
                     t = terms.strip().lower()
@@ -125,15 +119,22 @@ class InvoiceTableModel(QAbstractTableModel):
                         has_net = ("net" in t)
                         if (not has_number) and (not has_net):
                             return QColor("#CCE7FF")  # clearer blue for invalid terms
-                # Manually edited fallback highlight
                 if c in row.edited_cells:
                     return QColor("#DCFCE7")  # soft green for manually edited
             return QVariant()
 
-        # Display content
+        # Checkbox state for the Select column
+        if role == Qt.CheckStateRole and c == C_SELECT:
+            return Qt.Checked if row.selected else Qt.Unchecked
+
+        # Ensure centered checkbox (no phantom text area)
+        if role == Qt.TextAlignmentRole and c == C_SELECT:
+            return Qt.AlignCenter
+
+        # Display / Edit content
         if role in (Qt.DisplayRole, Qt.EditRole):
-            if c == C_FLAG:
-                return "⚑" if row.flag else "⚐"  # visual; delegate handles click
+            if c == C_SELECT:
+                return ""  # checkbox only
             if c == C_VENDOR:
                 return row.vendor
             if c == C_INVOICE:
@@ -153,14 +154,26 @@ class InvoiceTableModel(QAbstractTableModel):
             if c == C_TOTAL:
                 return row.total
             if c == C_ACTIONS:
-                return "✎  ✖"  # placeholder text; delegate paints icons
+                return "⚑  ✎  ✖"  # placeholders; delegate paints icons
         return QVariant()
 
     def setData(self, index: QModelIndex, value, role=Qt.EditRole):
-        if role != Qt.EditRole or not index.isValid():
+        if not index.isValid():
             return False
         r, c = index.row(), index.column()
         row = self._rows[r]
+
+        # Toggle checkbox
+        if c == C_SELECT and role == Qt.CheckStateRole:
+            new_val = (value == Qt.Checked)
+            if row.selected != new_val:
+                row.selected = new_val
+                self.dataChanged.emit(index, index, [Qt.CheckStateRole, Qt.DisplayRole])
+            return True
+
+        if role != Qt.EditRole:
+            return False
+
         old = self._get_cell_value(r, c)
 
         def set_and_mark(val):
@@ -186,11 +199,9 @@ class InvoiceTableModel(QAbstractTableModel):
 
         set_and_mark(str(value) if value is not None else "")
 
-        # Recompute duplicates if invoice number changed
         if c == C_INVOICE:
             self._rebuild_duplicates()
 
-        # (Due Date recompute removed; controller handles it)
         if old != value:
             self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
             self.rawEdited.emit(r, c)
@@ -267,15 +278,36 @@ class InvoiceTableModel(QAbstractTableModel):
     def set_file_path(self, src_row: int, path: str):
         self._rows[src_row].file_path = path or ""
 
+    # --- flag state (now shown in Actions column) ---
     def get_flag(self, src_row: int) -> bool:
         return self._rows[src_row].flag
 
     def set_flag(self, src_row: int, val: bool):
         if self._rows[src_row].flag != val:
             self._rows[src_row].flag = val
-            idx = self.index(src_row, C_FLAG)
+            idx = self.index(src_row, C_ACTIONS)
             self.dataChanged.emit(idx, idx, [Qt.DisplayRole])
 
+    # --- select-all helpers for header checkbox ---
+    def set_all_selected(self, checked: bool):
+        if not self._rows:
+            return
+        changed = False
+        for i, r in enumerate(self._rows):
+            if r.selected != checked:
+                r.selected = checked
+                changed = True
+        if changed:
+            top = self.index(0, C_SELECT)
+            bottom = self.index(self.rowCount() - 1, C_SELECT)
+            self.dataChanged.emit(top, bottom, [Qt.CheckStateRole, Qt.DisplayRole])
+
+    def selection_stats(self) -> Tuple[int, int]:
+        total = len(self._rows)
+        selected = sum(1 for r in self._rows if r.selected)
+        return selected, total
+
+    # --- update row by source path ---
     def update_row_by_source(self, file_path: str, row_values: List[str]) -> int:
         """Return src row index or -1 if not found."""
         abs_target = os.path.abspath(file_path or "")
@@ -297,6 +329,9 @@ class InvoiceSortProxy(QSortFilterProxyModel):
         self._text_filter: str = ""
         self._flagged_only: bool = False
         self._incomplete_only: bool = False
+        # Track sort state manually so we can disable sorting
+        self._sort_column: int = -1
+        self._sort_order = Qt.AscendingOrder
         # Search defaults: scan all columns
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         self.setFilterKeyColumn(-1)
@@ -314,14 +349,20 @@ class InvoiceSortProxy(QSortFilterProxyModel):
         self._incomplete_only = bool(on)
         self.invalidateFilter()
 
-    # ---- Sorting (existing) ----
+    # ---- Sorting ----
+    def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder):
+        """Allow column=-1 to restore insertion order."""
+        self._sort_column = column
+        self._sort_order = order
+        super().sort(0 if column < 0 else column, order)
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
-        c = left.column()
-        l = left.model().data(left, Qt.EditRole)
-        r = right.model().data(right, Qt.EditRole)
+        if self._sort_column < 0:
+            # Default order: preserve source model insertion order
+            return left.row() < right.row()
 
-        if c == C_FLAG:
-            return (l == "⚐") and (r == "⚑")
+        c = self._sort_column
+        l = left.model().data(left.model().index(left.row(), c), Qt.EditRole)
+        r = right.model().data(right.model().index(right.row(), c), Qt.EditRole)
 
         if c in (C_DISC_TOTAL, C_TOTAL):
             try:
@@ -344,7 +385,7 @@ class InvoiceSortProxy(QSortFilterProxyModel):
     # ---- Filtering ----
     def filterAcceptsRow(self, src_row: int, src_parent) -> bool:
         model = self.sourceModel()
-        # 1) Flagged-only
+        # 1) Flagged-only (uses data, not a column)
         if self._flagged_only:
             if not getattr(model, "get_flag", None):
                 return False
@@ -352,23 +393,15 @@ class InvoiceSortProxy(QSortFilterProxyModel):
                 return False
 
         # 2) Incomplete-only (any empty body cell)
+        vals = model.row_values(src_row)
         if self._incomplete_only:
-            vals = model.row_values(src_row)
             if all(bool(str(v).strip()) for v in vals):
                 return False
 
-        # 3) Text search (case-insensitive across all body columns)
+        # 3) Text search
         if self._text_filter:
-            hay = []
-            vals = model.row_values(src_row)
-            hay.extend(vals)  # vendor..total
-            try:
-                # include invoice number with superscript removed (already raw in row_values)
-                pass
-            except Exception:
-                pass
-            blob = " ".join(str(x or "") for x in hay).casefold()
-            if self._text_filter not in blob:
+            hay = " ".join(str(x or "") for x in vals).casefold()
+            if self._text_filter not in hay:
                 return False
 
         return True

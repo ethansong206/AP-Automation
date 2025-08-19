@@ -9,17 +9,23 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog,
     QMessageBox, QHBoxLayout, QDialog, QTableWidgetItem, QLineEdit, QMenu
 )
-from PyQt5.QtGui import QFont, QDragEnterEvent, QDropEvent
-from PyQt5.QtCore import Qt, QStandardPaths, QTimer
+from PyQt5.QtGui import QFont, QDragEnterEvent, QDropEvent, QIcon
+from PyQt5.QtCore import Qt, QStandardPaths, QTimer, QSize
+
+try:
+    from views.app_shell import _resolve_icon
+except Exception:  # pragma: no cover - fallback for isolated runs
+    def _resolve_icon(name: str) -> str:
+        return os.path.join("assets", "icons", name)
 
 from views.components.invoice_table import InvoiceTable
-# from views.components.drop_area import FileDropArea  # REMOVED (we'll keep DnD on the window)
 from views.helpers.style_loader import load_stylesheet, get_style_path
 from views.dialogs.manual_entry_dialog import ManualEntryDialog
 
 from controllers.file_controller import FileController
 from controllers.invoice_controller import InvoiceController
 from models.invoice import Invoice
+from views.app_shell import _resolve_icon
 
 class InvoiceApp(QWidget):
     """Main application window for invoice processing."""
@@ -73,8 +79,11 @@ class InvoiceApp(QWidget):
         # --- New control row: Import + Search + Filter ---
         controls = QHBoxLayout()
 
-        self.btn_import = QPushButton("Import")
+        controls.addStretch()
+        self.btn_import = QPushButton("Upload")
         self.btn_import.setObjectName("importButton")
+        self.btn_import.setIcon(QIcon(_resolve_icon("upload.svg")))
+        self.btn_import.setIconSize(QSize(16, 16))
         self.btn_import.clicked.connect(self.browse_files)
         controls.addWidget(self.btn_import)
 
@@ -82,11 +91,17 @@ class InvoiceApp(QWidget):
         self.search_edit.setPlaceholderText("Search invoices…")
         self.search_edit.textChanged.connect(self._on_search_text)
         self.search_edit.setClearButtonEnabled(True)
-        controls.addWidget(self.search_edit, stretch=1)
+        self.search_edit.setObjectName("searchEdit")
+        controls.addWidget(self.search_edit)
 
         self.btn_filter = QPushButton("Filter")
         self.btn_filter.setObjectName("filterButton")
+        self.btn_filter.setIcon(QIcon(_resolve_icon("filter.svg")))
+        self.btn_filter.setIconSize(QSize(16, 16))
         controls.addWidget(self.btn_filter)
+
+        filter_width = self.btn_filter.sizeHint().width()
+        self.search_edit.setFixedWidth(filter_width * 3)
 
         # Filter menu (checkable)
         self.filter_menu = QMenu(self)
@@ -110,6 +125,11 @@ class InvoiceApp(QWidget):
         self.export_button = QPushButton("Export to CSV")
         self.export_button.setObjectName("exportButton")
         self.export_button.clicked.connect(self.export_to_csv)
+
+        base_w = self.export_button.sizeHint().width()
+        self.btn_import.setMinimumWidth(base_w)
+        self.btn_filter.setMinimumWidth(base_w)
+        self.search_edit.setMinimumWidth(base_w * 3)
         # Keep button in the bottom row for standalone runs
 
         button_row = QHBoxLayout()
@@ -396,7 +416,49 @@ class InvoiceApp(QWidget):
         except Exception as e:
             print(f"[ERROR] Failed to load session: {e}")
             return
-        # (unchanged restore dialog logic… keep your original)
+        rows = data.get("rows", [])
+        if not rows:
+            return
+
+        # Ask the user if they want to restore the previous session
+        timestamp = data.get("timestamp")
+        msg = "A previous session was found. Restore it?"
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp)
+                msg = (
+                    "Restore session from "
+                    f"{dt.strftime('%Y-%m-%d %H:%M')}?"
+                )
+            except Exception:
+                pass
+        resp = QMessageBox.question(
+            self,
+            "Restore Session",
+            msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if resp != QMessageBox.Yes:
+            return
+
+        self._loading_session = True
+        # start with a clean table/model
+        if hasattr(self.table, "_model") and hasattr(self.table._model, "clear"):
+            self.table._model.clear()
+        self.table.clear_tracking_data() if hasattr(self.table, "clear_tracking_data") else None
+
+        for row in rows:
+            values = row.get("values", [""] * 8)
+            file_path = row.get("file_path", "")
+            flagged = row.get("flagged", False)
+            self.table.add_row(values, file_path)
+            if flagged:
+                self.table.toggle_row_flag(self.table.rowCount() - 1)
+
+        self.file_controller.load_saved_files(data.get("loaded_files", []))
+        self.update_total_amount()
+        self._loading_session = False
 
     # ----------- small utils -----------
     def _sanitize_filename(self, s):

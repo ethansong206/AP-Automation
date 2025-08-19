@@ -145,7 +145,7 @@ class AppShell(QMainWindow):
     Call with AppShell(InvoiceApp).
 
     Inside the white card header row, exposes:
-      - btn_csv, btn_folder, btn_delete, btn_clear
+      - btn_csv, btn_folder
     """
     def __init__(self, widget_factory):
         super().__init__()
@@ -220,16 +220,14 @@ class AppShell(QMainWindow):
         def make_btn(text, obj_name):
             b = QPushButton(text); b.setObjectName(obj_name)
             b.setMinimumHeight(36); b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet("font-weight: 600; font-family: Inter, 'Segoe UI', Arial, sans-serif;")
+            b.setStyleSheet("font-weight: 600; font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 10pt;")
             b.setMouseTracking(True)
             return b
 
         self.btn_csv    = make_btn("Export to CSV",     "BtnCsv")
         self.btn_folder = make_btn("Export to Folder",  "BtnFolder")
-        self.btn_delete = make_btn("Delete Selected",   "BtnDelete")
-        self.btn_clear  = make_btn("Clear All",         "BtnClear")
 
-        for b in (self.btn_csv, self.btn_folder, self.btn_delete, self.btn_clear):
+        for b in (self.btn_csv, self.btn_folder):
             header_row.addWidget(b)
 
         card_lay.addLayout(header_row)
@@ -238,8 +236,6 @@ class AppShell(QMainWindow):
         self.setStyleSheet("""
             QPushButton#BtnCsv    { background: #2E7D32; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 14px; }
             QPushButton#BtnFolder { background: #FBC02D; color: #263238; border: none; border-radius: 8px; padding: 8px 14px; }
-            QPushButton#BtnDelete { background: #F57C00; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 14px; }
-            QPushButton#BtnClear  { background: #C62828; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 14px; }
         """)
 
         # Your existing app widget below the header
@@ -375,7 +371,7 @@ class AppShell(QMainWindow):
         text fallback in case names change slightly.
         """
         # By objectName (from your InvoiceApp)
-        for name in ("exportButton", "exportFilesButton", "clearAllButton", "deleteSelectedButton"):
+        for name in ("exportButton", "exportFilesButton"):
             btn = root_widget.findChild(QPushButton, name)
             if btn:
                 btn.setVisible(False)
@@ -384,8 +380,6 @@ class AppShell(QMainWindow):
         texts_to_hide = {
             "export to csv",
             "export files to folder",
-            "delete selected",
-            "clear all",
         }
         for btn in root_widget.findChildren(QPushButton):
             try:
@@ -398,13 +392,10 @@ class AppShell(QMainWindow):
         """
         Connect new header buttons to methods on InvoiceApp.
         """
-        # Your InvoiceApp defines these handlers: export_to_csv, export_files_to_folder,
-        # delete_selected_rows, clear_all_rows  (w/ those exact names).  :contentReference[oaicite:2]{index=2}
+        # Your InvoiceApp defines these handlers: export_to_csv, export_files_to_folder
         wiring = [
             (self.btn_csv,    "export_to_csv"),
             (self.btn_folder, "export_files_to_folder"),
-            (self.btn_delete, "delete_selected_rows"),
-            (self.btn_clear,  "clear_all_rows"),
         ]
         for button, method_name in wiring:
             if hasattr(app_widget, method_name) and callable(getattr(app_widget, method_name)):
