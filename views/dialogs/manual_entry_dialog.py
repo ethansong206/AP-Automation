@@ -1,33 +1,168 @@
 import os
 from copy import deepcopy
+
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QSplitter, QWidget, QFormLayout, QComboBox, QMessageBox,
-    QCompleter, QListWidget, QListWidgetItem, QGroupBox, QSizePolicy, 
-    QScrollArea, QGridLayout
+    QCompleter, QListWidget, QListWidgetItem, QGroupBox,
+    QScrollArea, QGridLayout, QFrame, QGraphicsDropShadowEffect, QToolButton
 )
-from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal
-from PyQt5.QtGui import QBrush, QGuiApplication, QColor
+from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal, QSize
+from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon
 
-# Project components
+# ---------- THEME & ICONS: reuse from app_shell when available ----------
+try:
+    # Typical project path
+    from views.app_shell import THEME as APP_THEME, _resolve_icon
+except Exception:
+    try:
+        # Alternate import if views/ prefix isn't used
+        from app_shell import THEME as APP_THEME, _resolve_icon
+    except Exception:
+        # Safe fallback so this dialog still runs in isolation
+        APP_THEME = {
+            "outer_bg": "#F2F3F5",
+            "card_bg": "#FFFFFF",
+            "card_border": "#E1E4E8",
+            "brand_green": "#064420",
+            "radius": 12,
+        }
+        def _resolve_icon(name: str) -> str:
+            # Fallback path guess; replace if your assets live elsewhere
+            return os.path.join("assets", "icons", name)
+
+THEME = APP_THEME
+
+# Project components (unchanged)
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_dialog import AddVendorFlow
-from extractors.utils import get_vendor_list, calculate_discount_due_date  # <<<< used for Due Date calc
+from extractors.utils import get_vendor_list, calculate_discount_due_date
 from assets.constants import COLORS
 
 
+class _DialogTitleBar(QWidget):
+    """Custom titlebar:
+    - Reuses your SVG icons (minimize/close) via _resolve_icon
+    - Drag anywhere on the left/title area to move the frameless window
+    """
+    def __init__(self, parent=None, title_text: str = "Manual Entry"):
+        super().__init__(parent)
+        self._drag_offset = None
+        self.setMouseTracking(True)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(24, 16, 12, 16)
+        row.setSpacing(10)
+
+        self.title = QLabel(title_text, self)
+        self.title.setObjectName("DialogBigTitle")
+        self.title.setFont(QFont("Inter", 20, QFont.Bold))
+        self.title.setStyleSheet(f"color: {THEME['brand_green']};")
+
+        # Window control buttons (match main window look)
+        self._icon_min = QIcon(_resolve_icon("minimize.svg"))
+        self._icon_close = QIcon(_resolve_icon("close.svg"))
+
+        def make_winbtn(icon: QIcon) -> QToolButton:
+            b = QToolButton(self)
+            b.setObjectName("WinBtn")
+            b.setFixedSize(48, 36)
+            b.setIcon(icon)
+            b.setIconSize(QSize(36, 36))
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setStyleSheet(
+                "QToolButton#WinBtn { background: transparent; border: none; padding: 0; }"
+                "QToolButton#WinBtn:hover { background: rgba(0,0,0,0.06); border-radius: 6px; }"
+            )
+            return b
+
+        self.btn_min = make_winbtn(self._icon_min)
+        self.btn_close = make_winbtn(self._icon_close)
+        self.btn_min.clicked.connect(self.window().showMinimized)
+        self.btn_close.clicked.connect(self.window().close)
+
+        row.addWidget(self.title)
+        row.addStretch()
+        row.addWidget(self.btn_min)
+        row.addWidget(self.btn_close)
+        self.setStyleSheet("background: transparent;")
+
+    # drag window
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.childAt(e.pos()) not in (self.btn_min, self.btn_close):
+            self._drag_offset = e.globalPos() - self.window().frameGeometry().topLeft()
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._drag_offset:
+            self.window().move(e.globalPos() - self._drag_offset)
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        self._drag_offset = None
+        super().mouseReleaseEvent(e)
+
+
 class ManualEntryDialog(QDialog):
-    """Dialog for manual entry of invoice fields with PDF viewer and quick calc."""
-    file_deleted = pyqtSignal(str)           # emitted when a file is deleted here
-    row_saved = pyqtSignal(str, list, bool)        # (file_path, row_values, flagged)
+    """Manual Entry dialog wrapped in a frameless, rounded-card shell.
+
+    Fixes:
+      • Behaves as a true top‑level window (no clipping, full interactivity outside main window)
+      • Application‑modal to prevent main window edge‑resize from engaging while dragging dialog
+      • Reuses the main window's SVG buttons for consistent look
+    """
+
+    file_deleted = pyqtSignal(str)
+    row_saved = pyqtSignal(str, list, bool)  # (file_path, row_values, flagged)
 
     def __init__(self, pdf_paths, parent=None, values_list=None, flag_states=None, start_index=0):
         super().__init__(parent)
+
+        # ---- Frameless top-level setup ----
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        self.setWindowModality(Qt.ApplicationModal)
         self.setWindowTitle("Manual Entry")
         self.setMinimumSize(1100, 650)
+        self.setObjectName("ManualEntryRoot")
 
-        # Style tweaks
-        self.setStyleSheet("""
+        # Root layout (lets us paint a rounded background in paintEvent)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Titlebar
+        self.titlebar = _DialogTitleBar(self, title_text="Manual Entry")
+        root.addWidget(self.titlebar)
+
+        # Padding around the inner card
+        pad = QVBoxLayout()
+        pad.setContentsMargins(24, 6, 24, 24)
+        pad.setSpacing(10)
+        root.addLayout(pad)
+
+        # Inner white card with shadow
+        self.card = QFrame(self)
+        self.card.setObjectName("Card")
+        self.card.setStyleSheet(
+            f"QFrame#Card {{ background: {THEME['card_bg']};"
+            f"  border: 1px solid {THEME['card_border']};"
+            f"  border-radius: {THEME['radius']}px; }}"
+        )
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(28)
+        shadow.setOffset(0, 8)
+        shadow.setColor(QColor(0, 0, 0, 45))
+        self.card.setGraphicsEffect(shadow)
+        pad.addWidget(self.card)
+
+        card_lay = QVBoxLayout(self.card)
+        card_lay.setContentsMargins(20, 20, 20, 20)
+        card_lay.setSpacing(12)
+
+        # ---------- Original dialog UI (unchanged logic) ----------
+        self.setStyleSheet(self.styleSheet() + """
             QLabel { font-size: 15px; }
             QLineEdit, QComboBox, QDateEdit { font-size: 15px; padding: 5px; }
             QPushButton { font-size: 15px; padding: 9px 15px; }
@@ -39,11 +174,11 @@ class ManualEntryDialog(QDialog):
         self.values_list = values_list or [[""] * 8 for _ in self.pdf_paths]
         self.flag_states = list(flag_states or [False] * len(self.pdf_paths))
         self.saved_flag_states = list(self.flag_states)
-        self.saved_values_list = deepcopy(self.values_list)  # last-saved snapshot
+        self.saved_values_list = deepcopy(self.values_list)
         self.current_index = start_index if 0 <= start_index < len(self.pdf_paths) else 0
         self._deleted_files = []
         self._dirty = False
-        self._loading = False           # prevents false dirty on programmatic set
+        self._loading = False
         self.save_changes = False
         self.viewed_files = set()
 
@@ -86,7 +221,6 @@ class ManualEntryDialog(QDialog):
         self.fields["Invoice Number"] = QLineEdit()
         self.fields["Invoice Number"].textChanged.connect(self._on_display_fields_changed)
         form_layout.addRow(QLabel("Invoice Number:"), self.fields["Invoice Number"])
-
         self.fields["PO Number"] = QLineEdit()
         form_layout.addRow(QLabel("PO Number:"), self.fields["PO Number"])
 
@@ -121,7 +255,7 @@ class ManualEntryDialog(QDialog):
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
-        # Quick Calculator (no Tax rows)
+        # Quick Calculator (no tax rows)
         self.quick_calc_group = QGroupBox("Quick Calculator")
         qc = QFormLayout()
         qc.setVerticalSpacing(11)
@@ -142,7 +276,6 @@ class ManualEntryDialog(QDialog):
         self.qc_grand_total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.qc_grand_total.setStyleSheet("font-weight: bold;")
 
-        # Buttons to push result back into fields (as plain numbers)
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         self.qc_apply_total = QPushButton("Apply → Total Amount")
@@ -199,7 +332,6 @@ class ManualEntryDialog(QDialog):
         arrows.addWidget(self.prev_button)
         arrows.addWidget(self.next_button)
 
-        # Tracker showing current file position
         self.file_tracker_label = QLabel("")
         self.file_tracker_label.setAlignment(Qt.AlignCenter)
 
@@ -261,11 +393,8 @@ class ManualEntryDialog(QDialog):
         self.splitter.setStretchFactor(2, 4)
         QTimer.singleShot(0, self._apply_splitter_proportions)
 
-        # Layout
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.addWidget(self.splitter)
-        self.setLayout(content_layout)
+        # Put the content into the card
+        card_lay.addWidget(self.splitter)
 
         # Currency fields we pretty/normalize
         self._currency_labels = {"Total Amount", "Discounted Total"}
@@ -302,6 +431,15 @@ class ManualEntryDialog(QDialog):
 
         # Guarded file list navigation
         self.file_list.currentRowChanged.connect(self._on_file_list_row_changed)
+
+    # ---------- Frameless outer background (rounded gray) ----------
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        r = self.rect()
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(THEME["outer_bg"]))
+        p.drawRoundedRect(r, THEME["radius"], THEME["radius"])
 
     # ---------- Layout helpers ----------
     def _apply_splitter_proportions(self):
@@ -346,7 +484,7 @@ class ManualEntryDialog(QDialog):
         fname = os.path.basename(path) if path else "(unknown)"
         confirm = QMessageBox.question(
             self, "Delete Invoice",
-            f"Are you sure you want to delete this invoice?\n\n{fname}",
+            f"Are you sure you want to delete this invoice? {fname}",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if confirm == QMessageBox.Yes:
@@ -521,7 +659,6 @@ class ManualEntryDialog(QDialog):
                 w.setText(self._money_plain(w.text()))
 
         typed_vendor = (self.vendor_combo.currentText() or "").strip()
-
         current_names = {
             self.vendor_combo.itemText(i).strip().lower()
             for i in range(self.vendor_combo.count())
@@ -532,8 +669,8 @@ class ManualEntryDialog(QDialog):
                 self,
                 "Unknown Vendor",
                 (
-                    f"‘{typed_vendor}’ isn’t in your vendor list.\n\n"
-                    "You’ll need to add it first (Vendor Name → Vendor Number → optional Identifier).\n"
+                    f"‘{typed_vendor}’ isn’t in your vendor list."
+                    "You’ll need to add it first (Vendor Name → Vendor Number → optional Identifier)."
                     "Vendor Number is required; Identifier is optional."
                 ),
                 QMessageBox.Ok | QMessageBox.Cancel,
@@ -542,7 +679,7 @@ class ManualEntryDialog(QDialog):
             if warn == QMessageBox.Cancel:
                 return False # abort save; let the user decide later
 
-            # Launch the exact same guided flow as the New Vendor button
+            # Launch the guided flow used by the New Vendor button
             current_pdf = (
                 self.pdf_paths[self.current_index]
                 if (self.pdf_paths and 0 <= self.current_index < len(self.pdf_paths))
@@ -558,7 +695,6 @@ class ManualEntryDialog(QDialog):
             if added_vendor:
                 self.vendor_combo.setCurrentText(added_vendor)
             else:
-                # Safety: if for some reason we didn't get a name back, bail to avoid saving with unknown vendor
                 QMessageBox.warning(self, "Vendor Not Added", "The vendor wasn’t added. Please try again.")
                 return False
 
@@ -576,13 +712,11 @@ class ManualEntryDialog(QDialog):
         return True
 
     def closeEvent(self, event):
-        """Guard window-X close. Ensure 'No' actually closes."""
+        """Guard window-X close. Ensure 'No' actually closes if chosen."""
         event.ignore()
 
         def proceed_accept_close():
-            # Mark that we should persist changes and accept the close
             self.save_changes = True
-            # Ensure dialog returns QDialog.Accepted so caller processes flag updates
             self.setResult(QDialog.Accepted)
             event.accept()
 
@@ -590,7 +724,6 @@ class ManualEntryDialog(QDialog):
 
     # ---------- Due Date calculation ----------
     def _on_calculate_due_date(self):
-        """Compute Due Date from Discount Terms + Invoice Date using project helper."""
         terms = self.fields["Discount Terms"].text().strip()
         invoice_date_str = self.fields["Invoice Date"].date().toString("MM/dd/yy")
         try:
@@ -602,7 +735,7 @@ class ManualEntryDialog(QDialog):
         if not due_str:
             QMessageBox.warning(
                 self, "Cannot Calculate Due Date",
-                "I couldn't determine a due date from those Discount Terms.\n"
+                "I couldn't determine a due date from those Discount Terms."
                 "Try formats like 'NET 30', '2%10 NET 30', '8% 75', etc."
             )
             return
@@ -621,9 +754,9 @@ class ManualEntryDialog(QDialog):
 
     # ---------- Tiny saved toast ----------
     def _flash_saved(self):
-        from PyQt5.QtWidgets import QLabel
         note = QLabel("Saved", self)
-        note.setStyleSheet("""
+        note.setStyleSheet(
+            """
             QLabel {
                 background-color: #e7f5e7;
                 color: #2f7a2f;
@@ -632,7 +765,8 @@ class ManualEntryDialog(QDialog):
                 padding: 3px 8px;
                 font-weight: bold;
             }
-        """)
+            """
+        )
         note.adjustSize()
         note.move(self.width() - note.width() - 60, self.height() - 60)
         note.show()
@@ -710,6 +844,7 @@ class ManualEntryDialog(QDialog):
                 idx = self.file_list.row(item)
                 self.toggle_file_flag(idx)
                 return
+        # Fallback to default behavior
         QListWidget.mousePressEvent(self.file_list, event)
 
     def get_flag_states(self):
@@ -725,20 +860,14 @@ class ManualEntryDialog(QDialog):
 
     def add_new_vendor(self):
         """Launch the guided flow to add a vendor (Name → Number → optional Identifier)."""
-        # Current PDF (for identifier-in-PDF checks inside the flow)
         current_pdf = (
             self.pdf_paths[self.current_index]
             if (self.pdf_paths and 0 <= self.current_index < len(self.pdf_paths))
             else ""
         )
-
-        # Pre-fill with whatever the user already typed into the combo (if any)
         prefill_name = self.vendor_combo.currentText().strip()
-
         flow = AddVendorFlow(pdf_path=current_pdf, parent=self, prefill_vendor_name=prefill_name)
         if flow.exec_() == QDialog.Accepted:
-            # The flow handles writing to vendors.csv (and manual map if identifier provided)
-            # Now refresh the dropdown and select the added vendor.
             self.load_vendors()
             added_vendor = getattr(flow, "get_final_vendor_name", lambda: None)()
             if added_vendor:
@@ -899,83 +1028,45 @@ class ManualEntryDialog(QDialog):
     def eventFilter(self, obj, event):
         if event.type() == QEvent.FocusIn:
             for label in getattr(self, "_currency_labels", set()):
-                if obj is self.fields.get(label):
-                    obj.setText(self._money_plain(obj.text()))
-                    break
-            if obj in getattr(self, "_calc_currency_fields", []):
-                obj.setText(self._money_plain(obj.text()))
+                w = self.fields.get(label)
+                if w is obj:
+                    w.setText(self._money_plain(w.text()))
         elif event.type() == QEvent.FocusOut:
             for label in getattr(self, "_currency_labels", set()):
-                if obj is self.fields.get(label):
-                    obj.setText(self._money_pretty(obj.text()))
-                    break
-            if obj in getattr(self, "_calc_currency_fields", []):
-                obj.setText(self._money_pretty(obj.text()))
+                w = self.fields.get(label)
+                if w is obj:
+                    if not w.hasFocus():
+                        w.setText(self._money_pretty(w.text()))
         return super().eventFilter(obj, event)
 
-    # ---------- Dirty tracking + guard ----------
+    # ---------- Dirty tracking + unsaved guard ----------
     def _wire_dirty_tracking(self):
-        """Mark dialog dirty when user edits a field (but not during programmatic loads)."""
-        for w in self.fields.values():
-            if hasattr(w, "textChanged"):
-                w.textChanged.connect(self._mark_dirty)
-            if hasattr(w, "currentIndexChanged"):
-                w.currentIndexChanged.connect(self._mark_dirty)
-            if hasattr(w, "currentTextChanged"):
-                w.currentTextChanged.connect(self._mark_dirty)
-            if hasattr(w, "editTextChanged"):
-                w.editTextChanged.connect(self._mark_dirty)
-            if isinstance(w, QDateEdit):
-                w.dateChanged.connect(self._mark_dirty)
+        def mark_dirty(*_):
+            if not self._loading:
+                self._dirty = True
+        for label, w in self.fields.items():
+            if isinstance(w, QLineEdit):
+                w.textChanged.connect(mark_dirty)
+            elif isinstance(w, QComboBox):
+                w.currentTextChanged.connect(mark_dirty)
+            elif isinstance(w, QDateEdit):
+                w.dateChanged.connect(mark_dirty)
 
-    def _mark_dirty(self, *args):
-        if self._loading:
-            return
-        self._dirty = True
-
-    def _discard_changes_current(self):
-        """Revert widgets and working copy to last-saved for the current file."""
-        idx = self.current_index
-        if 0 <= idx < len(self.saved_values_list):
-            snapshot = self.saved_values_list[idx]
-            self._load_values_into_widgets(snapshot)   # guarded -> won't mark dirty
-            self.values_list[idx] = deepcopy(snapshot)
-        self.flag_states = list(self.saved_flag_states)
-        for i, path in enumerate(self.pdf_paths):
-            item = self.file_list.item(i)
-            if item:
-                text = self._get_display_text(i)
-                self._update_file_item(item, text, self.flag_states[i])
-        self._update_flag_button()
-        self._dirty = False
-
-    def _confirm_unsaved_then(self, proceed_action):
-        """
-        If dirty, ask: Yes / Keep Editing / No
-        - Yes: save, then proceed_action()
-        - Keep Editing: do nothing
-        - No: discard, then proceed_action()
-        """
+    def _confirm_unsaved_then(self, proceed_fn):
         if not self._dirty:
-            proceed_action()
+            proceed_fn()
             return
-
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Unsaved changes")
-        box.setText("You have unsaved changes. Do you want to save them before continuing?")
-        yes_btn = box.addButton("Yes", QMessageBox.YesRole)
-        keep_btn = box.addButton("Keep Editing", QMessageBox.RejectRole)  # your “Make Changes”
-        no_btn  = box.addButton("No", QMessageBox.DestructiveRole)
-        box.setDefaultButton(yes_btn)
-        box.exec_()
-
-        clicked = box.clickedButton()
-        if clicked is yes_btn:
-            if self.on_save():
-                proceed_action()
-        elif clicked is keep_btn:
-            pass  # stay put
-        elif clicked is no_btn:
-            self._discard_changes_current()
-            proceed_action()
+        ans = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "You have unsaved changes. Save them before continuing?",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            QMessageBox.Yes,
+        )
+        if ans == QMessageBox.Cancel:
+            return
+        if ans == QMessageBox.Yes:
+            if not self.on_save():
+                return  # save aborted (e.g., vendor add canceled)
+        # at this point either saved or user chose No
+        proceed_fn()

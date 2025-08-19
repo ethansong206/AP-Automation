@@ -65,8 +65,8 @@ DIST_HEADER = [
 ]
 
 # Default accounts
-DEFAULT_INVENTORY_ACCT = "0697-099"
-DEFAULT_DISCOUNT_ACCT = "0697-099"  # Changed from 0520-002
+DEFAULT_INVENTORY_ACCT = "0520-099"
+DEFAULT_DISCOUNT_ACCT = "0520-099"
 DEFAULT_CP_DISCOUNT_ACCT = ""       # Changed to empty string
 
 def export_accounting_csv(filename, invoice_table):
@@ -173,7 +173,7 @@ def export_accounting_csv(filename, invoice_table):
                 vchr_row.append(format_float(terms_info['disc_pct']))
                 
                 # CHANGED: Account numbers as requested
-                vchr_row.append(DEFAULT_DISCOUNT_ACCT)  # Now 0697-099
+                vchr_row.append(DEFAULT_DISCOUNT_ACCT)
                 vchr_row.append(DEFAULT_CP_DISCOUNT_ACCT)  # Now empty string
                 vchr_row.append("")  # SPEC_TERMS
                 vchr_row.append("")  # VEND_TERMS
