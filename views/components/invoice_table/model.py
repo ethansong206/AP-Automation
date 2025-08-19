@@ -291,38 +291,84 @@ class InvoiceTableModel(QAbstractTableModel):
 # Sorting Proxy
 # =============================================================
 class InvoiceSortProxy(QSortFilterProxyModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Search/filter state
+        self._text_filter: str = ""
+        self._flagged_only: bool = False
+        self._incomplete_only: bool = False
+        # Search defaults: scan all columns
+        self.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        self.setFilterKeyColumn(-1)
+
+    # ---- Public setters used by the view/window ----
+    def set_text_filter(self, text: str):
+        self._text_filter = (text or "").strip().casefold()
+        self.invalidateFilter()
+
+    def set_flagged_only(self, on: bool):
+        self._flagged_only = bool(on)
+        self.invalidateFilter()
+
+    def set_incomplete_only(self, on: bool):
+        self._incomplete_only = bool(on)
+        self.invalidateFilter()
+
+    # ---- Sorting (existing) ----
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
         c = left.column()
         l = left.model().data(left, Qt.EditRole)
         r = right.model().data(right, Qt.EditRole)
 
         if c == C_FLAG:
-            return (l == "⚑") and (r != "⚑")  # flagged first on that column
-
-        if c in (C_VENDOR, C_TERMS):
-            return (l or "").lower() < (r or "").lower()
-
-        if c in (C_INVOICE, C_PO):
-            return _natural_key(l or "") < _natural_key(r or "")
-
-        if c in (C_INV_DATE, C_DUE):
-            ld, rd = _parse_date(l or ""), _parse_date(r or "")
-            if ld and rd:
-                return ld < rd
-            if ld and not rd:
-                return True
-            if rd and not ld:
-                return False
-            return (l or "") < (r or "")
+            return (l == "⚐") and (r == "⚑")
 
         if c in (C_DISC_TOTAL, C_TOTAL):
-            lf, rf = _parse_money(l), _parse_money(r)
-            if lf is None and rf is None:
-                return (l or "") < (r or "")
-            if lf is None:
-                return False
-            if rf is None:
-                return True
+            try:
+                lf = float(str(l).replace("*", "").strip())
+            except Exception:
+                lf = float('-inf')
+            try:
+                rf = float(str(r).replace("*", "").strip())
+            except Exception:
+                rf = float('-inf')
             return lf < rf
 
-        return (l or "") < (r or "")
+        if c in (C_INV_DATE, C_DUE):
+            dl = _parse_date(str(l)) or _parse_date("01/01/1900")
+            dr = _parse_date(str(r)) or _parse_date("01/01/1900")
+            return dl < dr
+
+        return _natural_key(str(l)) < _natural_key(str(r))
+
+    # ---- Filtering ----
+    def filterAcceptsRow(self, src_row: int, src_parent) -> bool:
+        model = self.sourceModel()
+        # 1) Flagged-only
+        if self._flagged_only:
+            if not getattr(model, "get_flag", None):
+                return False
+            if not model.get_flag(src_row):
+                return False
+
+        # 2) Incomplete-only (any empty body cell)
+        if self._incomplete_only:
+            vals = model.row_values(src_row)
+            if all(bool(str(v).strip()) for v in vals):
+                return False
+
+        # 3) Text search (case-insensitive across all body columns)
+        if self._text_filter:
+            hay = []
+            vals = model.row_values(src_row)
+            hay.extend(vals)  # vendor..total
+            try:
+                # include invoice number with superscript removed (already raw in row_values)
+                pass
+            except Exception:
+                pass
+            blob = " ".join(str(x or "") for x in hay).casefold()
+            if self._text_filter not in blob:
+                return False
+
+        return True

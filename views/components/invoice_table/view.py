@@ -228,6 +228,41 @@ class InvoiceTable(QWidget):
         # Edits → compatibility signals
         self._model.rawEdited.connect(self._bubble_edit_signal)
 
+    # ------------------- New helpers (search / filter) -------------------
+    def set_search_text(self, text: str):
+        self._proxy.set_text_filter(text or "")
+
+    def set_flagged_only(self, on: bool):
+        self._proxy.set_flagged_only(bool(on))
+
+    def set_incomplete_only(self, on: bool):
+        self._proxy.set_incomplete_only(bool(on))
+
+    # ------------------- Existing public API (unchanged) -----------------
+    def add_row(self, row_data: List[str], file_path: str, is_no_ocr: bool = False):
+        self._model.add_row(row_data, file_path)
+
+    def update_row_by_source(self, file_path: str, row_values: List[str]):
+        self._model.update_row_by_source(file_path, row_values)
+
+    def get_file_path_for_row(self, view_row: int) -> str:
+        src = self._view_to_source_row(view_row)
+        return "" if src < 0 else self._model.get_file_path(src)
+
+    def get_cell_text(self, view_row: int, col: int) -> str:
+        # ... (unchanged)
+        src = self._view_to_source_row(view_row)
+        if src < 0:
+            return ""
+        vals = self._model.row_values(src)
+        mapping = {
+            C_VENDOR: 0, C_INVOICE: 1, C_PO: 2, C_INV_DATE: 3,
+            C_TERMS: 4, C_DUE: 5, C_DISC_TOTAL: 6, C_TOTAL: 7
+        }
+        if col in mapping:
+            return vals[mapping[col]] or ""
+        return ""
+
     # ---------------------------------------------------------
     # Signal bubbling / helpers
     # ---------------------------------------------------------
