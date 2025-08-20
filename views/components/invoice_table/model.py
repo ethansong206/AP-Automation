@@ -285,8 +285,11 @@ class InvoiceTableModel(QAbstractTableModel):
     def set_flag(self, src_row: int, val: bool):
         if self._rows[src_row].flag != val:
             self._rows[src_row].flag = val
-            idx = self.index(src_row, C_ACTIONS)
-            self.dataChanged.emit(idx, idx, [Qt.DisplayRole])
+            idx_actions = self.index(src_row, C_ACTIONS)
+            idx_vendor  = self.index(src_row, C_VENDOR)
+            # Notify both: Actions (icon) and Vendor (left stripe painter)
+            self.dataChanged.emit(idx_actions, idx_actions, [Qt.DisplayRole])
+            self.dataChanged.emit(idx_vendor,  idx_vendor,  [Qt.DisplayRole])
 
     # --- select-all helpers for header checkbox ---
     def set_all_selected(self, checked: bool):
