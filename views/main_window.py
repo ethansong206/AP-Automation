@@ -82,7 +82,7 @@ class InvoiceApp(QWidget):
         self.btn_import = QPushButton("Upload")
         self.btn_import.setObjectName("importButton")
         self.btn_import.setIcon(QIcon(_resolve_icon("upload.svg")))
-        self.btn_import.setIconSize(QSize(16, 16))
+        self.btn_import.setIconSize(QSize(20, 20))  # Increased from 16,16 to 20,20
         self.btn_import.clicked.connect(self.browse_files)
         second_row.addWidget(self.btn_import)
         
@@ -166,10 +166,11 @@ class InvoiceApp(QWidget):
         self.btn_filter.setIcon(QIcon(_resolve_icon("filter.svg")))
         self.btn_filter.setIconSize(QSize(16, 16))
 
-        # Set consistent sizing
+        # Set consistent sizing - shortened search bar
         base_w = self.export_button.sizeHint().width()
         self.btn_filter.setMinimumWidth(base_w)
-        self.search_edit.setMinimumWidth(base_w * 2)
+        self.search_edit.setMinimumWidth(int(base_w * 1.5))  # Shortened from base_w * 2 to base_w * 1.5
+        self.search_edit.setMaximumWidth(int(base_w * 1.5))  # Also set max width to prevent expansion
 
         # Filter menu (checkable)
         self.filter_menu = QMenu(self)

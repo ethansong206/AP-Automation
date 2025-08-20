@@ -255,7 +255,7 @@ class AppShell(QMainWindow):
                 background-color: #042712;
             }}
             
-            /* Search bar styling */
+            /* Search bar styling - with constrained width */
             QLineEdit#searchEdit {{
                 border: 2px solid #E0E0E0;
                 border-radius: 15px;
@@ -263,6 +263,8 @@ class AppShell(QMainWindow):
                 background-color: white;
                 font-size: 12pt;
                 min-height: 20px;
+                max-width: 300px;
+                min-width: 150px;
             }}
             QLineEdit#searchEdit:focus {{
                 border-color: {THEME['brand_green']};
