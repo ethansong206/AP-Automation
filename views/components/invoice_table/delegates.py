@@ -26,8 +26,8 @@ class BodyEditDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         editor = QLineEdit(parent)
         editor.setAutoFillBackground(True)
-        editor.setStyleSheet("background:#FFFFFF; color:#000000; padding:0 4px; margin:0;")
-        editor.setFrame(False)
+        # Match the delegate's left text margin so the editor aligns
+        editor.setStyleSheet("background:#FFFFFF; color:#000000; padding:0 6px; margin:0;")
         return editor
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
@@ -55,6 +55,10 @@ class BodyEditDelegate(QStyledItemDelegate):
             opt.palette.setBrush(QPalette.Base, brush)
             opt.palette.setBrush(QPalette.AlternateBase, brush)
 
+        # Nudge text rendering slightly to the right so it isn't flush
+        # against the cell's left border (or vendor warning stripe).
+        opt.rect.adjust(6, 0, 0, 0)
+
         QStyledItemDelegate.paint(self, painter, opt, index)
 
         # Vendor-only left stripe on top (unchanged)
@@ -72,7 +76,7 @@ class BodyEditDelegate(QStyledItemDelegate):
             all_empty = not any(filled)
             if any_empty and not all_empty:
                 painter.save()
-                painter.fillRect(QRect(option.rect.left(), option.rect.top(), 3, option.rect.height()), QColor("#FFEB80"))
+                painter.fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), QColor("#FFEB80"))
                 painter.restore()
 
         # Column divider

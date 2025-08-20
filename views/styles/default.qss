@@ -90,6 +90,15 @@ QPushButton#deleteSelectedButton {
     min-width: 120px;
 }
 
+QPushButton#flagSelectedButton {
+    background: #EF9A9A;
+    color: #000000;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    min-width: 120px;
+}
+
 QPushButton#filterButton {
     background-color: #808080;
     color: white;

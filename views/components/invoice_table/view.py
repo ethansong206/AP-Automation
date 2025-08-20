@@ -431,6 +431,39 @@ class InvoiceTable(QWidget):
         if col in mapping:
             return vals[mapping[col]] or ""
         return ""
+    
+    def update_calculated_field(self, view_row: int, col: int, value: str, emit_change: bool = True):
+        """Update a table cell without marking it as manually edited."""
+        src = self._view_to_source_row(view_row)
+        if src < 0:
+            return
+
+        attr_map = {
+            C_VENDOR: "vendor",
+            C_INVOICE: "invoice",
+            C_PO: "po",
+            C_INV_DATE: "inv_date",
+            C_TERMS: "terms",
+            C_DUE: "due",
+            C_DISC_TOTAL: "disc_total",
+            C_TOTAL: "total",
+        }
+
+        attr = attr_map.get(col)
+        if not attr:
+            return
+
+        row = self._model._rows[src]
+        setattr(row, attr, value)
+        row.edited_cells.discard(col)
+        self.manually_edited.discard((view_row, col))
+
+        if col == C_INVOICE:
+            self._model._rebuild_duplicates()
+
+        if emit_change:
+            idx = self._model.index(src, col)
+            self._model.dataChanged.emit(idx, idx, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
 
     def is_row_flagged(self, view_row: int) -> bool:
         src = self._view_to_source_row(view_row)

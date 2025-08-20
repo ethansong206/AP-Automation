@@ -395,6 +395,16 @@ class InvoiceSortProxy(QSortFilterProxyModel):
         l = src.data(src.index(left.row(), c), Qt.EditRole)
         r = src.data(src.index(right.row(), c), Qt.EditRole)
 
+        if c == C_ACTIONS:
+            get_flag = getattr(src, "get_flag", None)
+            lf = bool(get_flag(left.row())) if get_flag else False
+            rf = bool(get_flag(right.row())) if get_flag else False
+            if lf != rf:
+                return lf and not rf
+            lv = src.data(src.index(left.row(), C_VENDOR), Qt.EditRole)
+            rv = src.data(src.index(right.row(), C_VENDOR), Qt.EditRole)
+            return self._safe_natural_key(lv) < self._safe_natural_key(rv)
+
         if c in (C_DISC_TOTAL, C_TOTAL):
             lf = self._to_float(l)
             rf = self._to_float(r)

@@ -79,6 +79,11 @@ class InvoiceApp(QWidget):
         # --- New control row: Import + Search + Filter ---
         controls = QHBoxLayout()
 
+        self.flag_selected_button = QPushButton("Flag Selected")
+        self.flag_selected_button.setObjectName("flagSelectedButton")
+        self.flag_selected_button.clicked.connect(self.flag_selected_rows)
+        controls.addWidget(self.flag_selected_button)
+
         controls.addStretch()
         self.btn_import = QPushButton("Upload")
         self.btn_import.setObjectName("importButton")
@@ -101,7 +106,7 @@ class InvoiceApp(QWidget):
         controls.addWidget(self.btn_filter)
 
         filter_width = self.btn_filter.sizeHint().width()
-        self.search_edit.setFixedWidth(filter_width * 3)
+        self.search_edit.setFixedWidth(filter_width * 5)
 
         # Filter menu (checkable)
         self.filter_menu = QMenu(self)
@@ -280,6 +285,16 @@ class InvoiceApp(QWidget):
                 self.file_controller.remove_file(file_path)
             self.update_invoice_count()
             self.save_session()
+
+    def flag_selected_rows(self):
+        sel = self.table.table.selectionModel().selectedIndexes()
+        selected_rows = sorted({i.row() for i in sel})
+        if not selected_rows:
+            return
+        for vrow in selected_rows:
+            if not self.table.is_row_flagged(vrow):
+                self.table.toggle_row_flag(vrow)
+        self.save_session()
 
     def update_invoice_count(self):
         count = self.table.rowCount()

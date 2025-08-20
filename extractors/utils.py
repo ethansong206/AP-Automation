@@ -38,16 +38,23 @@ def calculate_discount_due_date(terms, invoice_date):
     """
     terms_upper = terms.upper()
 
-    # First, look for explicit NET terms
-    net_match = re.search(r"NET\s*(\d+)", terms_upper)
-    if net_match:
-        net_days = int(net_match.group(1))
-    else:
-        # No NET found; try to interpret last number as NET days (e.g., "8% 75")
-        numbers = re.findall(r"\d+", terms_upper)
-        if not numbers:
-            return None
-        net_days = int(numbers[-1])
+    # Collect candidate day values ignoring numbers tied to percentages.
+    candidates = []
+    for m in re.finditer(r"\d+", terms_upper):
+        idx = m.end()
+        # Skip any whitespace after the number
+        while idx < len(terms_upper) and terms_upper[idx].isspace():
+            idx += 1
+        # If the next non-space character is a percent sign, skip this number
+        if idx < len(terms_upper) and terms_upper[idx] == '%':
+            continue
+        candidates.append(int(m.group()))
+
+    if not candidates:
+        return None
+
+    # Default to the smallest non-percent number
+    net_days = min(candidates)
 
     # Parse invoice date in multiple formats
     try:
