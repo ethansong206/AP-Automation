@@ -76,37 +76,100 @@ class InvoiceApp(QWidget):
         """)
         self.layout.addWidget(self.title_label)
 
-        # --- New control row: Import + Search + Filter ---
-        controls = QHBoxLayout()
-
-        self.flag_selected_button = QPushButton("Flag Selected")
-        self.flag_selected_button.setObjectName("flagSelectedButton")
-        self.flag_selected_button.clicked.connect(self.flag_selected_rows)
-        controls.addWidget(self.flag_selected_button)
-
-        controls.addStretch()
+        # --- Second row with Upload (left) and Flag Selected (right) ---
+        second_row = QHBoxLayout()
+        
         self.btn_import = QPushButton("Upload")
         self.btn_import.setObjectName("importButton")
         self.btn_import.setIcon(QIcon(_resolve_icon("upload.svg")))
         self.btn_import.setIconSize(QSize(16, 16))
         self.btn_import.clicked.connect(self.browse_files)
-        controls.addWidget(self.btn_import)
+        second_row.addWidget(self.btn_import)
+        
+        second_row.addStretch()
+        
+        self.flag_selected_button = QPushButton("Flag Selected")
+        self.flag_selected_button.setObjectName("flagSelectedButton")
+        self.flag_selected_button.setIcon(QIcon(_resolve_icon("flag.svg")))  # Add flag icon
+        self.flag_selected_button.setIconSize(QSize(16, 16))
+        self.flag_selected_button.clicked.connect(self.flag_selected_rows)
+        second_row.addWidget(self.flag_selected_button)
+        
+        self.layout.addLayout(second_row)
 
+        # Table
+        self.table = InvoiceTable()
+        self.setup_table_connections()
+        self.layout.addWidget(self.table)
+
+        # Bottom row: (left) Clear/Delete, (middle) Total Count, (right) Export Files, Export CSV
+        button_row = QHBoxLayout()
+
+        # Left group: Clear All and Delete Selected
+        left_button_group = QHBoxLayout()
+        self.clear_all_button = QPushButton("Clear All")
+        self.clear_all_button.setObjectName("clearAllButton")
+        self.clear_all_button.clicked.connect(self.clear_all_rows)
+        left_button_group.addWidget(self.clear_all_button)
+
+        self.delete_selected_button = QPushButton("Delete Selected")
+        self.delete_selected_button.setObjectName("deleteSelectedButton")
+        self.delete_selected_button.clicked.connect(self.delete_selected_rows)
+        left_button_group.addWidget(self.delete_selected_button)
+        button_row.addLayout(left_button_group)
+
+        button_row.addStretch()
+
+        # Middle: Total Number of Invoices
+        self.invoice_count_label = QLabel("Total Number of Invoices: 0")
+        self.invoice_count_label.setObjectName("totalLabel")
+        self.invoice_count_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(12)
+        self.invoice_count_label.setFont(font)
+        button_row.addWidget(self.invoice_count_label)
+
+        button_row.addStretch()
+
+        # Right group: Export Files and Export CSV
+        right_button_group = QHBoxLayout()
+        self.export_files_button = QPushButton("Export Files to Folder")
+        self.export_files_button.setObjectName("exportFilesButton")
+        self.export_files_button.clicked.connect(self.export_files_to_folder)
+        right_button_group.addWidget(self.export_files_button)
+
+        self.export_button = QPushButton("Export to CSV")
+        self.export_button.setObjectName("exportButton")
+        self.export_button.clicked.connect(self.export_to_csv)
+        right_button_group.addWidget(self.export_button)
+        button_row.addLayout(right_button_group)
+
+        self.layout.addLayout(button_row)
+        self.setLayout(self.layout)
+
+        # Create controls for the header (to be used by AppShell)
+        self._create_header_controls()
+
+    def _create_header_controls(self):
+        """Create the controls that will be moved to the header by AppShell"""
+        # These will be accessed by AppShell, so we create them as instance variables
+        
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search invoices…")
         self.search_edit.textChanged.connect(self._on_search_text)
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setObjectName("searchEdit")
-        controls.addWidget(self.search_edit)
 
         self.btn_filter = QPushButton("Filter")
         self.btn_filter.setObjectName("filterButton")
         self.btn_filter.setIcon(QIcon(_resolve_icon("filter.svg")))
         self.btn_filter.setIconSize(QSize(16, 16))
-        controls.addWidget(self.btn_filter)
 
-        filter_width = self.btn_filter.sizeHint().width()
-        self.search_edit.setFixedWidth(filter_width * 5)
+        # Set consistent sizing
+        base_w = self.export_button.sizeHint().width()
+        self.btn_filter.setMinimumWidth(base_w)
+        self.search_edit.setMinimumWidth(base_w * 2)
 
         # Filter menu (checkable)
         self.filter_menu = QMenu(self)
@@ -118,59 +181,6 @@ class InvoiceApp(QWidget):
 
         self.act_flagged_only.toggled.connect(self._apply_filters)
         self.act_incomplete_only.toggled.connect(self._apply_filters)
-
-        self.layout.addLayout(controls)
-
-        # Table
-        self.table = InvoiceTable()
-        self.setup_table_connections()
-        self.layout.addWidget(self.table)
-
-        # Bottom row: (left) Clear/Delete, Export Files  (right) Total
-        self.export_button = QPushButton("Export to CSV")
-        self.export_button.setObjectName("exportButton")
-        self.export_button.clicked.connect(self.export_to_csv)
-
-        base_w = self.export_button.sizeHint().width()
-        self.btn_import.setMinimumWidth(base_w)
-        self.btn_filter.setMinimumWidth(base_w)
-        self.search_edit.setMinimumWidth(base_w * 3)
-        # Keep button in the bottom row for standalone runs
-
-        button_row = QHBoxLayout()
-
-        button_group = QHBoxLayout()
-        self.clear_all_button = QPushButton("Clear All")
-        self.clear_all_button.setObjectName("clearAllButton")
-        self.clear_all_button.clicked.connect(self.clear_all_rows)
-        button_group.addWidget(self.clear_all_button)
-
-        self.delete_selected_button = QPushButton("Delete Selected")
-        self.delete_selected_button.setObjectName("deleteSelectedButton")
-        self.delete_selected_button.clicked.connect(self.delete_selected_rows)
-        button_group.addWidget(self.delete_selected_button)
-        button_row.addLayout(button_group)
-
-        self.export_files_button = QPushButton("Export Files to Folder")
-        self.export_files_button.setObjectName("exportFilesButton")
-        self.export_files_button.clicked.connect(self.export_files_to_folder)
-        button_row.addWidget(self.export_files_button)
-
-        button_row.addWidget(self.export_button)
-
-        button_row.addStretch()
-
-        self.invoice_count_label = QLabel("Total Number of Invoices: 0")
-        self.invoice_count_label.setObjectName("totalLabel")
-        self.invoice_count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(12)
-        self.invoice_count_label.setFont(font)
-        button_row.addWidget(self.invoice_count_label)
-
-        self.layout.addLayout(button_row)
-        self.setLayout(self.layout)
 
     def setup_table_connections(self):
         self.table.row_deleted.connect(self.handle_row_deleted)

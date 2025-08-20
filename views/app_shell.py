@@ -145,7 +145,7 @@ class AppShell(QMainWindow):
     Call with AppShell(InvoiceApp).
 
     Inside the white card header row, exposes:
-      - btn_csv, btn_folder
+      - Upload, Search, Filter (moved from middle row)
     """
     def __init__(self, widget_factory):
         super().__init__()
@@ -207,7 +207,13 @@ class AppShell(QMainWindow):
         card_lay.setContentsMargins(20, 20, 20, 20)
         card_lay.setSpacing(12)
 
-        # Card header row: "Invoices" (left) + action buttons (right)
+        # Your existing app widget
+        app_widget = widget_factory()
+        if hasattr(app_widget, "title_label"):
+            app_widget.title_label.setVisible(False)  # avoid duplicate inner title
+        app_widget.setMouseTracking(True)
+
+        # Card header row: "Invoices" (left) + Search Bar + Filter (right)
         header_row = QHBoxLayout(); header_row.setContentsMargins(0, 0, 0, 0); header_row.setSpacing(10)
 
         title_left = QLabel("Invoices")
@@ -217,39 +223,73 @@ class AppShell(QMainWindow):
         header_row.addWidget(title_left)
         header_row.addStretch()
 
-        def make_btn(text, obj_name):
-            b = QPushButton(text); b.setObjectName(obj_name)
-            b.setMinimumHeight(36); b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet("font-weight: 600; font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 10pt;")
-            b.setMouseTracking(True)
-            return b
-
-        self.btn_csv    = make_btn("Export to CSV",     "BtnCsv")
-        self.btn_folder = make_btn("Export to Folder",  "BtnFolder")
-
-        for b in (self.btn_csv, self.btn_folder):
-            header_row.addWidget(b)
+        # Add the search and filter controls from app_widget to header
+        if hasattr(app_widget, 'search_edit'):
+            header_row.addWidget(app_widget.search_edit)
+        if hasattr(app_widget, 'btn_filter'):
+            header_row.addWidget(app_widget.btn_filter)
 
         card_lay.addLayout(header_row)
-
-        # Button colors (no :hover)
-        self.setStyleSheet("""
-            QPushButton#BtnCsv    { background: #2E7D32; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 14px; }
-            QPushButton#BtnFolder { background: #FBC02D; color: #263238; border: none; border-radius: 8px; padding: 8px 14px; }
-        """)
-
-        # Your existing app widget below the header
-        app_widget = widget_factory()
-        if hasattr(app_widget, "title_label"):
-            app_widget.title_label.setVisible(False)  # avoid duplicate inner title
-        app_widget.setMouseTracking(True)
         card_lay.addWidget(app_widget)
 
-        # 1) Hide legacy/footer buttons (by objectName, then by text fallback)
-        self._hide_legacy_footer_buttons(app_widget)
-
-        # 2) Wire new header buttons to existing handlers on InvoiceApp
-        self._wire_actions(app_widget)
+        # Button colors and control styles
+        self.setStyleSheet(f"""
+            QPushButton#BtnCsv    {{ background: #2E7D32; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 14px; }}
+            QPushButton#BtnFolder {{ background: #FBC02D; color: #263238; border: none; border-radius: 8px; padding: 8px 14px; }}
+            
+            /* Upload button styling - Primary action */
+            QPushButton#importButton {{
+                background-color: {THEME['brand_green']};
+                color: white;
+                border-radius: 8px;
+                padding: 8px 15px;
+                font-weight: bold;
+                font-size: 12pt;
+                min-height: 20px;
+                min-width: 120px;
+            }}
+            QPushButton#importButton:hover {{
+                background-color: #053318;
+            }}
+            QPushButton#importButton:pressed {{
+                background-color: #042712;
+            }}
+            
+            /* Search bar styling */
+            QLineEdit#searchEdit {{
+                border: 2px solid #E0E0E0;
+                border-radius: 15px;
+                padding: 6px 12px;
+                background-color: white;
+                font-size: 12pt;
+                min-height: 20px;
+            }}
+            QLineEdit#searchEdit:focus {{
+                border-color: {THEME['brand_green']};
+            }}
+            
+            /* Filter button styling - Darker gray, proper sizing */
+            QPushButton#filterButton {{
+                background-color: #757575;
+                color: white;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-weight: bold;
+                font-size: 12pt;
+                min-height: 20px;
+                min-width: 100px;
+            }}
+            QPushButton#filterButton:hover {{
+                background-color: #616161;
+            }}
+            QPushButton#filterButton:pressed {{
+                background-color: #424242;
+            }}
+            QPushButton#filterButton::menu-indicator {{
+                image: none;
+                width: 0;
+            }}
+        """)
 
     # ---- rounded gray background ----
     def paintEvent(self, _):
@@ -363,46 +403,3 @@ class AppShell(QMainWindow):
             if new_bottom - g.top() >= self.minimumHeight(): g.setBottom(new_bottom)
 
         self.setGeometry(g)
-
-    # ---------------- hide old footer buttons & wire new ones ----------------
-    def _hide_legacy_footer_buttons(self, root_widget: QWidget):
-        """
-        Hide the legacy/footer buttons by objectName (most reliable), with a
-        text fallback in case names change slightly.
-        """
-        # By objectName (from your InvoiceApp)
-        for name in ("exportButton", "exportFilesButton"):
-            btn = root_widget.findChild(QPushButton, name)
-            if btn:
-                btn.setVisible(False)
-
-        # Fallback: by exact text (case-insensitive, trims)
-        texts_to_hide = {
-            "export to csv",
-            "export files to folder",
-        }
-        for btn in root_widget.findChildren(QPushButton):
-            try:
-                if btn.text().strip().lower() in texts_to_hide:
-                    btn.setVisible(False)
-            except Exception:
-                pass
-
-    def _wire_actions(self, app_widget: QWidget):
-        """
-        Connect new header buttons to methods on InvoiceApp.
-        """
-        # Your InvoiceApp defines these handlers: export_to_csv, export_files_to_folder
-        wiring = [
-            (self.btn_csv,    "export_to_csv"),
-            (self.btn_folder, "export_files_to_folder"),
-        ]
-        for button, method_name in wiring:
-            if hasattr(app_widget, method_name) and callable(getattr(app_widget, method_name)):
-                button.clicked.connect(getattr(app_widget, method_name))
-            else:
-                # graceful fallback message if signature/name differs
-                button.clicked.connect(lambda _=False, lbl=button.text(), m=method_name: QMessageBox.information(
-                    self, "Action not wired",
-                    f"No handler named “{m}” found for “{lbl}”."
-                ))

@@ -23,6 +23,7 @@ QPushButton {
     color: white;
     border-radius: 8px;
     padding: 8px 15px;
+    font-size: 12pt;
     font-weight: bold;
     min-height: 20px;
 }
@@ -65,38 +66,109 @@ QHeaderView::section:checked {
     background-color: #d0d0d0;
 }
 
-/* Special buttons with consistent sizing */
+/* Professional Color Palette - Grouped by Function */
+
+/* PRIMARY ACTIONS - Brand Green (#064420) */
+/* Upload button and Export to CSV - main workflow actions */
 QPushButton#exportButton {
-    background-color: #5E6F5E;
-    font-size: 10pt;
+    background-color: #064420;
+    color: white;
+    font-size: 12pt;
     min-width: 150px;
-}
-
-QPushButton#clearAllButton {
-    background: #C62828;
-    color: #FFFFFF;
-    border: none;
     border-radius: 8px;
-    padding: 8px 14px;
-    min-width: 120px;
+    padding: 8px 15px;
+    font-weight: bold;
+    min-height: 20px;
 }
 
-QPushButton#deleteSelectedButton {
-    background: #F57C00;
-    color: #FFFFFF;
-    border: none;
+QPushButton#exportButton:hover {
+    background-color: #053318;
+}
+
+QPushButton#exportButton:pressed {
+    background-color: #042712;
+}
+
+/* SECONDARY ACTIONS - Professional Blue (#1565C0) */
+/* Export Files to Folder - secondary workflow action */
+QPushButton#exportFilesButton {
+    background-color: #1565C0;
+    color: white;
     border-radius: 8px;
-    padding: 8px 14px;
-    min-width: 120px;
+    padding: 8px 15px;
+    font-size: 12pt;
+    font-weight: bold;
+    min-height: 20px;
 }
 
+QPushButton#exportFilesButton:hover {
+    background-color: #0D47A1;
+}
+
+QPushButton#exportFilesButton:pressed {
+    background-color: #0A3981;
+}
+
+/* NEUTRAL ACTIONS - Match Flagged Row Color */
+/* Flag Selected - uses same color as flagged table rows for visual consistency */
 QPushButton#flagSelectedButton {
-    background: #EF9A9A;
+    background-color: #FF9B9B;
     color: #000000;
     border: none;
     border-radius: 8px;
     padding: 8px 14px;
+    font-size: 12pt;
+    font-weight: bold;
     min-width: 120px;
+}
+
+QPushButton#flagSelectedButton:hover {
+    background-color: #FF7A7A;
+}
+
+QPushButton#flagSelectedButton:pressed {
+    background-color: #FF5858;
+}
+
+/* DESTRUCTIVE ACTIONS - Professional Warning Colors */
+/* Clear All - most destructive, darker red */
+QPushButton#clearAllButton {
+    background-color: #C62828;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12pt;
+    font-weight: bold;
+    min-width: 120px;
+}
+
+QPushButton#clearAllButton:hover {
+    background-color: #B71C1C;
+}
+
+QPushButton#clearAllButton:pressed {
+    background-color: #A51C1C;
+}
+
+/* Delete Selected - less destructive, orange */
+QPushButton#deleteSelectedButton {
+    background-color: #F57C00;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12pt;
+    font-weight: bold;
+    min-width: 120px;
+}
+
+QPushButton#deleteSelectedButton:hover {
+    background-color: #E65100;
+}
+
+QPushButton#deleteSelectedButton:pressed {
+    background-color: #D84315;
 }
 
 QPushButton#filterButton {
