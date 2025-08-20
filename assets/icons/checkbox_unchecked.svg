@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24" height="24" viewBox="0 0 24 24"
+     xmlns="http://www.w3.org/2000/svg">
+  <!-- subtle rounded rect, crisp border, neutral fill -->
+  <rect x="3.5" y="3.5" width="17" height="17" rx="3.2" ry="3.2"
+        fill="#F7F9FC" stroke="#2E3440" stroke-width="1.5"/>
+  <!-- inner highlight for a little depth -->
+  <rect x="4.5" y="4.5" width="15" height="15" rx="2.4" ry="2.4"
+        fill="none" stroke="#E6ECF5" stroke-width="1"/>
+</svg>

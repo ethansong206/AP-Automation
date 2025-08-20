@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import os
+import sys, os
 from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QRectF, QPoint, QObject, QEvent
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QRegion, QPalette
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QRegion, QPalette, QPainter
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QTableView,
     QMessageBox, QHeaderView, QAbstractItemView, QStyle, QStyleOptionButton
 )
+from PyQt5.QtSvg import QSvgRenderer
 
 from .model import (
     InvoiceTableModel,
@@ -27,6 +28,12 @@ from .model import (
 )
 from .delegates import BodyEditDelegate, ActionsDelegate, SelectCheckboxDelegate
 
+def resource_path(*parts):
+    """Return absolute path, working in dev and in PyInstaller .exe."""
+    base = getattr(sys, "_MEIPASS", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+    return os.path.join(base, *parts)
+
+ASSETS_DIR = resource_path("assets", "icons")
 
 class RoundedClipper(QFrame):
     def __init__(self, radius: int = 17, parent=None):
@@ -56,52 +63,88 @@ class RoundedClipper(QFrame):
 
 class SelectHeader(QHeaderView):
     """
-    Header with a center-aligned checkbox in the Select column.
-    Draws tri-state based on model.selection_stats() and toggles all on click.
+    Header that paints a center-aligned SVG checkbox in the Select column.
+    We draw in paintEvent AFTER base header painting so nothing can cover it.
+    Only two states: unchecked / checked (partial is shown as unchecked).
     """
     def __init__(self, orientation: Qt.Orientation, parent=None):
         super().__init__(orientation, parent)
         self.setSectionsClickable(True)
         self.setHighlightSections(False)
 
-    def paintSection(self, painter, rect, logicalIndex):
-        # draw the normal section first
-        super().paintSection(painter, rect, logicalIndex)
+        # Load SVGs once
+        self._svg_unchecked = QSvgRenderer(os.path.join(ASSETS_DIR, "checkbox_unchecked.svg"), self)
+        self._svg_checked = QSvgRenderer(os.path.join(ASSETS_DIR, "checkbox_checked.svg"), self)
 
-        if logicalIndex != C_SELECT or rect.isEmpty():
-                return
+    # Qt5-safe viewport-relative section rect (replacement for sectionRect)
+    def _section_rect(self, logicalIndex: int) -> QRect:
+        if self.orientation() == Qt.Horizontal:
+            x = self.sectionViewportPosition(logicalIndex)
+            if x < 0:
+                return QRect()
+            w = self.sectionSize(logicalIndex)
+            h = self.viewport().height()
+            return QRect(x, 0, w, h)
+        else:
+            y = self.sectionViewportPosition(logicalIndex)
+            if y < 0:
+                return QRect()
+            h = self.sectionSize(logicalIndex)
+            w = self.viewport().width()
+            return QRect(0, y, w, h)
 
-        # Checkbox state (tri-state) from the model
+    def _draw_header_checkbox(self, painter: QPainter, rect: QRect, checked: bool):
+        # Scale SVG nicely inside the header cell with some padding
+        target_size = max(16, min(22, rect.height() - 8))
+        box = QRect(0, 0, target_size, target_size)
+        box.moveCenter(rect.center())
+
+        renderer = self._svg_checked if checked else self._svg_unchecked
+        if renderer and renderer.isValid():
+            renderer.render(painter, QRectF(box))
+        else:
+            # Fallback: minimal drawn box/check
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            border = QColor(46, 52, 64)
+            painter.setPen(border)
+            painter.setBrush(QColor("#F7F9FC"))
+            painter.drawRect(box)
+            if checked:
+                p1 = box.topLeft() + QPoint(3, box.height() // 2)
+                p2 = box.topLeft() + QPoint(box.width() // 2 - 1, box.height() - 3)
+                p3 = box.topLeft() + QPoint(box.width() - 3, 4)
+                painter.drawPolyline(p1, p2, p3)
+            painter.restore()
+
+    def paintEvent(self, event):
+        # Let Qt draw the header first (background, text, borders)
+        super().paintEvent(event)
+
+        if self.orientation() != Qt.Horizontal or self.isSectionHidden(C_SELECT):
+            return
+
+        rect = self._section_rect(C_SELECT)
+        if rect.isEmpty():
+            return
+
+        # Determine two-state value from the model (partial -> unchecked)
         opt = QStyleOptionButton()
         opt.state = QStyle.State_Enabled
         try:
-            view: QTableView = self.parent()  # type: ignore
-            proxy = view.model()
-            model = proxy.sourceModel()
+            view = self.parent()           # QTableView
+            proxy = view.model()           # Proxy
+            model = proxy.sourceModel()    # Source
             selected, total = model.selection_stats()
         except Exception:
             selected, total = 0, 0
 
-        if total == 0 or selected == 0:
-            opt.state |= QStyle.State_Off
-        elif selected == total:
-            opt.state |= QStyle.State_On
-        else:
-            opt.state |= QStyle.State_NoChange  # partial
+        checked = bool(total > 0 and selected == total)
 
-        # Size & position: use pixel metrics; center inside the header cell
-        style = self.style()
-        w = style.pixelMetric(QStyle.PM_IndicatorWidth, opt, self) or 16
-        h = style.pixelMetric(QStyle.PM_IndicatorHeight, opt, self) or 16
+        painter = QPainter(self.viewport())
+        painter.setClipRect(rect)
+        self._draw_header_checkbox(painter, rect, checked)
 
-        indicator_rect = QRect(0, 0, w, h)
-        indicator_rect.moveCenter(rect.center())
-
-        ind_opt = QStyleOptionButton(opt)
-        ind_opt.rect = indicator_rect
-
-        style.drawPrimitive(QStyle.PE_IndicatorCheckBox, ind_opt, painter, self)
-        
     def mousePressEvent(self, event):
         idx = self.logicalIndexAt(event.pos())
         if idx == C_SELECT:
@@ -137,7 +180,7 @@ class InvoiceTable(QWidget):
         self.table = QTableView(self._card)
         self.table.setObjectName("InvoiceQTableView")
 
-        # Use custom header with Select-All checkbox
+        # Use custom header with Select-All SVG checkbox
         header = SelectHeader(Qt.Horizontal, self.table)
         self.table.setHorizontalHeader(header)
 
@@ -227,7 +270,7 @@ class InvoiceTable(QWidget):
         self._proxy.setSourceModel(self._model)
         self.table.setModel(self._proxy)
 
-        # Keep header checkbox in sync with row selection changes
+        # Keep header icon in sync with row selection changes
         self._model.dataChanged.connect(lambda *_: header.viewport().update())
         self._model.modelReset.connect(lambda: header.viewport().update())
         self._model.rowsInserted.connect(lambda *_: header.viewport().update())
@@ -246,7 +289,9 @@ class InvoiceTable(QWidget):
         self.table.setShowGrid(False)
         self.table.setSelectionBehavior(QTableView.SelectItems)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked | QAbstractItemView.EditKeyPressed)
+        self.table.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked | QAbstractItemView.EditKeyPressed
+        )
         self.table.verticalHeader().setVisible(False)
         self.table.setCornerButtonEnabled(False)
         self.table.setMouseTracking(True)
@@ -261,11 +306,9 @@ class InvoiceTable(QWidget):
         for c in BODY_COLS:
             hdr.setSectionResizeMode(c, QHeaderView.Stretch)
 
-        # Select column (checkboxes) – fixed narrow width
         hdr.setSectionResizeMode(C_SELECT, QHeaderView.Fixed)
         hdr.resizeSection(C_SELECT, 36)
 
-        # Actions: size to contents
         hdr.setSectionResizeMode(C_ACTIONS, QHeaderView.ResizeToContents)
 
         # Delegates
@@ -277,7 +320,6 @@ class InvoiceTable(QWidget):
         self._actions_delegate.editClicked.connect(self._emit_manual_entry)
         self._actions_delegate.deleteClicked.connect(self._handle_delete_clicked)
 
-        # Body editor delegate
         self._body_delegate = BodyEditDelegate(self.table)
         for c in BODY_COLS:
             self.table.setItemDelegateForColumn(c, self._body_delegate)
@@ -286,22 +328,20 @@ class InvoiceTable(QWidget):
         self._model.rawEdited.connect(self._bubble_edit_signal)
 
         # ---------- Drag-to-select across the Select column ----------
-        self._drag_active = False          # are we currently dragging in select column?
-        self._drag_check_value: Optional[bool] = None  # True to check, False to uncheck
+        self._drag_active = False
+        self._drag_check_value: Optional[bool] = None
         self.table.viewport().installEventFilter(self)
 
-    # ------------------- New: event filter for drag-to-select -------------------
+    # ------------------- Drag select behavior -------------------
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj is self.table.viewport():
             if event.type() == QEvent.MouseButtonPress and event.buttons() & Qt.LeftButton:
                 idx = self.table.indexAt(event.pos())
                 if idx.isValid() and idx.column() == C_SELECT:
                     self._drag_active = True
-                    # Determine desired state based on the starting row
                     src = self._proxy.mapToSource(idx)
                     cur_state = self._model.data(self._model.index(src.row(), C_SELECT), Qt.CheckStateRole)
-                    self._drag_check_value = (cur_state != Qt.Checked)  # flip: if unchecked → check, else uncheck
-                    # Apply to the first row immediately
+                    self._drag_check_value = (cur_state != Qt.Checked)
                     new_state = Qt.Checked if self._drag_check_value else Qt.Unchecked
                     if cur_state != new_state:
                         self._model.setData(self._model.index(src.row(), C_SELECT), new_state, Qt.CheckStateRole)
@@ -318,7 +358,6 @@ class InvoiceTable(QWidget):
                 return True
 
             elif event.type() in (QEvent.MouseButtonRelease, QEvent.Leave):
-                # End drag mode
                 if self._drag_active:
                     self._drag_active = False
                     self._drag_check_value = None
@@ -336,7 +375,7 @@ class InvoiceTable(QWidget):
     def set_incomplete_only(self, on: bool):
         self._proxy.set_incomplete_only(bool(on))
 
-    # ------------------- Existing public API (unchanged) -----------------
+    # ------------------- Public API -------------------
     def add_row(self, row_data: List[str], file_path: str, is_no_ocr: bool = False):
         self._model.add_row(row_data, file_path)
 
@@ -351,7 +390,6 @@ class InvoiceTable(QWidget):
         src = self._view_to_source_row(view_row)
         if src < 0:
             return ""
-        # Return RAW (no superscript) for export/save
         vals = self._model.row_values(src)
         mapping = {
             C_VENDOR: 0, C_INVOICE: 1, C_PO: 2, C_INV_DATE: 3,
