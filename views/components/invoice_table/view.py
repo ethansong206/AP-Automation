@@ -474,6 +474,22 @@ class InvoiceTable(QWidget):
         if src >= 0:
             self._model.set_flag(src, not self._model.get_flag(src))
 
+    def get_checked_rows(self) -> List[int]:
+        """Return view row indexes where the Select checkbox is checked."""
+        rows: List[int] = []
+        for i in self._model.selected_rows():
+            v = self._source_to_view_row(i)
+            if v != -1:
+                rows.append(v)
+        return rows
+
+    def set_row_checked(self, view_row: int, checked: bool):
+        """Set the Select checkbox state for a view row."""
+        src = self._view_to_source_row(view_row)
+        if src >= 0:
+            state = Qt.Checked if checked else Qt.Unchecked
+            self._model.setData(self._model.index(src, C_SELECT), state, Qt.CheckStateRole)
+
     def find_row_by_file_path(self, file_path: str) -> int:
         abs_target = os.path.abspath(file_path or "")
         for i in range(self._model.rowCount()):

@@ -268,9 +268,7 @@ class InvoiceApp(QWidget):
             self.remove_session_file()
 
     def delete_selected_rows(self):
-        # For QTableView we select indexes; get unique rows
-        sel = self.table.table.selectionModel().selectedIndexes()
-        selected_rows = sorted({i.row() for i in sel}, reverse=True)
+        selected_rows = sorted(self.table.get_checked_rows(), reverse=True)
         if not selected_rows:
             return
         confirm = QMessageBox.question(
@@ -287,15 +285,35 @@ class InvoiceApp(QWidget):
             self.save_session()
 
     def flag_selected_rows(self):
-        sel = self.table.table.selectionModel().selectedIndexes()
-        selected_rows = sorted({i.row() for i in sel})
+        selected_rows = self.table.get_checked_rows()
         if not selected_rows:
             return
-        for vrow in selected_rows:
-            if not self.table.is_row_flagged(vrow):
-                self.table.toggle_row_flag(vrow)
-        self.save_session()
 
+        # Count how many in the selection are already flagged
+        flagged_states = [self.table.is_row_flagged(r) for r in selected_rows]
+        any_flagged = any(flagged_states)
+        all_flagged = all(flagged_states)
+
+        if not any_flagged:
+            # Case 1: none flagged -> flag all in selection
+            for r in selected_rows:
+                if not self.table.is_row_flagged(r):
+                    self.table.toggle_row_flag(r)
+
+        elif not all_flagged:
+            # Case 2: some flagged (but not all) -> flag all non-flagged
+            for r in selected_rows:
+                if not self.table.is_row_flagged(r):
+                    self.table.toggle_row_flag(r)
+
+        else:
+            # Case 3: all flagged -> unflag all
+            for r in selected_rows:
+                if self.table.is_row_flagged(r):
+                    self.table.toggle_row_flag(r)
+
+        self.save_session()
+    
     def update_invoice_count(self):
         count = self.table.rowCount()
         self.invoice_count_label.setText(f"Total Number of Invoices: {count}")

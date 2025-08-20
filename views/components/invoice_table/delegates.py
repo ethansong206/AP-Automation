@@ -70,14 +70,27 @@ class BodyEditDelegate(QStyledItemDelegate):
                 src_model = model.sourceModel()
                 src_index = model.mapToSource(index)
             r = src_index.row()
-            vals = src_model.row_values(r)
-            filled = [bool(str(v).strip()) for v in vals]
-            any_empty = any(not f for f in filled)
-            all_empty = not any(filled)
-            if any_empty and not all_empty:
+            flagged = False
+            get_flag = getattr(src_model, "get_flag", None)
+            if callable(get_flag):
+                try:
+                    flagged = bool(get_flag(r))
+                except Exception:
+                    pass
+
+            if flagged:
                 painter.save()
-                painter.fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), QColor("#FFEB80"))
+                painter.fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), QColor("#FF9B9B"))
                 painter.restore()
+            else:
+                vals = src_model.row_values(r)
+                filled = [bool(str(v).strip()) for v in vals]
+                any_empty = any(not f for f in filled)
+                all_empty = not any(filled)
+                if any_empty and not all_empty:
+                    painter.save()
+                    painter.fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), QColor("#FFEB80"))
+                    painter.restore()
 
         # Column divider
         try:

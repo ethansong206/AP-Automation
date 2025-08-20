@@ -306,6 +306,10 @@ class InvoiceTableModel(QAbstractTableModel):
         total = len(self._rows)
         selected = sum(1 for r in self._rows if r.selected)
         return selected, total
+    
+    def selected_rows(self) -> List[int]:
+        """Return source row indexes with the Select checkbox checked."""
+        return [i for i, r in enumerate(self._rows) if r.selected]
 
     # --- update row by source path ---
     def update_row_by_source(self, file_path: str, row_values: List[str]) -> int:
