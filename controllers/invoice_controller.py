@@ -116,9 +116,6 @@ class InvoiceController:
             # Use discounted total if available, otherwise use regular total
             final_amount = discounted_total if discounted_total else total_amount
             
-            # Clean up formatting from amount
-            final_amount = final_amount.replace("***", "").strip()
-            
             # Create complete data dictionary with all needed information
             invoice_data = {
                 "vendor_name": vendor_name,

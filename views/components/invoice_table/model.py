@@ -154,7 +154,7 @@ class InvoiceTableModel(QAbstractTableModel):
             if c == C_TOTAL:
                 return row.total
             if c == C_ACTIONS:
-                return "⚑  ✎  ✖"  # placeholders; delegate paints icons
+                return " ⚑   ✎ ✖ "
         return QVariant()
 
     def setData(self, index: QModelIndex, value, role=Qt.EditRole):
@@ -355,24 +355,49 @@ class InvoiceSortProxy(QSortFilterProxyModel):
         self._sort_column = column
         self._sort_order = order
         super().sort(0 if column < 0 else column, order)
+
+    def _to_float(self, v: object) -> float:
+        """Parse numbers robustly for sorting; empty/invalid -> -inf."""
+        try:
+            s = str(v).strip()
+            if not s:
+                return float("-inf")
+            # Strip currency/commas and keep sign/decimal
+            s = s.replace(",", "")
+            s = re.sub(r"[^0-9.\-]", "", s)
+            if s in ("", "-", "."):
+                return float("-inf")
+            return float(s)
+        except Exception:
+            return float("-inf")
+
+    def _safe_natural_key(self, s: object):
+        """Normalize natural key parts to comparable tuples."""
+        try:
+            parts = _natural_key(str(s))
+        except Exception:
+            parts = [str(s)]
+        safe = []
+        for p in parts:
+            if isinstance(p, (int, float)):
+                safe.append((0, float(p)))
+            else:
+                safe.append((1, str(p).casefold()))
+        return tuple(safe)
+
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
         if self._sort_column < 0:
             # Default order: preserve source model insertion order
             return left.row() < right.row()
 
         c = self._sort_column
-        l = left.model().data(left.model().index(left.row(), c), Qt.EditRole)
-        r = right.model().data(right.model().index(right.row(), c), Qt.EditRole)
+        src = left.model()  # source model
+        l = src.data(src.index(left.row(), c), Qt.EditRole)
+        r = src.data(src.index(right.row(), c), Qt.EditRole)
 
         if c in (C_DISC_TOTAL, C_TOTAL):
-            try:
-                lf = float(str(l).replace("*", "").strip())
-            except Exception:
-                lf = float('-inf')
-            try:
-                rf = float(str(r).replace("*", "").strip())
-            except Exception:
-                rf = float('-inf')
+            lf = self._to_float(l)
+            rf = self._to_float(r)
             return lf < rf
 
         if c in (C_INV_DATE, C_DUE):
@@ -380,7 +405,7 @@ class InvoiceSortProxy(QSortFilterProxyModel):
             dr = _parse_date(str(r)) or _parse_date("01/01/1900")
             return dl < dr
 
-        return _natural_key(str(l)) < _natural_key(str(r))
+        return self._safe_natural_key(l) < self._safe_natural_key(r)
 
     # ---- Filtering ----
     def filterAcceptsRow(self, src_row: int, src_parent) -> bool:

@@ -147,8 +147,8 @@ class SelectHeader(QHeaderView):
 
     def mousePressEvent(self, event):
         idx = self.logicalIndexAt(event.pos())
+        view: QTableView = self.parent()  # type: ignore
         if idx == C_SELECT:
-            view: QTableView = self.parent()  # type: ignore
             proxy = view.model()
             model = proxy.sourceModel()
             selected, total = model.selection_stats()
@@ -156,7 +156,27 @@ class SelectHeader(QHeaderView):
             model.set_all_selected(select_all)
             self.viewport().update()
             return
-        super().mousePressEvent(event)
+        
+        # Manual sort cycling: desc → asc → default (insertion order)
+        proxy = view.model()
+        prev_col = getattr(proxy, "_sort_column", -1)
+        prev_order = getattr(proxy, "_sort_order", Qt.AscendingOrder)
+
+        if prev_col != idx:
+            next_col, next_order, show_indicator = idx, Qt.DescendingOrder, True
+        elif prev_order == Qt.DescendingOrder:
+            next_col, next_order, show_indicator = idx, Qt.AscendingOrder, True
+        elif prev_order == Qt.AscendingOrder:
+            next_col, next_order, show_indicator = -1, Qt.AscendingOrder, False
+        else:
+            next_col, next_order, show_indicator = idx, Qt.DescendingOrder, True
+
+        view.sortByColumn(next_col, next_order)
+        if show_indicator:
+            self.setSortIndicatorShown(True)
+            self.setSortIndicator(next_col, next_order)
+        else:
+            self.setSortIndicatorShown(False)
 
 
 class InvoiceTable(QWidget):
@@ -269,6 +289,9 @@ class InvoiceTable(QWidget):
         self._proxy = InvoiceSortProxy(self)
         self._proxy.setSourceModel(self._model)
         self.table.setModel(self._proxy)
+        # Default: preserve insertion order with no sort indicator
+        self.table.sortByColumn(-1, Qt.AscendingOrder)
+        header.setSortIndicatorShown(False)
 
         # Keep header icon in sync with row selection changes
         self._model.dataChanged.connect(lambda *_: header.viewport().update())
@@ -301,15 +324,21 @@ class InvoiceTable(QWidget):
 
         # Column sizing: body stretch; select fixed; actions to contents
         hdr = self.table.horizontalHeader()
-        hdr.setDefaultSectionSize(120)
+        hdr.setDefaultSectionSize(100)
         hdr.setMinimumSectionSize(24)
         for c in BODY_COLS:
             hdr.setSectionResizeMode(c, QHeaderView.Stretch)
 
+        # Make discounted/total columns a bit narrower by default
+        for c in (C_INV_DATE, C_DUE):
+            hdr.setSectionResizeMode(c, QHeaderView.Interactive)
+            hdr.resizeSection(c, 100)
+
         hdr.setSectionResizeMode(C_SELECT, QHeaderView.Fixed)
         hdr.resizeSection(C_SELECT, 36)
 
-        hdr.setSectionResizeMode(C_ACTIONS, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(C_ACTIONS, QHeaderView.Fixed)
+        hdr.resizeSection(C_ACTIONS, 135)
 
         # Delegates
         self._select_delegate = SelectCheckboxDelegate(self.table)
@@ -368,6 +397,10 @@ class InvoiceTable(QWidget):
     # ------------------- Search / filter passthrough -------------------
     def set_search_text(self, text: str):
         self._proxy.set_text_filter(text or "")
+        if not (text or "").strip():
+            hdr = self.table.horizontalHeader()
+            self.table.sortByColumn(-1, Qt.AscendingOrder)
+            hdr.setSortIndicatorShown(False)
 
     def set_flagged_only(self, on: bool):
         self._proxy.set_flagged_only(bool(on))

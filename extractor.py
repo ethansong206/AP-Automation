@@ -44,7 +44,7 @@ def extract_fields(documents):
                 discounted_total = calculate_discounted_total(
                     row["Discount Terms"], row["Total Amount"], vendor_name
                 )
-                row["Discounted Total"] = "***  " + discounted_total + "  ***"
+                row["Discounted Total"] = discounted_total
             except Exception as e:
                 print(f"[WARN] Could not compute discounted total: {e}")
 

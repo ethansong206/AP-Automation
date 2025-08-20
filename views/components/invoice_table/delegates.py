@@ -2,14 +2,24 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
-from PyQt5.QtCore import Qt, QModelIndex, QRect, QPoint, QSortFilterProxyModel, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPen, QBrush, QPalette, QPainter
+import sys, os
+from PyQt5.QtCore import Qt, QModelIndex, QRect, QRectF, QPoint, QSortFilterProxyModel, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QPen, QBrush, QPalette, QPainter, QIcon
 from PyQt5.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QLineEdit, QStyle, QApplication, QStyleOptionButton
 )
 
 from .model import C_VENDOR, BODY_COLS, C_SELECT
+from views.app_shell import _resolve_icon
+from PyQt5.QtSvg import QSvgRenderer
 
+def resource_path(*parts):
+    """Return absolute path, working in dev and in PyInstaller .exe."""
+    base = getattr(sys, "_MEIPASS", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+    return os.path.join(base, *parts)
+
+
+ASSETS_DIR = resource_path("assets", "icons")
 
 class BodyEditDelegate(QStyledItemDelegate):
     """Opaque in-place editor + ensure model-provided BackgroundRole wins."""
@@ -84,6 +94,11 @@ class SelectCheckboxDelegate(QStyledItemDelegate):
     Centers a single checkbox indicator in the cell and handles clicks.
     Eliminates the phantom text box next to the checkbox.
     """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._svg_unchecked = QSvgRenderer(os.path.join(ASSETS_DIR, "checkbox_unchecked.svg"), self)
+        self._svg_checked = QSvgRenderer(os.path.join(ASSETS_DIR, "checkbox_checked.svg"), self)
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
         # Let BackgroundRole paint first
         bg = index.data(Qt.BackgroundRole)
@@ -92,25 +107,28 @@ class SelectCheckboxDelegate(QStyledItemDelegate):
             painter.fillRect(option.rect, bg)
             painter.restore()
 
-        style = option.widget.style() if option.widget else QApplication.style()
-        chk = QStyleOptionButton()
-        chk.state = QStyle.State_Enabled
         state = index.data(Qt.CheckStateRole)
-        if state == Qt.Checked:
-            chk.state |= QStyle.State_On
-        else:
-            chk.state |= QStyle.State_Off
+        renderer = self._svg_checked if state == Qt.Checked else self._svg_unchecked
 
-        # Indicator size from style metrics; center in the cell
-        w = style.pixelMetric(QStyle.PM_IndicatorWidth, chk, option.widget)
-        h = style.pixelMetric(QStyle.PM_IndicatorHeight, chk, option.widget)
-        x = option.rect.x() + (option.rect.width() - w) // 2
-        y = option.rect.y() + (option.rect.height() - h) // 2
-        chk.rect = QRect(x, y, w, h)
+        # Size and center the SVG within the cell
+        target_size = max(16, min(22, option.rect.height() - 8))
+        box = QRect(0, 0, target_size, target_size)
+        box.moveCenter(option.rect.center())
 
-        # Draw only the checkbox indicator (no text)
         painter.save()
-        style.drawPrimitive(QStyle.PE_IndicatorCheckBox, chk, painter, option.widget)
+        if renderer and renderer.isValid():
+            renderer.render(painter, QRectF(box))
+        else:
+            # Fallback to default style
+            style = option.widget.style() if option.widget else QApplication.style()
+            chk = QStyleOptionButton()
+            chk.state = QStyle.State_Enabled
+            if state == Qt.Checked:
+                chk.state |= QStyle.State_On
+            else:
+                chk.state |= QStyle.State_Off
+            chk.rect = box
+            style.drawPrimitive(QStyle.PE_IndicatorCheckBox, chk, painter, option.widget)
         painter.restore()
 
         # Optional: draw right divider line
@@ -149,18 +167,19 @@ class FlagDelegate(QStyledItemDelegate):
 
 
 class ActionsDelegate(QStyledItemDelegate):
-    """Three click targets: ⚑ (Flag), ✎ (Manual Entry), ✖ (Delete)."""
+    """Three click targets: ⚑ (Flag), edit (Manual Entry), ✖ (Delete)."""
     editClicked = pyqtSignal(int)    # source row
     deleteClicked = pyqtSignal(int)  # source row
 
     def __init__(self, parent=None, icon_font: Optional[QFont] = None):
         super().__init__(parent)
         self._icon_font = icon_font
+        self._edit_icon = QIcon(_resolve_icon("edit.svg"))
 
     def _thirds(self, rect: QRect) -> Tuple[QRect, QRect, QRect]:
         w = rect.width()
         h = rect.height()
-        pad = max(4, int(h * 0.15))
+        pad = max(6, int(h * 0.2))  # more breathing room between actions
         slot = (w - 2 * pad) // 3
         left = QRect(rect.left(), rect.top(), slot, h)
         mid = QRect(left.right() + pad, rect.top(), slot, h)
@@ -211,10 +230,13 @@ class ActionsDelegate(QStyledItemDelegate):
         left, mid, right = self._thirds(option.rect)
 
         # Draw flag (first)
+        flag_font = painter.font()
+        flag_font.setPointSize(flag_font.pointSize() + 2)  # bump size up slightly
+        painter.setFont(flag_font)
         painter.drawText(left, Qt.AlignCenter, "⚑" if flagged else "⚐")
-        # Draw edit (second)
-        painter.setPen(QPen(QColor("#000000")))
-        painter.drawText(mid, Qt.AlignCenter, "✎")
+        # Draw edit (second) using SVG icon, but shrink rect a bit
+        edit_rect = mid.adjusted(5, 5, -5, -5)  # add padding on all sides
+        self._edit_icon.paint(painter, edit_rect, Qt.AlignCenter)
         # Draw delete (third)
         painter.setPen(QPen(QColor("#D11A2A")))
         painter.drawText(right, Qt.AlignCenter, "✖")

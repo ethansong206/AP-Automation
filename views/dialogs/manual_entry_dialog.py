@@ -942,7 +942,7 @@ class ManualEntryDialog(QDialog):
 
     def _apply_quick_total_to(self, target_label):
         text = self.qc_grand_total.text().strip()
-        text = text.replace("***", "").replace("$", "").replace(",", "").strip()
+        text = text.replace("$", "").replace(",", "").strip()
         try:
             val = float(text)
             text = f"{val:.2f}"

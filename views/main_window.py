@@ -155,14 +155,14 @@ class InvoiceApp(QWidget):
 
         button_row.addStretch()
 
-        self.total_label = QLabel("Total Amount: $0.00")
-        self.total_label.setObjectName("totalLabel")
-        self.total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.invoice_count_label = QLabel("Total Number of Invoices: 0")
+        self.invoice_count_label.setObjectName("totalLabel")
+        self.invoice_count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         font = QFont()
         font.setBold(True)
         font.setPointSize(12)
-        self.total_label.setFont(font)
-        button_row.addWidget(self.total_label)
+        self.invoice_count_label.setFont(font)
+        button_row.addWidget(self.invoice_count_label)
 
         self.layout.addLayout(button_row)
         self.setLayout(self.layout)
@@ -211,13 +211,13 @@ class InvoiceApp(QWidget):
         for extracted_data, file_path in data:
             invoice = Invoice.from_extracted_data(extracted_data, file_path)
             self.table.add_row(invoice.to_row_data(), file_path, invoice.is_no_ocr)
-        self.update_total_amount()
+        self.update_invoice_count()
         self.save_session()
 
     # ---------------- Events/handlers ----------------
     def handle_row_deleted(self, row, file_path):
         self.file_controller.remove_file(file_path)
-        self.update_total_amount()
+        self.update_invoice_count()
         self.save_session()
 
     def handle_cell_edited(self, row, col):
@@ -245,7 +245,7 @@ class InvoiceApp(QWidget):
                 row_idx = self.table.find_row_by_file_path(path)
                 if row_idx >= 0 and self.table.is_row_flagged(row_idx) != flagged:
                     self.table.toggle_row_flag(row_idx)
-            self.update_total_amount()
+            self.update_invoice_count()
             self.save_session()
 
     def clear_all_rows(self):
@@ -259,7 +259,7 @@ class InvoiceApp(QWidget):
             self.table.setRowCount(0) if hasattr(self.table, "setRowCount") else None
             self.table.clear_tracking_data() if hasattr(self.table, "clear_tracking_data") else None
             self.file_controller.clear_all_files()
-            self.update_total_amount()
+            self.update_invoice_count()
             self.remove_session_file()
 
     def delete_selected_rows(self):
@@ -278,20 +278,12 @@ class InvoiceApp(QWidget):
                 # use helper to delete by file path to keep controllers in sync
                 self.table.delete_row_by_file_path(file_path, confirm=False)
                 self.file_controller.remove_file(file_path)
-            self.update_total_amount()
+            self.update_invoice_count()
             self.save_session()
 
-    def update_total_amount(self):
-        total = 0.0
-        for row in range(self.table.rowCount()):
-            amount = self.table.get_cell_text(row, 7) or self.table.get_cell_text(row, 8)
-            if amount:
-                try:
-                    amount = amount.replace("*", "").strip()
-                    total += float(amount)
-                except ValueError:
-                    pass
-        self.total_label.setText(f"Total Amount: ${total:,.2f}")
+    def update_invoice_count(self):
+        count = self.table.rowCount()
+        self.invoice_count_label.setText(f"Total Number of Invoices: {count}")
 
     def _on_dialog_deleted_file(self, file_path: str):
         if not file_path:
@@ -303,7 +295,7 @@ class InvoiceApp(QWidget):
         row = self.table.find_row_by_file_path(file_path)
         if row >= 0 and self.table.is_row_flagged(row) != flagged:
             self.table.toggle_row_flag(row)
-        self.update_total_amount()
+        self.update_invoice_count()
         self.save_session()
 
     # ---------------- Export ----------------
@@ -457,7 +449,7 @@ class InvoiceApp(QWidget):
                 self.table.toggle_row_flag(self.table.rowCount() - 1)
 
         self.file_controller.load_saved_files(data.get("loaded_files", []))
-        self.update_total_amount()
+        self.update_invoice_count()
         self._loading_session = False
 
     # ----------- small utils -----------
