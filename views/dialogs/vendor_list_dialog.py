@@ -33,12 +33,15 @@ class VendorListDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         self.add_row_btn = QPushButton("Add Row")
+        self.delete_row_btn = QPushButton("Delete Row")
         self.save_btn = QPushButton("Save")
         self.cancel_btn = QPushButton("Cancel")
         self.add_row_btn.clicked.connect(self.add_row)
+        self.delete_row_btn.clicked.connect(self.delete_row)
         self.save_btn.clicked.connect(self._save_and_close)
         self.cancel_btn.clicked.connect(self.close)
         btn_layout.addWidget(self.add_row_btn)
+        btn_layout.addWidget(self.delete_row_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.save_btn)
         btn_layout.addWidget(self.cancel_btn)
@@ -114,6 +117,39 @@ class VendorListDialog(QDialog):
         for col in range(3):
             self._set_item(row, col, "")
         self._update_dirty()
+
+    def delete_row(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        res = QMessageBox.warning(
+            self,
+            "Delete Vendor",
+            "Are you sure you want to delete this vendor?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if res != QMessageBox.Yes:
+            return
+        res = QMessageBox.warning(
+            self,
+            "Delete Vendor",
+            "Deleting will permanently remove this Vendor. Do you still wish to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if res != QMessageBox.Yes:
+            return
+        self.table.removeRow(row)
+        new_orig = {}
+        for (r, c), val in self.original.items():
+            if r < row:
+                new_orig[(r, c)] = val
+            elif r > row:
+                new_orig[(r - 1, c)] = val
+        self.original = new_orig
+        self._update_dirty()
+        self._dirty = True
 
     def _handle_item_changed(self, item):
         key = (item.row(), item.column())
