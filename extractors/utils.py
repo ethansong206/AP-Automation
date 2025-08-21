@@ -3,19 +3,8 @@ from datetime import datetime, timedelta
 import csv
 import json
 import os
-import sys
 
-# --- Resolve resource paths for dev and PyInstaller ---
-def resource_path(relative_path):
-    """
-    Returns absolute path to resource.
-    Handles both normal execution and PyInstaller bundles.
-    """
-    if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS  # Temporary directory in PyInstaller
-    else:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+from utils import get_vendor_csv_path, get_manual_map_path
 
 
 # --- Clean currency strings like "$1,234.56" to "1234.56" ---
@@ -118,7 +107,7 @@ def load_vendor_list():
     """
     Loads vendor names from vendors.csv as a lowercase set (used for fuzzy matching).
     """
-    csv_path = resource_path("data/vendors.csv")
+    csv_path = get_vendor_csv_path()
     vendor_set = set()
 
     if not os.path.exists(csv_path):
@@ -142,7 +131,7 @@ def get_vendor_list():
     Returns list of vendor names from vendors.csv.
     Used for dropdown selection (preserves formatting).
     """
-    path = resource_path("data/vendors.csv")
+    path = get_vendor_csv_path()
     if not os.path.exists(path):
         return []
 
@@ -180,7 +169,7 @@ def load_manual_mapping():
     Loads manual_vendor_map.json and normalizes keys.
     Returns a dictionary mapping identifier -> vendor name.
     """
-    json_path = resource_path("data/manual_vendor_map.json")
+    json_path = get_manual_map_path()
 
     if os.path.exists(json_path):
         try:

@@ -844,10 +844,19 @@ class ManualEntryDialog(QDialog):
     # ---------- Vendors ----------
     def load_vendors(self):
         vendors = get_vendor_list()
+        current = self.vendor_combo.currentText()
         if vendors:
             vendors.sort()
+            self.vendor_combo.blockSignals(True)
             self.vendor_combo.clear()
             self.vendor_combo.addItems(vendors)
+            if current:
+                idx = self.vendor_combo.findText(current)
+                if idx >= 0:
+                    self.vendor_combo.setCurrentIndex(idx)
+                else:
+                    self.vendor_combo.setEditText(current)
+            self.vendor_combo.blockSignals(False)
 
     def open_vendor_list(self):
         """Open the editable vendor list dialog and refresh the combo after closing."""

@@ -14,22 +14,11 @@ from PyQt5.QtCore import Qt
 from extractors.utils import get_vendor_list, load_manual_mapping
 from extractors.vendor_name import save_manual_mapping
 from views.components.pdf_viewer import InteractivePDFViewer
+from utils import get_vendor_csv_path
 
 # --- Helper Functions ---
 def _vendors_csv_path() -> str:
-    """
-    Resolve vendors.csv path. Adjust if your project keeps it elsewhere.
-    """
-    # Try ../data/vendors.csv relative to this file
-    here = os.path.dirname(os.path.abspath(__file__))
-    # vendor_dialog.py typically lives under .../views/dialogs/
-    project_root = os.path.abspath(os.path.join(here, "..", ".."))
-    candidate = os.path.join(project_root, "data", "vendors.csv")
-    if os.path.isfile(candidate):
-        return candidate
-    # Fallback: current working dir
-    fallback = "vendors.csv"
-    return fallback
+    return get_vendor_csv_path()
 
 def _normalize_vendor_number(raw: str) -> str:
     # Numeric only, pad left to 7

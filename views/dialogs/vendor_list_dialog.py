@@ -4,12 +4,11 @@ import json
 
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
-    QHBoxLayout, QMessageBox
+    QHBoxLayout, QMessageBox, QLineEdit
 )
 from PyQt5.QtGui import QColor
 
-from extractors.utils import resource_path
-
+from utils import get_vendor_csv_path, get_manual_map_path
 
 class VendorListDialog(QDialog):
     """Editable vendor list merging vendors.csv and manual_vendor_map.json."""
@@ -26,6 +25,12 @@ class VendorListDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemChanged.connect(self._handle_item_changed)
 
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search vendors…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setObjectName("searchEdit")
+        self.search_edit.textChanged.connect(self._apply_filter)
+
         btn_layout = QHBoxLayout()
         self.add_row_btn = QPushButton("Add Row")
         self.save_btn = QPushButton("Save")
@@ -39,6 +44,7 @@ class VendorListDialog(QDialog):
         btn_layout.addWidget(self.cancel_btn)
 
         layout = QVBoxLayout(self)
+        layout.addWidget(self.search_edit)
         layout.addWidget(self.table)
         layout.addLayout(btn_layout)
 
@@ -48,10 +54,10 @@ class VendorListDialog(QDialog):
 
     # ---------- Data loading ----------
     def _vendors_csv_path(self):
-        return resource_path("data/vendors.csv")
+        return get_vendor_csv_path()
 
     def _vendor_map_path(self):
-        return resource_path("data/manual_vendor_map.json")
+        return get_manual_map_path()
 
     def _normalize_vendor_number(self, raw):
         digits = "".join(ch for ch in (raw or "") if ch.isdigit())
@@ -71,6 +77,8 @@ class VendorListDialog(QDialog):
                         "name": (row.get("Vendor Name", "") or "").strip(),
                         "number": (row.get("Vendor No. (Sage)", "") or "").strip(),
                     })
+
+        vendors.sort(key=lambda v: v["name"].casefold())
 
         identifier_map = {}
         map_path = self._vendor_map_path()
@@ -126,6 +134,21 @@ class VendorListDialog(QDialog):
                 break
         self._dirty = dirty
 
+    # ---------- Filtering ----------
+    def _apply_filter(self, text):
+        text = (text or "").strip().casefold()
+        for r in range(self.table.rowCount()):
+            if not text:
+                self.table.setRowHidden(r, False)
+                continue
+            match = False
+            for c in range(self.table.columnCount()):
+                item = self.table.item(r, c)
+                if item and text in item.text().casefold():
+                    match = True
+                    break
+            self.table.setRowHidden(r, not match)
+
     # ---------- Saving ----------
     def _gather_rows(self):
         rows = []
@@ -146,6 +169,7 @@ class VendorListDialog(QDialog):
 
     def save(self):
         rows, mapping = self._gather_rows()
+        rows.sort(key=lambda r: r["Vendor Name"].casefold())
         csv_path = self._vendors_csv_path()
         with open(csv_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=["Vendor No. (Sage)", "Vendor Name"])

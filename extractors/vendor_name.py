@@ -3,6 +3,8 @@ from .utils import get_vendor_list, normalize_vendor_name, normalize_string, loa
 import os
 import json
 
+from utils import get_manual_map_path
+
 # Load vendor names and manual map once
 VENDOR_NAMES = get_vendor_list()
 NORMALIZED_VENDOR_NAMES = [normalize_vendor_name(v) for v in VENDOR_NAMES]
@@ -48,8 +50,7 @@ def extract_vendor_name(words):
 
 
 def save_manual_mapping(key, vendor_name):
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    json_path = os.path.join(base_dir, "data", "manual_vendor_map.json")
+    json_path = get_manual_map_path()
 
     if os.path.exists(json_path):
         try:

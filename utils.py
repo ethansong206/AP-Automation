@@ -1,7 +1,11 @@
 import os
 import csv
+import json
+import shutil
 import re
 from datetime import datetime
+from PyQt5.QtCore import QStandardPaths
+
 
 def _should_write_headers(filename: str) -> bool:
     """Return True if we should write headers (new or empty file)."""
@@ -22,7 +26,8 @@ def _scan_existing_pairs(filename: str) -> set[tuple]:
         return pairs
 
     try:
-        with open(filename, "r", encoding="utf-8", newline="") as f:
+        csv_path = get_vendor_csv_path()
+        with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             last_vchr = None
             for row in reader:
@@ -391,6 +396,79 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
+def _appdata_dir() -> str:
+    """Return writable application data directory, creating it if needed."""
+    base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    if not os.path.exists(base):
+        os.makedirs(base, exist_ok=True)
+    return base
+
+
+def _merge_vendors_csv(src: str, dest: str) -> None:
+    """Merge default vendors.csv into user copy without overwriting entries."""
+    user_rows: list[dict] = []
+    if os.path.exists(dest):
+        with open(dest, newline="", encoding="utf-8-sig") as f:
+            user_rows = list(csv.DictReader(f))
+    src_rows: list[dict] = []
+    if os.path.exists(src):
+        with open(src, newline="", encoding="utf-8-sig") as f:
+            src_rows = list(csv.DictReader(f))
+    existing = {(r.get("Vendor Name", "") or "").strip().lower() for r in user_rows}
+    changed = False
+    for row in src_rows:
+        name = (row.get("Vendor Name", "") or "").strip().lower()
+        if name and name not in existing:
+            user_rows.append(row)
+            existing.add(name)
+            changed = True
+    if not os.path.exists(dest) or changed:
+        with open(dest, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["Vendor No. (Sage)", "Vendor Name"])
+            writer.writeheader()
+            for r in user_rows:
+                writer.writerow(r)
+
+
+def _merge_manual_map(src: str, dest: str) -> None:
+    """Merge default manual_vendor_map.json with user's copy."""
+    user_data = {}
+    if os.path.exists(dest):
+        with open(dest, "r", encoding="utf-8") as f:
+            user_data = json.load(f)
+    src_data = {}
+    if os.path.exists(src):
+        with open(src, "r", encoding="utf-8") as f:
+            src_data = json.load(f)
+    merged = {**src_data, **user_data}
+    if not os.path.exists(dest) or merged != user_data:
+        with open(dest, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2)
+
+
+def _get_data_file(name: str, merge_fn) -> str:
+    """Ensure a user-writable copy of a data file exists and merge defaults."""
+    user_dir = _appdata_dir()
+    user_path = os.path.join(user_dir, name)
+    bundled_path = resource_path(os.path.join("data", name))
+    if not os.path.exists(user_path):
+        if os.path.exists(bundled_path):
+            shutil.copyfile(bundled_path, user_path)
+    else:
+        if os.path.exists(bundled_path):
+            merge_fn(bundled_path, user_path)
+    return user_path
+
+
+def get_vendor_csv_path() -> str:
+    """Path to user-managed vendors.csv with default entries merged in."""
+    return _get_data_file("vendors.csv", _merge_vendors_csv)
+
+
+def get_manual_map_path() -> str:
+    """Path to user-managed manual_vendor_map.json with defaults merged."""
+    return _get_data_file("manual_vendor_map.json", _merge_manual_map)
 
 def write_to_csv(filename, data_source):
     """

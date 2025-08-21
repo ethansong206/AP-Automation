@@ -2,10 +2,9 @@
 import re
 from datetime import datetime
 import csv
-import os
 
 from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem
-from utils import resource_path
+from utils import get_vendor_csv_path
 
 class InvoiceController:
     """Controller for invoice data operations."""
@@ -59,7 +58,7 @@ class InvoiceController:
         vendor_mapping = {}
         
         try:
-            vendors_csv_path = resource_path(os.path.join("data", "vendors.csv"))
+            vendors_csv_path = get_vendor_csv_path()
             
             print(f"[DEBUG] Looking for vendors file at: {vendors_csv_path}")
             
