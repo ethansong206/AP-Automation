@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QLabel, QToolButton, QFrame, QGraphicsDropShadowEffect,
     QPushButton, QSizePolicy, QApplication, QMessageBox
 )
+from version import APP_VERSION
 
 APP_TITLE = "Invoice App"
 
@@ -231,6 +232,13 @@ class AppShell(QMainWindow):
 
         card_lay.addLayout(header_row)
         card_lay.addWidget(app_widget)
+
+        # Small application version label at bottom-right of gray area
+        self.version_label = QLabel(f"v{APP_VERSION}")
+        version_font = QFont()
+        version_font.setPointSize(8)
+        self.version_label.setFont(version_font)
+        pad.addWidget(self.version_label, alignment=Qt.AlignRight)
 
         # Button colors and control styles
         self.setStyleSheet(f"""
