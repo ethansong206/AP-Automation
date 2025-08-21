@@ -24,7 +24,7 @@ def extract_fields(documents):
             "Invoice Date": extract_invoice_date(words, vendor_name),
             "Discount Terms": extract_discount_terms(words, vendor_name),
             "Discount Due Date": "",
-            "Discounted Total": "",
+            "Shipping Cost": "",
             "Total Amount": extract_total_amount(words, vendor_name)
         }
 
@@ -39,22 +39,25 @@ def extract_fields(documents):
             except Exception as e:
                 print(f"[WARN] Could not compute discount due date: {e}")
 
+        # Removed for now while changing Discounted Total to Shipping Cost
+        """
         if row["Discount Terms"] and row["Total Amount"]:
             try:
                 discounted_total = calculate_discounted_total(
                     row["Discount Terms"], row["Total Amount"], vendor_name
                 )
-                row["Discounted Total"] = discounted_total
+                row["Shipping Cost"] = discounted_total
             except Exception as e:
                 print(f"[WARN] Could not compute discounted total: {e}")
-
+        """
+                
         if row["Total Amount"]:
             row["Total Amount"] = check_negative_total(row["Total Amount"], row["Discount Terms"])
 
         extracted_rows.append([
             row["Vendor Name"], row["Invoice Number"], row["PO Number"], row["Invoice Date"],
             row["Discount Terms"], row["Discount Due Date"],
-            row["Discounted Total"], row["Total Amount"]
+            row["Shipping Cost"], row["Total Amount"]
         ])
 
     return extracted_rows

@@ -9,9 +9,9 @@ class Invoice:
                  po_number="", 
                  invoice_date="", 
                  discount_terms="",
-                 due_date="", 
-                 discounted_total="", 
-                 total_amount="", 
+                 due_date="",
+                 shipping_cost="",
+                 total_amount="",
                  source_file=""):
         """Initialize with invoice data."""
         self.vendor_name = vendor_name
@@ -20,7 +20,7 @@ class Invoice:
         self.invoice_date = invoice_date
         self.discount_terms = discount_terms
         self.due_date = due_date
-        self.discounted_total = discounted_total
+        self.shipping_cost = shipping_cost
         self.total_amount = total_amount
         self.source_file = source_file
         self.is_no_ocr = self._check_is_no_ocr()
@@ -43,7 +43,7 @@ class Invoice:
             self.invoice_date,
             self.discount_terms,
             self.due_date,
-            self.discounted_total,
+            self.shipping_cost,
             self.total_amount
         ]
         
@@ -61,7 +61,7 @@ class Invoice:
             invoice_date=data[3],
             discount_terms=data[4],
             due_date=data[5],
-            discounted_total=data[6],
+            shipping_cost=data[6],
             total_amount=data[7],
             source_file=file_path
         )

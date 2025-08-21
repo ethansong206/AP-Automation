@@ -24,13 +24,13 @@ C_PO = 3
 C_INV_DATE = 4
 C_TERMS = 5
 C_DUE = 6
-C_DISC_TOTAL = 7
+C_SHIPPING = 7
 C_TOTAL = 8
 C_ACTIONS = 9
 
 HEADERS = [
     "", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-    "Discount Terms", "Due Date", "Discounted Total", "Total Amount",
+    "Discount Terms", "Due Date", "Shipping Cost", "Total Amount",
     "Actions",
 ]
 
@@ -43,12 +43,12 @@ BODY_COLS = range(1, 9)
 # =============================================================
 class InvoiceRow:
     __slots__ = ("selected", "flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
-                 "disc_total", "total", "file_path", "edited_cells")
+                 "shipping", "total", "file_path", "edited_cells")
 
     def __init__(self, values: List[str], file_path: str):
-        # values: [vendor, invoice, po, inv_date, terms, due, disc_total, total]
+        # values: [vendor, invoice, po, inv_date, terms, due, shipping, total]
         (self.vendor, self.invoice, self.po, self.inv_date, self.terms,
-         self.due, self.disc_total, self.total) = (values + [""] * 8)[:8]
+         self.due, self.shipping, self.total) = (values + [""] * 8)[:8]
         self.file_path = file_path or ""
         self.selected = False         # NEW: user 'Select' checkbox state
         self.flag = False             # kept: flag is now shown inside Actions
@@ -149,8 +149,8 @@ class InvoiceTableModel(QAbstractTableModel):
                 return row.terms
             if c == C_DUE:
                 return row.due
-            if c == C_DISC_TOTAL:
-                return row.disc_total
+            if c == C_SHIPPING:
+                return row.shipping
             if c == C_TOTAL:
                 return row.total
             if c == C_ACTIONS:
@@ -189,8 +189,8 @@ class InvoiceTableModel(QAbstractTableModel):
                 row.terms = val
             elif c == C_DUE:
                 row.due = val
-            elif c == C_DISC_TOTAL:
-                row.disc_total = val
+            elif c == C_SHIPPING:
+                row.shipping = val
             elif c == C_TOTAL:
                 row.total = val
             else:
@@ -217,7 +217,7 @@ class InvoiceTableModel(QAbstractTableModel):
             C_INV_DATE: r.inv_date,
             C_TERMS: r.terms,
             C_DUE: r.due,
-            C_DISC_TOTAL: r.disc_total,
+            C_SHIPPING: r.shipping,
             C_TOTAL: r.total,
         }.get(col, "")
 
@@ -270,7 +270,7 @@ class InvoiceTableModel(QAbstractTableModel):
 
     def row_values(self, src_row: int) -> List[str]:
         r = self._rows[src_row]
-        return [r.vendor, r.invoice, r.po, r.inv_date, r.terms, r.due, r.disc_total, r.total]
+        return [r.vendor, r.invoice, r.po, r.inv_date, r.terms, r.due, r.shipping, r.total]
 
     def get_file_path(self, src_row: int) -> str:
         return self._rows[src_row].file_path
@@ -415,7 +415,7 @@ class InvoiceSortProxy(QSortFilterProxyModel):
             rv = src.data(src.index(right.row(), C_VENDOR), Qt.EditRole)
             return self._safe_natural_key(lv) < self._safe_natural_key(rv)
 
-        if c in (C_DISC_TOTAL, C_TOTAL):
+        if c in (C_SHIPPING, C_TOTAL):
             lf = self._to_float(l)
             rf = self._to_float(r)
             return lf < rf

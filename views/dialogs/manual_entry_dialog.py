@@ -250,8 +250,8 @@ class ManualEntryDialog(QDialog):
         form_layout.addRow(QLabel("Due Date:"), due_row)
 
         # Currency fields
-        self.fields["Discounted Total"] = QLineEdit()
-        form_layout.addRow(QLabel("Discounted Total:"), self.fields["Discounted Total"])
+        self.fields["Shipping Cost"] = QLineEdit()
+        form_layout.addRow(QLabel("Shipping Cost:"), self.fields["Shipping Cost"])
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
@@ -271,25 +271,23 @@ class ManualEntryDialog(QDialog):
         self.qc_disc_pct = new_lineedit()   # %
         self.qc_disc_amt = new_lineedit()   # $
         self.qc_shipping = new_lineedit()
-        self.qc_other = new_lineedit()      # adjustments (+/-)
         self.qc_grand_total = QLabel("$0.00")
         self.qc_grand_total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.qc_grand_total.setStyleSheet("font-weight: bold;")
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
-        self.qc_apply_total = QPushButton("Apply → Total Amount")
-        self.qc_apply_discounted = QPushButton("Apply → Discounted Total")
-        self.qc_apply_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount"))
-        self.qc_apply_discounted.clicked.connect(lambda: self._apply_quick_total_to("Discounted Total"))
-        btn_row.addWidget(self.qc_apply_total)
-        btn_row.addWidget(self.qc_apply_discounted)
+        self.qc_push_shipping = QPushButton("Push to Shipping Cost")
+        self.qc_push_total = QPushButton("Push to Total Amount")
+        self.qc_push_shipping.clicked.connect(self._push_shipping_from_qc)
+        self.qc_push_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount"))
+        btn_row.addWidget(self.qc_push_shipping)
+        btn_row.addWidget(self.qc_push_total)
 
         qc.addRow(QLabel("Subtotal:"), self.qc_subtotal)
         qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
         qc.addRow(QLabel("Discount $:"), self.qc_disc_amt)
         qc.addRow(QLabel("Shipping:"), self.qc_shipping)
-        qc.addRow(QLabel("Other Adj. (+/-):"), self.qc_other)
         qc.addRow(QLabel("Grand Total:"), self.qc_grand_total)
         qc.addRow(btn_row)
         self.quick_calc_group.setLayout(qc)
@@ -301,7 +299,7 @@ class ManualEntryDialog(QDialog):
             "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
-        for b in (self.add_vendor_btn, self.qc_apply_total, self.qc_apply_discounted, self.due_calc_btn):
+        for b in (self.add_vendor_btn, self.qc_push_shipping, self.qc_push_total, self.due_calc_btn):
             b.setStyleSheet(primary_btn_css)
 
         # Navigation + delete
@@ -397,7 +395,7 @@ class ManualEntryDialog(QDialog):
         card_lay.addWidget(self.splitter)
 
         # Currency fields we pretty/normalize
-        self._currency_labels = {"Total Amount", "Discounted Total"}
+        self._currency_labels = {"Total Amount", "Shipping Cost"}
         for label in self._currency_labels:
             w = self.fields.get(label)
             if w:
@@ -405,7 +403,7 @@ class ManualEntryDialog(QDialog):
 
         # Quick calc fields that use pretty/plain toggling (no tax fields now)
         self._calc_currency_fields = [
-            self.qc_subtotal, self.qc_disc_amt, self.qc_shipping, self.qc_other
+            self.qc_subtotal, self.qc_disc_amt, self.qc_shipping
         ]
         for w in self._calc_currency_fields:
             w.installEventFilter(self)
@@ -566,7 +564,7 @@ class ManualEntryDialog(QDialog):
                     self.fields["Due Date"].setDate(d2)
 
             # Currency fields
-            self.fields["Discounted Total"].setText(vals[6])
+            self.fields["Shipping Cost"].setText("")
             self.fields["Total Amount"].setText(vals[7])
             self._apply_pretty_currency_display()
 
@@ -898,7 +896,7 @@ class ManualEntryDialog(QDialog):
         data = []
         for label in [
             "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-            "Discount Terms", "Due Date", "Discounted Total", "Total Amount",
+            "Discount Terms", "Due Date", "Shipping Cost", "Total Amount",
         ]:
             w = self.fields[label]
             if isinstance(w, QDateEdit):
@@ -922,7 +920,6 @@ class ManualEntryDialog(QDialog):
     def _recalc_quick_calc(self):
         sub = self._money(self.qc_subtotal.text())
         ship = self._money(self.qc_shipping.text())
-        other = self._money(self.qc_other.text())
 
         disc_pct = self._percent(self.qc_disc_pct.text())
         disc_amt_input = self._money(self.qc_disc_amt.text())
@@ -937,7 +934,7 @@ class ManualEntryDialog(QDialog):
             self.qc_grand_total.setText("$0.00")
             return
 
-        total = sub - disc_amt + (ship or 0.0) + (other or 0.0)
+        total = sub - disc_amt + (ship or 0.0)
         self.qc_grand_total.setText(self._fmt_money(total))
 
     def _apply_quick_total_to(self, target_label):
@@ -956,6 +953,14 @@ class ManualEntryDialog(QDialog):
                 if not w.hasFocus():
                     w.setText(self._money_pretty(w.text()))
                 self._highlight_empty_fields()
+
+    def _push_shipping_from_qc(self):
+        w = self.fields.get("Shipping Cost")
+        if w:
+            w.setText(self.qc_shipping.text())
+            if not w.hasFocus():
+                w.setText(self._money_pretty(w.text()))
+            self._highlight_empty_fields()
 
     # ---------- Currency utils ----------
     def _money(self, s):

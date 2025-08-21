@@ -99,7 +99,7 @@ class InvoiceController:
             invoice_date = ' '.join(table.get_cell_text(row, 4).strip().split())
             terms = ' '.join(table.get_cell_text(row, 5).strip().split())
             due_date = ' '.join(table.get_cell_text(row, 6).strip().split())
-            discounted_total = ' '.join(table.get_cell_text(row, 7).strip().split())
+            shipping_cost = ' '.join(table.get_cell_text(row, 7).strip().split())
             total_amount = ' '.join(table.get_cell_text(row, 8).strip().split())
             
             # Skip incomplete rows
@@ -113,9 +113,6 @@ class InvoiceController:
             if not vendor_number or vendor_number == "0":
                 print(f"[WARN] No vendor number found for: '{vendor_name}'")
         
-            # Use discounted total if available, otherwise use regular total
-            final_amount = discounted_total if discounted_total else total_amount
-            
             # Create complete data dictionary with all needed information
             invoice_data = {
                 "vendor_name": vendor_name,
@@ -125,7 +122,8 @@ class InvoiceController:
                 "invoice_date": self.format_date(invoice_date),
                 "terms": terms,
                 "due_date": self.format_date(due_date),
-                "total_amount": final_amount,
+                "total_amount": total_amount,
+                "shipping_cost": shipping_cost,
                 "acct_no": "0697-099",
                 "cp_acct_no": "0697-099"
             }

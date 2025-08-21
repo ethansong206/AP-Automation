@@ -23,7 +23,7 @@ from .model import (
     C_INV_DATE,
     C_TERMS,
     C_DUE,
-    C_DISC_TOTAL,
+    C_SHIPPING,
     C_TOTAL,
 )
 from .delegates import BodyEditDelegate, ActionsDelegate, SelectCheckboxDelegate
@@ -431,7 +431,7 @@ class InvoiceTable(QWidget):
         vals = self._model.row_values(src)
         mapping = {
             C_VENDOR: 0, C_INVOICE: 1, C_PO: 2, C_INV_DATE: 3,
-            C_TERMS: 4, C_DUE: 5, C_DISC_TOTAL: 6, C_TOTAL: 7
+            C_TERMS: 4, C_DUE: 5, C_SHIPPING: 6, C_TOTAL: 7
         }
         if col in mapping:
             return vals[mapping[col]] or ""
@@ -450,7 +450,7 @@ class InvoiceTable(QWidget):
             C_INV_DATE: "inv_date",
             C_TERMS: "terms",
             C_DUE: "due",
-            C_DISC_TOTAL: "disc_total",
+            C_SHIPPING: "shipping",
             C_TOTAL: "total",
         }
 
