@@ -415,6 +415,19 @@ class InvoiceApp(QWidget):
                 continue
             try:
                 shutil.copy2(file_path, dest_path)
+                src_dir = os.path.dirname(file_path)
+                new_src_path = os.path.join(src_dir, new_name)
+                if (
+                    os.path.normpath(file_path) != os.path.normpath(new_src_path)
+                    and not os.path.exists(new_src_path)
+                ):
+                    os.rename(file_path, new_src_path)
+                    self.table.set_file_path_for_row(row, new_src_path)
+                    old_norm = os.path.normpath(file_path)
+                    new_norm = os.path.normpath(new_src_path)
+                    if old_norm in self.file_controller.loaded_files:
+                        self.file_controller.loaded_files.remove(old_norm)
+                        self.file_controller.loaded_files.add(new_norm)
             except Exception as e:
                 print(f"[ERROR] Failed to copy '{file_path}' to '{dest_path}': {e}")
         QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")

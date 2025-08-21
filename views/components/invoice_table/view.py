@@ -418,6 +418,11 @@ class InvoiceTable(QWidget):
     def get_file_path_for_row(self, view_row: int) -> str:
         src = self._view_to_source_row(view_row)
         return "" if src < 0 else self._model.get_file_path(src)
+    
+    def set_file_path_for_row(self, view_row: int, new_path: str):
+        src = self._view_to_source_row(view_row)
+        if src >= 0:
+            self._model.set_file_path(src, new_path)
 
     def get_cell_text(self, view_row: int, col: int) -> str:
         src = self._view_to_source_row(view_row)
