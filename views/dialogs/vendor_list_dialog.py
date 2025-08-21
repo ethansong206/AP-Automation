@@ -168,6 +168,31 @@ class VendorListDialog(QDialog):
         return rows, mapping
 
     def save(self):
+        headers = ["Vendor Name", "Vendor Number", "Vendor Identifier"]
+        changes = []
+        for (row, col), orig in self.original.items():
+            cur_item = self.table.item(row, col)
+            cur = cur_item.text() if cur_item else ""
+            if cur != orig:
+                orig_disp = orig or "(empty)"
+                cur_disp = cur or "(empty)"
+                changes.append(f"{headers[col]}: {orig_disp} -> {cur_disp}")
+
+        if changes:
+            msg = (
+                "Are you sure you want to make the following changes?\n\n"
+                "Original -> Edited\n" + "\n".join(changes)
+            )
+            res = QMessageBox.question(
+                self,
+                "Confirm Changes",
+                msg,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if res != QMessageBox.Yes:
+                return False
+        
         rows, mapping = self._gather_rows()
         rows.sort(key=lambda r: r["Vendor Name"].casefold())
         csv_path = self._vendors_csv_path()
