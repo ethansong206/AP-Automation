@@ -312,6 +312,14 @@ class AppShell(QMainWindow):
 
     # ---------------- frameless resize (edges + corners with cursor) ----------------
     def eventFilter(self, obj, event):
+        # Check if there's an active modal dialog - if so, don't process resize events
+        qapp = QApplication.instance()
+        if qapp and qapp.activeModalWidget():
+            # Ensure resize cursor is cleared when modal dialog is active
+            if not self._resizing:
+                self._restoreOverrideCursor()
+            return False
+            
         et = event.type()
         if et in (QEvent.MouseMove, QEvent.HoverMove):
             self._updateResizeCursor()

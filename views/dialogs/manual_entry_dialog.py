@@ -5,10 +5,11 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDateEdit,
     QPushButton, QSplitter, QWidget, QFormLayout, QComboBox, QMessageBox,
     QCompleter, QListWidget, QListWidgetItem, QGroupBox,
-    QScrollArea, QGridLayout, QFrame, QGraphicsDropShadowEffect, QToolButton
+    QScrollArea, QGridLayout, QFrame, QGraphicsDropShadowEffect, QToolButton,
+    QApplication, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal, QSize
-from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon
+from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal, QSize, QPoint, QRect
+from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon, QCursor
 
 # ---------- THEME & ICONS: reuse from app_shell when available ----------
 try:
@@ -33,6 +34,9 @@ except Exception:
 
 THEME = APP_THEME
 
+# Resize margin for edge detection
+RESIZE_MARGIN = 14
+
 # Project components (unchanged)
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_list_dialog import VendorListDialog
@@ -56,11 +60,13 @@ class _DialogTitleBar(QWidget):
 
         self.title = QLabel(title_text, self)
         self.title.setObjectName("DialogBigTitle")
-        self.title.setFont(QFont("Inter", 20, QFont.Bold))
-        self.title.setStyleSheet(f"color: {THEME['brand_green']};")
+        main_title_font = QFont("Inter", 24, QFont.Bold)
+        self.title.setFont(main_title_font)
+        self.title.setStyleSheet(f"color: {THEME['brand_green']}; font-size: 24px; font-weight: bold;")
 
         # Window control buttons (match main window look)
         self._icon_min = QIcon(_resolve_icon("minimize.svg"))
+        self._icon_max = QIcon(_resolve_icon("maximize.svg"))
         self._icon_close = QIcon(_resolve_icon("close.svg"))
 
         def make_winbtn(icon: QIcon) -> QToolButton:
@@ -78,30 +84,43 @@ class _DialogTitleBar(QWidget):
             return b
 
         self.btn_min = make_winbtn(self._icon_min)
+        self.btn_max = make_winbtn(self._icon_max)
         self.btn_close = make_winbtn(self._icon_close)
         self.btn_min.clicked.connect(self.window().showMinimized)
+        self.btn_max.clicked.connect(self._toggle_max)
         self.btn_close.clicked.connect(self.window().close)
 
         row.addWidget(self.title)
         row.addStretch()
         row.addWidget(self.btn_min)
+        row.addWidget(self.btn_max)
         row.addWidget(self.btn_close)
         self.setStyleSheet("background: transparent;")
 
     # drag window
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton and self.childAt(e.pos()) not in (self.btn_min, self.btn_close):
+        if e.button() == Qt.LeftButton and self.childAt(e.pos()) not in (self.btn_min, self.btn_max, self.btn_close):
             self._drag_offset = e.globalPos() - self.window().frameGeometry().topLeft()
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
-        if self._drag_offset:
+        if self._drag_offset and not self.window().isMaximized():
             self.window().move(e.globalPos() - self._drag_offset)
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
         self._drag_offset = None
         super().mouseReleaseEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        self._toggle_max()
+
+    def _toggle_max(self):
+        w = self.window()
+        if w.isMaximized():
+            w.showNormal()
+        else:
+            w.showMaximized()
 
 
 class ManualEntryDialog(QDialog):
@@ -124,7 +143,7 @@ class ManualEntryDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setWindowModality(Qt.ApplicationModal)
         self.setWindowTitle("Manual Entry")
-        self.setMinimumSize(1100, 650)
+        self.setMinimumSize(1600, 1000)
         self.setObjectName("ManualEntryRoot")
 
         # Root layout (lets us paint a rounded background in paintEvent)
@@ -132,41 +151,130 @@ class ManualEntryDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Titlebar
+        # Titlebar - fixed height
         self.titlebar = _DialogTitleBar(self, title_text="Manual Entry")
-        root.addWidget(self.titlebar)
+        self.titlebar.setMouseTracking(True)
+        self.titlebar.setFixedHeight(60)  # Set fixed height for titlebar
+        root.addWidget(self.titlebar, 0)  # 0 stretch factor = fixed size
 
-        # Padding around the inner card
-        pad = QVBoxLayout()
-        pad.setContentsMargins(24, 6, 24, 24)
-        pad.setSpacing(10)
-        root.addLayout(pad)
+        # Direct gray background area for splitter - this should expand
+        gray_area = QVBoxLayout()
+        gray_area.setContentsMargins(24, 6, 24, 24)
+        gray_area.setSpacing(10)
+        root.addLayout(gray_area, 1)  # 1 stretch factor = expands
 
-        # Inner white card with shadow
-        self.card = QFrame(self)
-        self.card.setObjectName("Card")
-        self.card.setStyleSheet(
-            f"QFrame#Card {{ background: {THEME['card_bg']};"
-            f"  border: 1px solid {THEME['card_border']};"
-            f"  border-radius: {THEME['radius']}px; }}"
-        )
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(28)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 45))
-        self.card.setGraphicsEffect(shadow)
-        pad.addWidget(self.card)
-
-        card_lay = QVBoxLayout(self.card)
-        card_lay.setContentsMargins(20, 20, 20, 20)
-        card_lay.setSpacing(12)
-
-        # ---------- Original dialog UI (unchanged logic) ----------
-        self.setStyleSheet(self.styleSheet() + """
-            QLabel { font-size: 15px; }
-            QLineEdit, QComboBox, QDateEdit { font-size: 15px; padding: 5px; }
-            QPushButton { font-size: 15px; padding: 9px 15px; }
-            QGroupBox { font-size: 18px; font-weight: bold; margin-top: 15px; }
+        # ---------- Enhanced dialog UI styling ----------
+        self.setStyleSheet(self.styleSheet() + f"""
+            QLabel {{ font-size: 15px; }}
+            
+            /* Input fields with white background - using specific selectors and !important */
+            ManualEntryDialog QLineEdit,
+            ManualEntryDialog QComboBox,
+            ManualEntryDialog QDateEdit {{
+                font-size: 15px !important; 
+                padding: 8px 12px !important; 
+                background-color: #FFFFFF !important;
+                color: #000000 !important;
+                border: 1px solid {THEME['card_border']} !important;
+                border-radius: 6px !important;
+                min-height: 20px !important;
+                selection-background-color: {THEME['brand_green']} !important;
+                selection-color: white !important;
+            }}
+            
+            /* GLOBAL ComboBox dropdown styling to ensure it always appears */
+            ManualEntryDialog QComboBox {{
+                padding-right: 30px !important;
+            }}
+            ManualEntryDialog QComboBox::drop-down {{
+                subcontrol-origin: padding !important;
+                subcontrol-position: top right !important;
+                width: 28px !important;
+                border-left: 2px solid {THEME['card_border']} !important;
+                border-top-right-radius: 6px !important;
+                border-bottom-right-radius: 6px !important;
+                background-color: #f0f0f0 !important;
+                margin-top: 1px !important;
+                margin-bottom: 1px !important;
+                margin-right: 1px !important;
+            }}
+            ManualEntryDialog QComboBox::drop-down:hover {{
+                background-color: #e0e0e0 !important;
+            }}
+            ManualEntryDialog QComboBox::drop-down:pressed {{
+                background-color: #d0d0d0 !important;
+            }}
+            ManualEntryDialog QComboBox::down-arrow {{
+                image: none !important;
+                background-color: transparent !important;
+                width: 16px !important;
+                height: 16px !important;
+                border: 2px solid #333333 !important;
+                border-left: transparent !important;
+                border-right: transparent !important;
+                border-bottom: transparent !important;
+                border-top: 8px solid #333333 !important;
+                margin-top: 4px !important;
+            }}
+            
+            /* Additional specific overrides for problematic elements */
+            QWidget QLineEdit,
+            QWidget QComboBox, 
+            QWidget QDateEdit {{
+                background-color: #FFFFFF !important;
+                color: #000000 !important;
+            }}
+            
+            ManualEntryDialog QLineEdit:focus, 
+            ManualEntryDialog QComboBox:focus, 
+            ManualEntryDialog QDateEdit:focus {{
+                border-color: {THEME['brand_green']} !important;
+                outline: none !important;
+                background-color: #FFFFFF !important;
+            }}
+            
+            ManualEntryDialog QComboBox::drop-down {{
+                border: none !important;
+                padding-right: 8px !important;
+                background-color: #FFFFFF !important;
+            }}
+            
+            ManualEntryDialog QComboBox::down-arrow {{
+                width: 12px !important;
+                height: 12px !important;
+            }}
+            
+            ManualEntryDialog QComboBox QAbstractItemView {{
+                background-color: #FFFFFF !important;
+                color: #000000 !important;
+                border: 1px solid {THEME['card_border']} !important;
+                border-radius: 4px !important;
+                selection-background-color: {THEME['brand_green']} !important;
+                selection-color: white !important;
+            }}
+            
+            QPushButton {{ 
+                font-size: 15px; 
+                padding: 9px 15px; 
+            }}
+            
+            QGroupBox {{ 
+                font-size: 18px; 
+                font-weight: bold; 
+                margin-top: 15px; 
+                background-color: transparent;
+                border: 1px solid {THEME['card_border']};
+                border-radius: 8px;
+                padding-top: 10px;
+            }}
+            
+            QGroupBox::title {{
+                color: {THEME['brand_green']};
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 8px 0 8px;
+                background-color: {THEME['outer_bg']};
+            }}
         """)
 
         # Data/state
@@ -182,20 +290,119 @@ class ManualEntryDialog(QDialog):
         self.save_changes = False
         self.viewed_files = set()
 
-        # ===== Left: file list =====
+        # --- Resize state variables ---
+        self._resizing = False
+        self._resizeDir = None  # 'l','r','t','b','tl','tr','bl','br'
+        self._startGeom = QRect()
+        self._startPos = QPoint()
+        self._cursorOverridden = False
+        
+        # Enable mouse tracking for resize functionality
+        self.setMouseTracking(True)
+        
+        # Install event filter to handle resize events
+        qapp = QApplication.instance()
+        if qapp is not None:
+            qapp.installEventFilter(self)
+
+        # ===== Left: file list card =====
+        left_card = QFrame()
+        left_card.setObjectName("LeftCard")
+        left_card.setMouseTracking(True)
+        left_card.setStyleSheet(f"""
+            QFrame#LeftCard {{
+                background: {THEME['card_bg']};
+                border: 1px solid {THEME['card_border']};
+                border-radius: {THEME['radius']}px;
+            }}
+        """)
+        # Add subtle shadow to left card
+        left_shadow = QGraphicsDropShadowEffect(left_card)
+        left_shadow.setBlurRadius(12)
+        left_shadow.setOffset(0, 2)
+        left_shadow.setColor(QColor(0, 0, 0, 15))
+        left_card.setGraphicsEffect(left_shadow)
+        left_card_layout = QVBoxLayout(left_card)
+        left_card_layout.setContentsMargins(12, 12, 12, 12)
+        left_card_layout.setSpacing(8)
+        
+        # File list title
+        file_list_title = QLabel("Files")
+        title_font = QFont("Inter", 18, QFont.Bold)
+        file_list_title.setFont(title_font)
+        file_list_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: 18px; font-weight: bold;")
+        left_card_layout.addWidget(file_list_title)
+        
         self.file_list = QListWidget()
+        self.file_list.setObjectName("FileListWidget")
         self.file_list.mousePressEvent = self._file_list_mouse_press
+        # Zebra striping and styling
+        self.file_list.setStyleSheet("""
+            QListWidget#FileListWidget {
+                border: none;
+                background: transparent;
+                selection-background-color: rgba(6, 68, 32, 0.1);
+                outline: none;
+            }
+            QListWidget#FileListWidget::item {
+                padding: 8px 12px;
+                border-radius: 6px;
+                margin: 1px 0px;
+            }
+            QListWidget#FileListWidget::item:nth-child(even) {
+                background-color: #F8F9FA;
+            }
+            QListWidget#FileListWidget::item:nth-child(odd) {
+                background-color: transparent;
+            }
+            QListWidget#FileListWidget::item:hover {
+                background-color: rgba(6, 68, 32, 0.05);
+            }
+            QListWidget#FileListWidget::item:selected {
+                background-color: rgba(6, 68, 32, 0.1);
+                border: 1px solid rgba(6, 68, 32, 0.2);
+            }
+        """)
+        left_card_layout.addWidget(self.file_list)
+        
         for i, (path, flagged) in enumerate(zip(self.pdf_paths, self.flag_states)):
             item = QListWidgetItem()
             text = self._get_display_text(i)
             self._update_file_item(item, text, flagged)
             self.file_list.addItem(item)
 
-        # ===== Center: form =====
+        # ===== Center: manual entry fields (directly on gray background) =====
+        center_widget = QWidget()
+        center_widget.setMouseTracking(True)
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setContentsMargins(16, 4, 16, 16)  # Reduced top margin from 8 to 4
+        center_layout.setSpacing(3)  # Reduced spacing from 6 to 3
+        
+        # Manual entry title with reduced margins - use !important to override global QDialog QLabel styles
+        entry_title = QLabel("Invoice Details")
+        entry_title.setObjectName("InvoiceDetailsTitle")  # Give it a specific ID
+        title_font = QFont("Inter", 18, QFont.Bold)
+        entry_title.setFont(title_font)
+        entry_title.setStyleSheet(f"""
+            QLabel#InvoiceDetailsTitle {{
+                color: {THEME['brand_green']} !important;
+                font-size: 18px !important;
+                font-weight: bold !important;
+                margin: 0px !important;
+                padding: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 0px !important;
+            }}
+        """)
+        center_layout.addWidget(entry_title)
+        
+        # Add explicit small spacing after title
+        center_layout.addSpacing(2)
+        
         form_layout = QFormLayout()
-        form_layout.setVerticalSpacing(11)
+        form_layout.setVerticalSpacing(10)
         form_layout.setHorizontalSpacing(10)
-        form_layout.setContentsMargins(10, 10, 10, 10)
+        form_layout.setContentsMargins(0, 0, 0, 0)
 
         self.fields = {}
 
@@ -258,9 +465,9 @@ class ManualEntryDialog(QDialog):
         # Quick Calculator (no tax rows)
         self.quick_calc_group = QGroupBox("Quick Calculator")
         qc = QFormLayout()
-        qc.setVerticalSpacing(11)
+        qc.setVerticalSpacing(10)
         qc.setHorizontalSpacing(12)
-        qc.setContentsMargins(15, 35, 15, 15)
+        qc.setContentsMargins(15, 10, 15, 15)
 
         def new_lineedit():
             e = QLineEdit()
@@ -365,37 +572,87 @@ class ManualEntryDialog(QDialog):
         row_grid.addWidget(self.flag_button, 0, 0, alignment=Qt.AlignLeft | Qt.AlignVCenter)
         row_grid.addWidget(self.save_btn, 1, 0, alignment=Qt.AlignHCenter | Qt.AlignTop)
 
-        left_layout = QVBoxLayout()
-        left_layout.addLayout(form_layout)
-        left_layout.addWidget(self.quick_calc_group)
-        left_layout.addSpacing(15)
-        left_layout.addWidget(row_container)
+        # Add form and other content to center widget
+        center_layout.addLayout(form_layout)
+        center_layout.addWidget(self.quick_calc_group)
+        center_layout.addSpacing(6)
+        center_layout.addWidget(row_container)
 
-        left_widget = QWidget()
-        left_widget.setLayout(left_layout)
+        # Wrap center widget in scroll area
+        center_scroll = QScrollArea()
+        center_scroll.setWidgetResizable(True)
+        center_scroll.setFrameShape(QScrollArea.NoFrame)
+        center_scroll.setStyleSheet("background: transparent;")
+        center_scroll.setWidget(center_widget)
 
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QScrollArea.NoFrame)
-        left_scroll.setWidget(left_widget)
+        # ===== Right: PDF viewer card =====
+        right_card = QFrame()
+        right_card.setObjectName("RightCard")
+        right_card.setMouseTracking(True)
+        right_card.setStyleSheet(f"""
+            QFrame#RightCard {{
+                background: {THEME['card_bg']};
+                border: 1px solid {THEME['card_border']};
+                border-radius: {THEME['radius']}px;
+            }}
+        """)
+        # Add subtle shadow to right card
+        right_shadow = QGraphicsDropShadowEffect(right_card)
+        right_shadow.setBlurRadius(12)
+        right_shadow.setOffset(0, 2)
+        right_shadow.setColor(QColor(0, 0, 0, 15))
+        right_card.setGraphicsEffect(right_shadow)
+        right_card_layout = QVBoxLayout(right_card)
+        right_card_layout.setContentsMargins(12, 12, 12, 12)
+        right_card_layout.setSpacing(8)
+        
+        # PDF viewer title
+        pdf_title = QLabel("PDF Preview")
+        title_font = QFont("Inter", 18, QFont.Bold)
+        pdf_title.setFont(title_font)
+        pdf_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: 18px; font-weight: bold;")
+        right_card_layout.addWidget(pdf_title)
+        
+        # Don't create viewer here - let load_invoice handle it
+        self.viewer = None
 
-        # ===== Right: PDF viewer =====
-        self.viewer = InteractivePDFViewer(self.pdf_paths[self.current_index] if self.pdf_paths else "")
-
-        # ===== Splitter =====
+        # ===== Splitter with cards =====
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
-        self.file_list.setMinimumWidth(140)
-        self.splitter.addWidget(self.file_list)
-        self.splitter.addWidget(left_scroll)
-        self.splitter.addWidget(self.viewer)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 5)
-        self.splitter.setStretchFactor(2, 4)
+        self.splitter.setHandleWidth(12)
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: transparent;
+                margin: 6px;
+            }
+            QSplitter::handle:horizontal {
+                width: 12px;
+            }
+        """)
+        
+        # Set minimum widths for sections
+        left_card.setMinimumWidth(180)
+        center_scroll.setMinimumWidth(400)
+        right_card.setMinimumWidth(300)
+        
+        self.splitter.addWidget(left_card)
+        self.splitter.addWidget(center_scroll)
+        self.splitter.addWidget(right_card)
+        
+        # Set stretch factors (equal for middle and right)
+        self.splitter.setStretchFactor(0, 1)  # Left card: minimal stretch
+        self.splitter.setStretchFactor(1, 4)  # Center section: equal stretch
+        self.splitter.setStretchFactor(2, 4)  # Right card: equal stretch
+        
         QTimer.singleShot(0, self._apply_splitter_proportions)
 
-        # Put the content into the card
-        card_lay.addWidget(self.splitter)
+        # Set size policies for proper vertical scaling
+        left_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        center_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding) 
+        right_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        
+        # Put the content directly into gray area
+        gray_area.addWidget(self.splitter)
 
         # Currency fields we pretty/normalize
         self._currency_labels = {"Total Amount", "Shipping Cost"}
@@ -419,6 +676,126 @@ class ManualEntryDialog(QDialog):
                 widget.currentTextChanged.connect(self._highlight_empty_fields)
             elif isinstance(widget, QDateEdit):
                 widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
+
+        # Apply direct styling to input fields (to override any global styles)
+        input_field_style = f"""
+            background-color: #FFFFFF;
+            color: #000000;
+            border: 1px solid {THEME['card_border']};
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 15px;
+            min-height: 20px;
+        """
+        
+        focus_style = f"""
+            background-color: #FFFFFF;
+            color: #000000;
+            border: 2px solid {THEME['brand_green']};
+            border-radius: 6px;
+            padding: 7px 11px;
+            font-size: 15px;
+            min-height: 20px;
+        """
+        
+        # Apply white background styling directly to all input fields
+        for field_name, widget in self.fields.items():
+            if isinstance(widget, QLineEdit):
+                widget.setStyleSheet(input_field_style)
+            elif isinstance(widget, QDateEdit):
+                widget.setStyleSheet(input_field_style + f"""
+                    QDateEdit::drop-down {{
+                        subcontrol-origin: padding;
+                        subcontrol-position: top right;
+                        width: 24px;
+                        border-left: 1px solid {THEME['card_border']};
+                        border-top-right-radius: 6px;
+                        border-bottom-right-radius: 6px;
+                        background-color: #f0f0f0;
+                    }}
+                    QDateEdit::drop-down:hover {{
+                        background-color: #e0e0e0;
+                    }}
+                    QDateEdit::down-arrow {{
+                        image: none;
+                        border-left: 5px solid transparent;
+                        border-right: 5px solid transparent;
+                        border-top: 8px solid #333333;
+                        width: 0px;
+                        height: 0px;
+                    }}
+                """)
+            elif isinstance(widget, QComboBox):
+                # Special handling for vendor dropdown with enhanced visibility
+                enhanced_combo_style = input_field_style + f"""
+                    QComboBox {{
+                        padding-right: 30px;
+                    }}
+                    QComboBox::drop-down {{
+                        subcontrol-origin: padding;
+                        subcontrol-position: top right;
+                        width: 28px;
+                        border-left: 2px solid {THEME['card_border']};
+                        border-top-right-radius: 6px;
+                        border-bottom-right-radius: 6px;
+                        background-color: #f0f0f0;
+                        margin-top: 1px;
+                        margin-bottom: 1px;
+                        margin-right: 1px;
+                    }}
+                    QComboBox::drop-down:hover {{
+                        background-color: #e0e0e0;
+                    }}
+                    QComboBox::drop-down:pressed {{
+                        background-color: #d0d0d0;
+                    }}
+                    QComboBox::down-arrow {{
+                        image: none;
+                        background-color: transparent;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid #333333;
+                        border-left: transparent;
+                        border-right: transparent;
+                        border-bottom: transparent;
+                        border-top: 8px solid #333333;
+                        margin-top: 4px;
+                    }}
+                    QComboBox QAbstractItemView {{
+                        background-color: #FFFFFF;
+                        color: #000000;
+                        border: 2px solid {THEME['card_border']};
+                        border-radius: 4px;
+                        selection-background-color: {THEME['brand_green']};
+                        selection-color: white;
+                        outline: none;
+                        show-decoration-selected: 1;
+                        min-height: 20px;
+                    }}
+                    QComboBox QAbstractItemView::item {{
+                        min-height: 25px;
+                        padding: 4px;
+                    }}
+                    QComboBox QScrollBar:vertical {{
+                        background-color: #f0f0f0;
+                        width: 16px;
+                        border: 1px solid {THEME['card_border']};
+                        border-radius: 8px;
+                    }}
+                    QComboBox QScrollBar::handle:vertical {{
+                        background-color: #c0c0c0;
+                        border-radius: 6px;
+                        min-height: 20px;
+                    }}
+                    QComboBox QScrollBar::handle:vertical:hover {{
+                        background-color: #a0a0a0;
+                    }}
+                """
+                widget.setStyleSheet(enhanced_combo_style)
+        
+        # Apply to quick calculator fields as well
+        for qc_field in [self.qc_subtotal, self.qc_disc_pct, self.qc_disc_amt, self.qc_shipping]:
+            qc_field.setStyleSheet(input_field_style)
 
         # Wire dirty tracking AFTER fields exist
         self._wire_dirty_tracking()
@@ -445,7 +822,8 @@ class ManualEntryDialog(QDialog):
     # ---------- Layout helpers ----------
     def _apply_splitter_proportions(self):
         total = max(1, self.splitter.width())
-        sizes = [int(total * 0.10), int(total * 0.50), int(total * 0.40)]
+        # Equal middle and right sections, keep left file list narrow
+        sizes = [int(total * 0.15), int(total * 0.45), int(total * 0.40)]
         sizes[2] = max(1, total - sizes[0] - sizes[1])
         self.splitter.setSizes(sizes)
 
@@ -454,8 +832,9 @@ class ManualEntryDialog(QDialog):
         if not screen:
             return
         avail = screen.availableGeometry()
-        target_h = min(900, max(750, avail.height() - 80))
-        target_w = min(1400, max(1200, avail.width() - 80))
+        # Set fixed size of 1600x1050 as requested
+        target_w = 1600
+        target_h = 1050
         self.resize(target_w, target_h)
         self._apply_splitter_proportions()
         if hasattr(self, "viewer") and self.viewer:
@@ -622,16 +1001,31 @@ class ManualEntryDialog(QDialog):
             self.file_list.setCurrentRow(index)
             self.file_list.blockSignals(False)
 
-        # Refresh viewer
+        # Refresh viewer (now inside right card)
         new_viewer = InteractivePDFViewer(self.pdf_paths[index])
-        i = self.splitter.indexOf(self.viewer)
-        self.splitter.replaceWidget(i, new_viewer)
-        new_viewer.show()
-        self.viewer.deleteLater()
-        self.viewer = new_viewer
-        self.splitter.setStretchFactor(i, 1)
-        QTimer.singleShot(0, self._apply_splitter_proportions)
-        QTimer.singleShot(0, lambda: self.viewer.fit_width())
+        # Find the right card and its layout
+        right_card = self.splitter.widget(2)  # Right card is the 3rd widget
+        if right_card and hasattr(right_card, 'layout') and right_card.layout():
+            layout = right_card.layout()
+            # Remove any existing viewers (clean slate approach)
+            items_to_remove = []
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item and item.widget():
+                    widget = item.widget()
+                    # Check if it's a PDF viewer (has doc attribute or is InteractivePDFViewer)
+                    if (hasattr(widget, 'doc') or 
+                        widget.__class__.__name__ == 'InteractivePDFViewer'):
+                        items_to_remove.append(widget)
+            
+            for widget in items_to_remove:
+                layout.removeWidget(widget)
+                widget.deleteLater()
+            
+            # Add the new viewer
+            layout.addWidget(new_viewer)
+            self.viewer = new_viewer
+            QTimer.singleShot(0, lambda: self.viewer.fit_width() if self.viewer else None)
 
     def _navigate_to_index(self, index):
         if 0 <= index < len(self.pdf_paths):
@@ -702,16 +1096,6 @@ class ManualEntryDialog(QDialog):
         self._flash_saved()
         return True
 
-    def closeEvent(self, event):
-        """Guard window-X close. Ensure 'No' actually closes if chosen."""
-        event.ignore()
-
-        def proceed_accept_close():
-            self.save_changes = True
-            self.setResult(QDialog.Accepted)
-            event.accept()
-
-        self._confirm_unsaved_then(proceed_accept_close)
 
     # ---------- Due Date calculation ----------
     def _on_calculate_due_date(self):
@@ -874,16 +1258,160 @@ class ManualEntryDialog(QDialog):
             self._highlight_empty_fields()
 
     def _highlight_empty_fields(self):
+        # Define base style for input fields
+        base_input_style = f"""
+            background-color: #FFFFFF;
+            color: #000000;
+            border: 1px solid {THEME['card_border']};
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 15px;
+            min-height: 20px;
+        """
+        
+        empty_input_style = f"""
+            background-color: yellow;
+            color: #000000;
+            border: 1px solid {THEME['card_border']};
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 15px;
+            min-height: 20px;
+        """
+        
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
                 empty = not widget.text().strip()
             elif isinstance(widget, QComboBox):
                 empty = not widget.currentText().strip()
+                # ComboBox needs special handling
+                if empty:
+                    widget.setStyleSheet(empty_input_style + f"""
+                        QComboBox::drop-down {{
+                            subcontrol-origin: padding;
+                            subcontrol-position: top right;
+                            width: 20px;
+                            border-left: 1px solid {THEME['card_border']};
+                            border-top-right-radius: 6px;
+                            border-bottom-right-radius: 6px;
+                            background-color: #ffeb3b;
+                        }}
+                        QComboBox::down-arrow {{
+                            image: none;
+                            border-left: 4px solid transparent;
+                            border-right: 4px solid transparent;
+                            border-top: 6px solid #666666;
+                            width: 0px;
+                            height: 0px;
+                        }}
+                        QComboBox QAbstractItemView {{
+                            background-color: #FFFFFF;
+                            color: #000000;
+                            border: 1px solid {THEME['card_border']};
+                            border-radius: 4px;
+                            selection-background-color: {THEME['brand_green']};
+                            selection-color: white;
+                            outline: none;
+                        }}
+                    """)
+                else:
+                    widget.setStyleSheet(base_input_style + f"""
+                        QComboBox {{
+                            padding-right: 30px;
+                        }}
+                        QComboBox::drop-down {{
+                            subcontrol-origin: padding;
+                            subcontrol-position: top right;
+                            width: 28px;
+                            border-left: 2px solid {THEME['card_border']};
+                            border-top-right-radius: 6px;
+                            border-bottom-right-radius: 6px;
+                            background-color: #f0f0f0;
+                            margin-top: 1px;
+                            margin-bottom: 1px;
+                            margin-right: 1px;
+                        }}
+                        QComboBox::drop-down:hover {{
+                            background-color: #e0e0e0;
+                        }}
+                        QComboBox::drop-down:pressed {{
+                            background-color: #d0d0d0;
+                        }}
+                        QComboBox::down-arrow {{
+                            image: none;
+                            background-color: transparent;
+                            width: 16px;
+                            height: 16px;
+                            border: 2px solid #333333;
+                            border-left: transparent;
+                            border-right: transparent;
+                            border-bottom: transparent;
+                            border-top: 8px solid #333333;
+                            margin-top: 4px;
+                        }}
+                        QComboBox QAbstractItemView {{
+                            background-color: #FFFFFF;
+                            color: #000000;
+                            border: 2px solid {THEME['card_border']};
+                            border-radius: 4px;
+                            selection-background-color: {THEME['brand_green']};
+                            selection-color: white;
+                            outline: none;
+                            show-decoration-selected: 1;
+                            min-height: 20px;
+                        }}
+                        QComboBox QAbstractItemView::item {{
+                            min-height: 25px;
+                            padding: 4px;
+                        }}
+                        QComboBox QScrollBar:vertical {{
+                            background-color: #f0f0f0;
+                            width: 16px;
+                            border: 1px solid {THEME['card_border']};
+                            border-radius: 8px;
+                        }}
+                        QComboBox QScrollBar::handle:vertical {{
+                            background-color: #c0c0c0;
+                            border-radius: 6px;
+                            min-height: 20px;
+                        }}
+                        QComboBox QScrollBar::handle:vertical:hover {{
+                            background-color: #a0a0a0;
+                        }}
+                    """)
+                continue
             elif isinstance(widget, QDateEdit):
                 empty = label in getattr(self, "empty_date_fields", set())
             else:
                 empty = False
-            widget.setStyleSheet("background-color: yellow;" if empty else "")
+            
+            # Apply appropriate style with proper dropdown styling for QDateEdit
+            if isinstance(widget, QDateEdit):
+                date_dropdown_style = f"""
+                    QDateEdit::drop-down {{
+                        subcontrol-origin: padding;
+                        subcontrol-position: top right;
+                        width: 24px;
+                        border-left: 1px solid {THEME['card_border']};
+                        border-top-right-radius: 6px;
+                        border-bottom-right-radius: 6px;
+                        background-color: {'#ffeb3b' if empty else '#f0f0f0'};
+                    }}
+                    QDateEdit::drop-down:hover {{
+                        background-color: {'#ffdd00' if empty else '#e0e0e0'};
+                    }}
+                    QDateEdit::down-arrow {{
+                        image: none;
+                        border-left: 5px solid transparent;
+                        border-right: 5px solid transparent;
+                        border-top: 8px solid #333333;
+                        width: 0px;
+                        height: 0px;
+                    }}
+                """
+                widget.setStyleSheet((empty_input_style if empty else base_input_style) + date_dropdown_style)
+            else:
+                widget.setStyleSheet(empty_input_style if empty else base_input_style)
 
     def get_data(self):
         data = []
@@ -1072,3 +1600,152 @@ class ManualEntryDialog(QDialog):
                 return  # save aborted (e.g., vendor add canceled)
         # at this point either saved or user chose No
         proceed_fn()
+
+    # ---------- Resize functionality (similar to AppShell) ----------
+    def eventFilter(self, obj, event):
+        # Only handle events for this dialog window
+        if obj != self:
+            return super().eventFilter(obj, event)
+        
+        # Disable resize functionality when maximized
+        if self.isMaximized():
+            if not self._resizing:
+                self._restoreOverrideCursor()
+            return super().eventFilter(obj, event)
+            
+        et = event.type()
+        if et in (QEvent.MouseMove, QEvent.HoverMove):
+            self._updateResizeCursor()
+            if self._resizing:
+                self._performResize()
+                return True
+            return False
+        if et == QEvent.MouseButtonPress:
+            if getattr(event, "button", lambda: None)() == Qt.LeftButton:
+                if self._beginResize():
+                    return True
+            return False
+        if et == QEvent.MouseButtonRelease:
+            if self._resizing:
+                self._resizing = False
+                self._resizeDir = None
+                self._restoreOverrideCursor()
+                return True
+            return False
+        if et == QEvent.Leave:
+            if not self._resizing:
+                self._restoreOverrideCursor()
+        return super().eventFilter(obj, event)
+
+    def _winPos(self):
+        gp = QCursor.pos()
+        return self.mapFromGlobal(gp), gp
+
+    def _edgeAt(self, pos: QPoint):
+        x, y = pos.x(), pos.y()
+        w, h = self.width(), self.height()
+        m = RESIZE_MARGIN
+        # corners first
+        if x <= m and y <= m: return 'tl'
+        if x >= w - m and y <= m: return 'tr'
+        if x <= m and y >= h - m: return 'bl'
+        if x >= w - m and y >= h - m: return 'br'
+        # edges
+        if x <= m: return 'l'
+        if x >= w - m: return 'r'
+        if y <= m: return 't'
+        if y >= h - m: return 'b'
+        return None
+
+    def _setOverrideCursorForEdge(self, edge):
+        cursors = {
+            'l': Qt.SizeHorCursor, 'r': Qt.SizeHorCursor,
+            't': Qt.SizeVerCursor, 'b': Qt.SizeVerCursor,
+            'tl': Qt.SizeFDiagCursor, 'br': Qt.SizeFDiagCursor,
+            'tr': Qt.SizeBDiagCursor, 'bl': Qt.SizeBDiagCursor,
+        }
+        if edge:
+            if not self._cursorOverridden:
+                QApplication.setOverrideCursor(QCursor(cursors[edge]))
+                self._cursorOverridden = True
+            else:
+                if QApplication.overrideCursor() and QApplication.overrideCursor().shape() != cursors[edge]:
+                    QApplication.changeOverrideCursor(QCursor(cursors[edge]))
+        else:
+            self._restoreOverrideCursor()
+
+    def _restoreOverrideCursor(self):
+        if self._cursorOverridden:
+            QApplication.restoreOverrideCursor()
+            self._cursorOverridden = False
+
+    def _updateResizeCursor(self):
+        pos, _ = self._winPos()
+        edge = self._edgeAt(pos)
+        self._setOverrideCursorForEdge(edge)
+
+    def _beginResize(self):
+        pos, gp = self._winPos()
+        edge = self._edgeAt(pos)
+        if edge:
+            self._resizing = True
+            self._resizeDir = edge
+            self._startGeom = QRect(self.geometry())
+            self._startPos = QPoint(gp)
+            return True
+        return False
+
+    def _performResize(self):
+        # Don't resize if maximized
+        if self.isMaximized():
+            return
+            
+        gp = QCursor.pos()
+        dx = gp.x() - self._startPos.x()
+        dy = gp.y() - self._startPos.y()
+        g = QRect(self._startGeom)
+        
+        min_w = self.minimumWidth()
+        min_h = self.minimumHeight()
+
+        # Handle horizontal resizing
+        if 'l' in self._resizeDir:
+            new_left = g.left() + dx
+            # Clamp to minimum width constraint
+            max_left = g.right() - min_w
+            new_left = min(new_left, max_left)
+            g.setLeft(new_left)
+        elif 'r' in self._resizeDir:
+            new_right = g.right() + dx
+            # Clamp to minimum width constraint
+            min_right = g.left() + min_w
+            new_right = max(new_right, min_right)
+            g.setRight(new_right)
+
+        # Handle vertical resizing
+        if 't' in self._resizeDir:
+            new_top = g.top() + dy
+            # Clamp to minimum height constraint
+            max_top = g.bottom() - min_h
+            new_top = min(new_top, max_top)
+            g.setTop(new_top)
+        elif 'b' in self._resizeDir:
+            new_bottom = g.bottom() + dy
+            # Clamp to minimum height constraint
+            min_bottom = g.top() + min_h
+            new_bottom = max(new_bottom, min_bottom)
+            g.setBottom(new_bottom)
+
+        self.setGeometry(g)
+        
+    def closeEvent(self, event):
+        """Clean up resize cursor override and guard window-X close."""
+        self._restoreOverrideCursor()
+        event.ignore()
+
+        def proceed_accept_close():
+            self.save_changes = True
+            self.setResult(QDialog.Accepted)
+            event.accept()
+
+        self._confirm_unsaved_then(proceed_accept_close)
