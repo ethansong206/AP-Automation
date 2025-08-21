@@ -34,6 +34,9 @@ except Exception:
 
 THEME = APP_THEME
 
+# Icon used for combo box dropdown arrow
+ARROW_ICON = _resolve_icon("down_arrow.svg").replace(os.sep, "/")
+
 # Resize margin for edge detection
 RESIZE_MARGIN = 14
 
@@ -193,10 +196,9 @@ class ManualEntryDialog(QDialog):
                 border-left: 2px solid {THEME['card_border']} !important;
                 border-top-right-radius: 6px !important;
                 border-bottom-right-radius: 6px !important;
-                background-color: #f0f0f0 !important;
-                margin-top: 1px !important;
-                margin-bottom: 1px !important;
-                margin-right: 1px !important;
+                background-color: #FFFFFF !important;
+                padding-right: 8px !important;
+                margin: 0 !important;
             }}
             ManualEntryDialog QComboBox::drop-down:hover {{
                 background-color: #e0e0e0 !important;
@@ -205,16 +207,11 @@ class ManualEntryDialog(QDialog):
                 background-color: #d0d0d0 !important;
             }}
             ManualEntryDialog QComboBox::down-arrow {{
-                image: none !important;
-                background-color: transparent !important;
-                width: 16px !important;
-                height: 16px !important;
-                border: 2px solid #333333 !important;
-                border-left: transparent !important;
-                border-right: transparent !important;
-                border-bottom: transparent !important;
-                border-top: 8px solid #333333 !important;
-                margin-top: 4px !important;
+                image: url({ARROW_ICON}) !important;
+                width: 12px !important;
+                height: 12px !important;
+                subcontrol-origin: padding !important;
+                subcontrol-position: center !important;
             }}
             
             /* Additional specific overrides for problematic elements */
@@ -239,9 +236,13 @@ class ManualEntryDialog(QDialog):
                 background-color: #FFFFFF !important;
             }}
             
+
             ManualEntryDialog QComboBox::down-arrow {{
+                image: url({ARROW_ICON}) !important;
                 width: 12px !important;
                 height: 12px !important;
+                subcontrol-origin: padding !important;
+                subcontrol-position: center !important;
             }}
             
             ManualEntryDialog QComboBox QAbstractItemView {{
@@ -823,7 +824,7 @@ class ManualEntryDialog(QDialog):
     def _apply_splitter_proportions(self):
         total = max(1, self.splitter.width())
         # Equal middle and right sections, keep left file list narrow
-        sizes = [int(total * 0.15), int(total * 0.45), int(total * 0.40)]
+        sizes = [int(total * 0.15), int(total * 0.46), int(total * 0.39)]
         sizes[2] = max(1, total - sizes[0] - sizes[1])
         self.splitter.setSizes(sizes)
 
