@@ -35,7 +35,7 @@ THEME = APP_THEME
 
 # Project components (unchanged)
 from views.components.pdf_viewer import InteractivePDFViewer
-from views.dialogs.vendor_dialog import AddVendorFlow
+from views.dialogs.vendor_list_dialog import VendorListDialog
 from extractors.utils import get_vendor_list, calculate_discount_due_date
 from assets.constants import COLORS
 
@@ -211,9 +211,9 @@ class ManualEntryDialog(QDialog):
         self.vendor_combo.currentTextChanged.connect(self._on_display_fields_changed)
         vendor_layout.addWidget(self.vendor_combo, 1)
         vendor_layout.addSpacing(10)
-        self.add_vendor_btn = QPushButton("New Vendor")
-        self.add_vendor_btn.clicked.connect(self.add_new_vendor)
-        vendor_layout.addWidget(self.add_vendor_btn)
+        self.vendor_list_btn = QPushButton("Vendor List")
+        self.vendor_list_btn.clicked.connect(self.open_vendor_list)
+        vendor_layout.addWidget(self.vendor_list_btn)
         form_layout.addRow(QLabel("Vendor Name:"), vendor_layout)
         self.fields["Vendor Name"] = self.vendor_combo
 
@@ -302,7 +302,7 @@ class ManualEntryDialog(QDialog):
             "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
-        for b in (self.add_vendor_btn, self.qc_push_shipping, self.qc_push_total, self.due_calc_btn):
+        for b in (self.vendor_list_btn, self.qc_push_shipping, self.qc_push_total, self.due_calc_btn):
             b.setStyleSheet(primary_btn_css)
 
         # Navigation + delete
@@ -666,35 +666,25 @@ class ManualEntryDialog(QDialog):
         }
 
         if typed_vendor and typed_vendor.lower() not in current_names:
-            warn = QMessageBox.warning(
+            warn = QMessageBox.question(
                 self,
                 "Unknown Vendor",
-                (
-                    f"‘{typed_vendor}’ isn’t in your vendor list."
-                    "You’ll need to add it first (Vendor Name → Vendor Number → optional Identifier)."
-                    "Vendor Number is required; Identifier is optional."
-                ),
-                QMessageBox.Ok | QMessageBox.Cancel,
-                QMessageBox.Ok
+                f"‘{typed_vendor}’ isn’t in your vendor list. Open Vendor List to add it?",
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Yes,
             )
             if warn == QMessageBox.Cancel:
                 return False # abort save; let the user decide later
 
-            # Launch the guided flow used by the New Vendor button
-            current_pdf = (
-                self.pdf_paths[self.current_index]
-                if (self.pdf_paths and 0 <= self.current_index < len(self.pdf_paths))
-                else ""
-            )
-            flow = AddVendorFlow(pdf_path=current_pdf, parent=self, prefill_vendor_name=typed_vendor)
-            if flow.exec_() != QDialog.Accepted:
-                return False # user canceled adding the vendor; don't save yet
-
-            # Refresh dropdown and select the new vendor
+            dlg = VendorListDialog(self)
+            dlg.exec_()
             self.load_vendors()
-            added_vendor = getattr(flow, "get_final_vendor_name", lambda: None)()
-            if added_vendor:
-                self.vendor_combo.setCurrentText(added_vendor)
+            current_names = {
+                self.vendor_combo.itemText(i).strip().lower()
+                for i in range(self.vendor_combo.count())
+            }
+            if typed_vendor.lower() in current_names:
+                self.vendor_combo.setCurrentText(typed_vendor)
             else:
                 QMessageBox.warning(self, "Vendor Not Added", "The vendor wasn’t added. Please try again.")
                 return False
@@ -859,20 +849,11 @@ class ManualEntryDialog(QDialog):
             self.vendor_combo.clear()
             self.vendor_combo.addItems(vendors)
 
-    def add_new_vendor(self):
-        """Launch the guided flow to add a vendor (Name → Number → optional Identifier)."""
-        current_pdf = (
-            self.pdf_paths[self.current_index]
-            if (self.pdf_paths and 0 <= self.current_index < len(self.pdf_paths))
-            else ""
-        )
-        prefill_name = self.vendor_combo.currentText().strip()
-        flow = AddVendorFlow(pdf_path=current_pdf, parent=self, prefill_vendor_name=prefill_name)
-        if flow.exec_() == QDialog.Accepted:
-            self.load_vendors()
-            added_vendor = getattr(flow, "get_final_vendor_name", lambda: None)()
-            if added_vendor:
-                self.vendor_combo.setCurrentText(added_vendor)
+    def open_vendor_list(self):
+        """Open the editable vendor list dialog and refresh the combo after closing."""
+        dlg = VendorListDialog(self)
+        dlg.exec_()
+        self.load_vendors()
 
     def _on_date_changed(self, label):
         self._clear_date_highlight(label)
