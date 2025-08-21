@@ -271,6 +271,8 @@ class ManualEntryDialog(QDialog):
         self.qc_disc_pct = new_lineedit()   # %
         self.qc_disc_amt = new_lineedit()   # $
         self.qc_shipping = new_lineedit()
+        self.qc_total_wo_shipping = QLabel("$0.00")
+        self.qc_total_wo_shipping.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.qc_grand_total = QLabel("$0.00")
         self.qc_grand_total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.qc_grand_total.setStyleSheet("font-weight: bold;")
@@ -280,7 +282,7 @@ class ManualEntryDialog(QDialog):
         self.qc_push_shipping = QPushButton("Push to Shipping Cost")
         self.qc_push_total = QPushButton("Push to Total Amount")
         self.qc_push_shipping.clicked.connect(self._push_shipping_from_qc)
-        self.qc_push_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount"))
+        self.qc_push_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount", self.qc_total_wo_shipping))
         btn_row.addWidget(self.qc_push_shipping)
         btn_row.addWidget(self.qc_push_total)
 
@@ -288,6 +290,7 @@ class ManualEntryDialog(QDialog):
         qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
         qc.addRow(QLabel("Discount $:"), self.qc_disc_amt)
         qc.addRow(QLabel("Shipping:"), self.qc_shipping)
+        qc.addRow(QLabel("Total without Shipping:"), self.qc_total_wo_shipping)
         qc.addRow(QLabel("Grand Total:"), self.qc_grand_total)
         qc.addRow(btn_row)
         self.quick_calc_group.setLayout(qc)
@@ -931,15 +934,19 @@ class ManualEntryDialog(QDialog):
             disc_amt = 0.0
 
         if sub is None:
+            self.qc_total_wo_shipping.setText("$0.00")
             self.qc_grand_total.setText("$0.00")
             return
 
-        total = sub - disc_amt + (ship or 0.0)
+        total_wo_shipping = sub - disc_amt
+        self.qc_total_wo_shipping.setText(self._fmt_money(total_wo_shipping))
+
+        total = total_wo_shipping + (ship or 0.0)
         self.qc_grand_total.setText(self._fmt_money(total))
 
-    def _apply_quick_total_to(self, target_label):
-        text = self.qc_grand_total.text().strip()
-        text = text.replace("$", "").replace(",", "").strip()
+    def _apply_quick_total_to(self, target_label, source_label=None):
+        label = source_label or self.qc_grand_total
+        text = label.text().strip()
         try:
             val = float(text)
             text = f"{val:.2f}"
