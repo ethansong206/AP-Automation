@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog,
     QMessageBox, QHBoxLayout, QDialog, QTableWidgetItem, QLineEdit, QMenu
 )
-from PyQt5.QtGui import QFont, QDragEnterEvent, QDropEvent, QIcon
+from PyQt5.QtGui import QFont, QFontMetrics, QDragEnterEvent, QDropEvent, QIcon
 from PyQt5.QtCore import Qt, QStandardPaths, QTimer, QSize
 
 try:
@@ -90,8 +90,6 @@ class InvoiceApp(QWidget):
         
         self.flag_selected_button = QPushButton("Flag Selected")
         self.flag_selected_button.setObjectName("flagSelectedButton")
-        self.flag_selected_button.setIcon(QIcon(_resolve_icon("flag.svg")))  # Add flag icon
-        self.flag_selected_button.setIconSize(QSize(16, 16))
         self.flag_selected_button.clicked.connect(self.flag_selected_rows)
         second_row.addWidget(self.flag_selected_button)
         
@@ -120,15 +118,34 @@ class InvoiceApp(QWidget):
 
         button_row.addStretch()
 
-        # Middle: Total Number of Invoices
+        #Middle: Total Number of Invoices + Filtered Count
+        count_layout = QVBoxLayout()
+        count_layout.setContentsMargins(0, 0, 0, 0)
+        count_layout.setSpacing(0)
+
         self.invoice_count_label = QLabel("Total Number of Invoices: 0")
         self.invoice_count_label.setObjectName("totalLabel")
         self.invoice_count_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        font = QFont()
-        font.setBold(True)
-        font.setPointSize(12)
-        self.invoice_count_label.setFont(font)
-        button_row.addWidget(self.invoice_count_label)
+        count_font = QFont()
+        count_font.setBold(True)
+        count_font.setPointSize(12)
+        self.invoice_count_label.setFont(count_font)
+        self.invoice_count_label.setContentsMargins(0, 0, 0, 0)
+        # Remove bottom padding so the stacked labels sit closer together
+        self.invoice_count_label.setStyleSheet("padding: 10px 5px 0px 5px;")
+        count_layout.addWidget(self.invoice_count_label)
+
+        self.filtered_count_label = QLabel("")
+        self.filtered_count_label.setObjectName("totalLabel")
+        self.filtered_count_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.filtered_count_label.setFont(QFont(count_font))
+        self.filtered_count_label.setContentsMargins(0, 0, 0, 0)
+        # Remove top/bottom padding and reserve space so the table doesn't shift
+        self.filtered_count_label.setStyleSheet("padding: 0px 5px 0px 5px;")
+        self.filtered_count_label.setFixedHeight(QFontMetrics(count_font).height())
+        count_layout.addWidget(self.filtered_count_label)
+
+        button_row.addLayout(count_layout)
 
         button_row.addStretch()
 
@@ -326,8 +343,13 @@ class InvoiceApp(QWidget):
         self.save_session()
     
     def update_invoice_count(self):
-        count = self.table.rowCount()
-        self.invoice_count_label.setText(f"Total Number of Invoices: {count}")
+        total = self.table.total_row_count()
+        self.invoice_count_label.setText(f"Total Number of Invoices: {total}")
+        visible = self.table.rowCount()
+        if self.table.is_filtered():
+            self.filtered_count_label.setText(f"Showing {visible} of {total} rows")
+        else:
+            self.filtered_count_label.setText("")
 
     def _on_dialog_deleted_file(self, file_path: str):
         if not file_path:
@@ -400,10 +422,12 @@ class InvoiceApp(QWidget):
     # ---------------- Search / Filter helpers ----------------
     def _on_search_text(self, text: str):
         self.table.set_search_text(text)
+        self.update_invoice_count()
 
     def _apply_filters(self):
         self.table.set_flagged_only(self.act_flagged_only.isChecked())
         self.table.set_incomplete_only(self.act_incomplete_only.isChecked())
+        self.update_invoice_count()
 
     # ---------------- Session ----------------
     def _get_session_file(self):

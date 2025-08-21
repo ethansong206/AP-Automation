@@ -525,6 +525,12 @@ class InvoiceTable(QWidget):
     # Qt-style helpers mirrored
     def rowCount(self) -> int:
         return self._proxy.rowCount()
+    
+    def total_row_count(self) -> int:
+        return self._model.rowCount()
+    
+    def is_filtered(self) -> bool:
+        return self._proxy.is_filtered()
 
     def setRowCount(self, n: int):
         if n == 0:

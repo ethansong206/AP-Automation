@@ -356,6 +356,9 @@ class InvoiceSortProxy(QSortFilterProxyModel):
         self._incomplete_only = bool(on)
         self.invalidateFilter()
 
+    def is_filtered(self) -> bool:
+        return bool(self._text_filter or self._flagged_only or self._incomplete_only)
+
     # ---- Sorting ----
     def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder):
         """Allow column=-1 to restore insertion order."""
