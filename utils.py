@@ -15,60 +15,46 @@ def _should_write_headers(filename: str) -> bool:
         # If in doubt, be safe and write headers
         return True
 
-def _scan_existing_pairs(filename: str) -> set[tuple]:
+def _scan_existing_voucher_rows(filename: str) -> set[tuple]:
+    """Return a set of existing voucher rows from an export file.
+
+    Each voucher row (tagged with ``1-AI_VCHR``) is stored as a tuple of strings
+    for exact comparison. Distribution rows and headers are ignored. This allows
+    duplicate detection to compare only the voucher portion of each invoice.
     """
-    Read an existing export file and return a set of existing (VCHR_row, DIST_row) pairs,
-    stored as tuples of strings for exact comparison. Assumes rows are written in order:
-    1-AI_VCHR followed immediately by 2-AI_VCHR_DIST. Header lines are ignored.
-    """
-    pairs = set()
+    vouchers: set[tuple] = set()
     if not os.path.exists(filename) or os.path.getsize(filename) == 0:
-        return pairs
+        return vouchers
 
     try:
-        csv_path = get_vendor_csv_path()
-        with open(csv_path, 'r', encoding='utf-8') as f:
+        with open(filename, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            last_vchr = None
             for row in reader:
                 if not row:
                     continue
-                tag = row[0].strip() if row else ""
-                # Skip header rows (they are not tagged with 1-AI_VCHR/2-AI_VCHR_DIST first col)
                 if row == VCHR_HEADER or row == DIST_HEADER:
                     continue
+                tag = row[0].strip()
                 if tag == "1-AI_VCHR":
-                    last_vchr = tuple(row)
-                elif tag == "2-AI_VCHR_DIST":
-                    if last_vchr is not None:
-                        pairs.add((last_vchr, tuple(row)))
-                        last_vchr = None
-                else:
-                    # Any other unexpected row type: reset the latch
-                    last_vchr = None
+                    vouchers.add(tuple(row))
     except Exception:
-        # If anything goes wrong reading, just treat as empty (no duplicates known)
         return set()
 
-    return pairs
+    return vouchers
 
 # Define headers for the simplified accounting system import format
 # These headers mirror the example provided by the accounting team. Each
 # header line contains 48 columns.
 VCHR_HEADER = [
-    "1-AI_VCHR", "VendorNo", "InvoiceNo", "InvoiceDate", "InvoiceDueDate",
-    "Freight", "Comment(PO)", "BatchNo", "VendorName"
-] + ["NA"] * 39
-
-DIST_HEADER = [
-        "2-AI_VCHR_DIST", "NA", "NA", "NA", "NA", "AccountNo",
-    "DistributionAmt"
+    "1-AI_VCHR", "VendorNo", "InvoiceNo", "InvoiceDate", 
+    "InvoiceDueDate", "Comment(PO)", "VendorName"
 ]
 
-# Default accounts
-DEFAULT_INVENTORY_ACCT = "0520-099"
-DEFAULT_DISCOUNT_ACCT = "0520-099"
-DEFAULT_CP_DISCOUNT_ACCT = ""       # Changed to empty string
+DIST_HEADER = [
+    "2-AI_VCHR_DIST",
+    "AccountNo",
+    "DistributionAmt"
+]
 
 def export_accounting_csv(filename, invoice_table):
     """Export invoices to accounting system format with multiple record types."""
@@ -77,7 +63,7 @@ def export_accounting_csv(filename, invoice_table):
         print(f"[INFO] Table has {invoice_table.rowCount()} rows")
         
         write_headers = _should_write_headers(filename)
-        existing_pairs = _scan_existing_pairs(filename) if not write_headers else set()
+        existing_vouchers = _scan_existing_voucher_rows(filename) if not write_headers else set()
         
         mode = 'a' if not write_headers else 'w'
         with open(filename, mode, newline='', encoding='utf-8') as csvfile:
@@ -184,15 +170,15 @@ def export_accounting_csv(filename, invoice_table):
                           DEFAULT_INVENTORY_ACCT, DEFAULT_INVENTORY_ACCT, 
                           clean_total]
                 
-                pair = (tuple(vchr_row), tuple(dist_row))
-                if pair in existing_pairs:
+                vchr_tuple = tuple(vchr_row)
+                if vchr_tuple in existing_vouchers:
                     rows_skipped_dup += 1
-                    print(f"[INFO] Skipping duplicate pair for invoice '{invoice_no}'")
+                    print(f"[INFO] Skipping duplicate voucher for invoice '{invoice_no}'")
                     continue
 
                 writer.writerow(vchr_row)
                 writer.writerow(dist_row)
-                existing_pairs.add(pair)
+                existing_vouchers.add(vchr_tuple)
                 
                 print(f"[INFO] Successfully wrote row {row} for {vendor_name} (ID: {vendor_id})")
                 rows_written += 1
@@ -486,6 +472,7 @@ def format_and_write_csv(filename, invoice_data_list):
         print(f"[INFO] Writing {len(invoice_data_list)} invoices to {filename}")
         
         write_headers = _should_write_headers(filename)
+        existing_vouchers = _scan_existing_voucher_rows(filename) if not write_headers else set()
         mode = 'a' if not write_headers else 'w'
 
         with open(filename, mode, newline='', encoding='utf-8') as csvfile:
@@ -496,6 +483,7 @@ def format_and_write_csv(filename, invoice_data_list):
                 writer.writerow(DIST_HEADER)
 
             rows_written = 0
+            rows_skipped_dup = 0
 
             for invoice in invoice_data_list:
                 vendor_id = invoice["vendor_number"]
@@ -514,6 +502,10 @@ def format_and_write_csv(filename, invoice_data_list):
                 vchr_row = [
                     "1-AI_VCHR", vendor_id, invoice_no, invoice_date, due_date, comment_po, vendor_name
                 ]
+                vchr_tuple = tuple(vchr_row)
+                if vchr_tuple in existing_vouchers:
+                    rows_skipped_dup += 1
+                    continue
                 writer.writerow(vchr_row)
 
                 # Distribution row for total amount
@@ -528,10 +520,14 @@ def format_and_write_csv(filename, invoice_data_list):
                 ]
                 writer.writerow(dist_row_ship)
 
+                existing_vouchers.add(vchr_tuple)
                 rows_written += 1
 
         action = "Created new file" if write_headers else "Appended"
-        return True, f"{action} and wrote {rows_written} invoices to {filename}"
+        msg = f"{action} and wrote {rows_written} invoices to {filename}"
+        if rows_skipped_dup:
+            msg += f" (skipped {rows_skipped_dup} duplicates)"
+        return True, msg
 
     except Exception as e:
         print(f"[ERROR] Export failed: {str(e)}")
