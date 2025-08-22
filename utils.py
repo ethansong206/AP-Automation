@@ -603,21 +603,20 @@ def format_and_write_csv(filename, invoice_data_list):
 
                 # Voucher row
                 vchr_row = [
-                    "1-AI_VCHR", vendor_id, invoice_no, invoice_date, due_date,
-                    "AP-0001", comment_po, "", vendor_name
-                ] + ["0"] * 39
+                    "1-AI_VCHR", vendor_id, invoice_no, invoice_date, due_date, comment_po, vendor_name
+                ]
                 writer.writerow(vchr_row)
 
                 # Distribution row for total amount
                 dist_row_total = [
-                    "2-AI_VCHR_DIST", "0", "0", "0", "0", "140-000", total_amount
-                ] + [""]
+                    "2-AI_VCHR_DIST", "140-000", total_amount
+                ]
                 writer.writerow(dist_row_total)
 
                 # Distribution row for shipping cost (always included)
                 dist_row_ship = [
-                    "2-AI_VCHR_DIST", "0", "0", "0", "0", "520-000", shipping_cost
-                ] + [""]
+                    "2-AI_VCHR_DIST", "520-000", shipping_cost
+                ]
                 writer.writerow(dist_row_ship)
 
                 rows_written += 1

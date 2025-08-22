@@ -96,7 +96,6 @@ class InvoiceController:
             invoice_number = ' '.join(table.get_cell_text(row, 2).strip().split())
             po_number = ' '.join(table.get_cell_text(row, 3).strip().split())
             invoice_date = ' '.join(table.get_cell_text(row, 4).strip().split())
-            terms = ' '.join(table.get_cell_text(row, 5).strip().split())
             due_date = ' '.join(table.get_cell_text(row, 6).strip().split())
             shipping_cost = ' '.join(table.get_cell_text(row, 7).strip().split())
             total_amount = ' '.join(table.get_cell_text(row, 8).strip().split())
@@ -114,17 +113,14 @@ class InvoiceController:
         
             # Create complete data dictionary with all needed information
             invoice_data = {
-                "vendor_name": vendor_name,
                 "vendor_number": vendor_number,
                 "invoice_number": invoice_number,
                 "po_number": po_number,
                 "invoice_date": self.format_date(invoice_date),
-                "terms": terms,
                 "due_date": self.format_date(due_date),
                 "total_amount": total_amount,
                 "shipping_cost": shipping_cost,
-                "acct_no": "0697-099",
-                "cp_acct_no": "0697-099"
+                "vendor_name": vendor_name,
             }
             
             rows_to_export.append(invoice_data)
