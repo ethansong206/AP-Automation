@@ -1,10 +1,9 @@
 import re
 from datetime import datetime, timedelta
 import csv
-import json
 import os
 
-from utils import get_vendor_csv_path, get_manual_map_path
+from utils import get_vendor_csv_path
 
 
 # --- Clean currency strings like "$1,234.56" to "1234.56" ---
@@ -107,7 +106,9 @@ def load_vendor_list():
     """
     Loads vendor names from vendors.csv as a lowercase set (used for fuzzy matching).
     """
-    csv_path = get_vendor_csv_path()
+    from PyQt5.QtCore import QStandardPaths
+    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    csv_path = os.path.join(roaming_dir, "vendors.csv")
     vendor_set = set()
 
     if not os.path.exists(csv_path):
@@ -131,11 +132,13 @@ def get_vendor_list():
     Returns list of vendor names from vendors.csv.
     Used for dropdown selection (preserves formatting).
     """
-    path = get_vendor_csv_path()
-    if not os.path.exists(path):
+    from PyQt5.QtCore import QStandardPaths
+    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    csv_path = os.path.join(roaming_dir, "vendors.csv")
+    if not os.path.exists(csv_path):
         return []
 
-    with open(path, newline='', encoding="utf-8") as csvfile:
+    with open(csv_path, newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         return [row["Vendor Name"] for row in reader if row.get("Vendor Name")]
 
@@ -166,22 +169,36 @@ def normalize_string(text):
 # --- Load manual vendor map from JSON file ---
 def load_manual_mapping():
     """
-    Loads manual_vendor_map.json and normalizes keys.
-    Returns a dictionary mapping identifier -> vendor name.
+    Loads manual identifier mappings from vendors.csv.
+    Returns a dictionary mapping normalized identifier -> vendor name.
     """
-    json_path = get_manual_map_path()
+    # Use direct path to Roaming root where vendors.csv actually is
+    from PyQt5.QtCore import QStandardPaths
+    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    csv_path = os.path.join(roaming_dir, "vendors.csv")
 
-    if os.path.exists(json_path):
+    if os.path.exists(csv_path):
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                print(f"[INFO] Loaded {len(data)} manual vendor mappings")
-                return {normalize_string(k): v.strip() for k, v in data.items()}
+            mapping = {}
+            with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    identifier = (row.get("Identifier", "") or "").strip()
+                    vendor_name = (row.get("Vendor Name", "") or "").strip()
+                    
+                    # Only add mappings where both identifier and vendor name exist
+                    if identifier and vendor_name:
+                        # Normalize the identifier key like before
+                        normalized_key = normalize_string(identifier)
+                        mapping[normalized_key] = vendor_name
+            
+            print(f"[INFO] Loaded {len(mapping)} manual vendor mappings from CSV")
+            return mapping
         except Exception as e:
-            print(f"[ERROR] Failed to load manual map: {e}")
+            print(f"[ERROR] Failed to load vendor CSV for identifiers: {e}")
             return {}
     else:
-        print(f"[WARN] Manual map not found at {json_path}")
+        print(f"[WARN] Vendor CSV not found at {csv_path}")
         return {}
 
 # Check if Credit Memo amount is Negative, Flip Sign if Not

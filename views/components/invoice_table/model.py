@@ -104,12 +104,14 @@ class InvoiceTableModel(QAbstractTableModel):
         if role == Qt.BackgroundRole:
             if c in BODY_COLS:
                 vals = self.row_values(r)
-                filled = [bool(str(v).strip()) for v in vals]
+                # Exclude shipping cost (index 6) from empty cell checks
+                filled = [bool(str(v).strip()) for i, v in enumerate(vals) if i != 6]
                 all_empty = not any(filled)
                 if all_empty:
                     return QColor("#FDE2E2")  # red highlight when entire row is empty
                 value = self._get_cell_value(r, c)
-                if (value is None) or (str(value).strip() == ""):
+                # Don't highlight shipping cost column when empty
+                if c != C_SHIPPING and ((value is None) or (str(value).strip() == "")):
                     return QColor("#FFF1A6")  # brighter yellow for empty cell
                 if c == C_TERMS:
                     terms = str(value or "")

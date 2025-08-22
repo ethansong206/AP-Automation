@@ -18,6 +18,47 @@ class DateDelegate(QItemDelegate):
         editor.setCalendarPopup(True)
         editor.setDisplayFormat("MM/dd/yy")
         editor.setDate(QDate.currentDate())
+        
+        # Configure calendar popup to be large enough and look default
+        calendar = editor.calendarWidget()
+        if calendar:
+            calendar.setMinimumSize(400, 250)  # Much wider to ensure all 7 days are always visible
+            # Reset to default styling to avoid global style interference
+            calendar.setStyleSheet("""
+                QCalendarWidget {
+                    font-family: default !important;
+                    font-size: 9pt !important;
+                    background-color: white !important;
+                    color: black !important;
+                    alternate-background-color: #f0f0f0 !important;
+                    gridline-color: #d0d0d0 !important;
+                }
+                QCalendarWidget QTableView {
+                    selection-background-color: #3399ff !important;
+                    selection-color: white !important;
+                    font-size: 9pt !important;
+                    background-color: white !important;
+                    color: black !important;
+                    gridline-color: #d0d0d0 !important;
+                }
+                QCalendarWidget QWidget {
+                    color: black !important;
+                    background-color: white !important;
+                }
+                QCalendarWidget QAbstractItemView {
+                    color: black !important;
+                    background-color: white !important;
+                    selection-background-color: #3399ff !important;
+                    selection-color: white !important;
+                }
+                QCalendarWidget QHeaderView::section {
+                    background-color: #e0e0e0 !important;
+                    color: black !important;
+                    border: 1px solid #c0c0c0 !important;
+                    padding: 4px !important;
+                }
+            """)
+            
         return editor
 
     def setEditorData(self, editor, index):

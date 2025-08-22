@@ -1,9 +1,6 @@
 import re
 from .utils import get_vendor_list, normalize_vendor_name, normalize_string, load_manual_mapping
 import os
-import json
-
-from utils import get_manual_map_path
 
 # Load vendor names and manual map once
 VENDOR_NAMES = get_vendor_list()
@@ -14,12 +11,20 @@ MANUAL_MAP = load_manual_mapping()
 def extract_vendor_name(words):
     all_words = [w["text"] for w in words]
     normalized_blob = normalize_string(" ".join(all_words))
+    
+    print(f"[DEBUG] Normalized text blob ({len(normalized_blob)} chars): '{normalized_blob[:200]}{'...' if len(normalized_blob) > 200 else ''}'")
+    print(f"[DEBUG] Checking {len(MANUAL_MAP)} manual identifiers for matches...")
 
     # --- Check Manual Mapping First ---
     for key, value in MANUAL_MAP.items():
+        print(f"[DEBUG] Checking identifier '{key}' against text blob...")
         if key in normalized_blob:
-            print(f"[DEBUG] Manual match found for '{key}' → {value}")
+            print(f"[DEBUG] ✓ Manual identifier match found: '{key}' → vendor '{value}'")
             return value
+        else:
+            print(f"[DEBUG] ✗ No match for identifier '{key}'")
+
+    print("[DEBUG] No manual identifier matches found, proceeding to direct vendor name matching...")
 
     # --- Direct exact match: consecutive multi-word groups (2 to 6) ---
     for n in range(6, 1, -1):  # Start with longest chains first
@@ -45,29 +50,64 @@ def extract_vendor_name(words):
             print(f"[DEBUG] Single-word vendor match found: {VENDOR_NAMES[idx]}")
             return VENDOR_NAMES[idx]
 
-    print("[DEBUG] No vendor match found.")
+    print(f"[DEBUG] No vendor match found for text blob containing {len(all_words)} words")
     return ""
 
 
 def save_manual_mapping(key, vendor_name):
-    json_path = get_manual_map_path()
-
-    if os.path.exists(json_path):
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as e:
-            print(f"[ERROR] Failed to load manual vendor map for writing: {e}")
-            data = {}
-    else:
-        data = {}
-
-    normalized_key = normalize_string(key)
-    data[normalized_key] = vendor_name.strip()
-
+    """Add a new identifier mapping by appending a row to the vendors CSV."""
+    import csv
+    from utils import get_vendor_csv_path
+    
+    csv_path = get_vendor_csv_path()
+    identifier = key.strip()
+    vendor = vendor_name.strip()
+    
+    if not identifier or not vendor:
+        print(f"[ERROR] Cannot save manual mapping with empty identifier or vendor name")
+        return
+    
     try:
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        print(f"[INFO] Saved manual mapping: '{key}' → '{vendor_name}'")
+        # Check if this mapping already exists
+        existing_mappings = load_manual_mapping()
+        normalized_key = normalize_string(identifier)
+        if normalized_key in existing_mappings:
+            if existing_mappings[normalized_key] == vendor:
+                print(f"[INFO] Mapping already exists: '{identifier}' → '{vendor}'")
+                return
+            else:
+                print(f"[INFO] Updating existing mapping: '{identifier}' → '{vendor}'")
+        
+        # Read existing CSV data
+        rows = []
+        if os.path.exists(csv_path):
+            with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+        
+        # Add new row with identifier (no vendor number since this is a manual mapping)
+        new_row = {
+            "Vendor No. (Sage)": "",  # Manual mappings don't need vendor numbers
+            "Vendor Name": vendor,
+            "Identifier": identifier
+        }
+        rows.append(new_row)
+        
+        # Sort by vendor name, then identifier
+        rows.sort(key=lambda r: (r["Vendor Name"].lower(), r.get("Identifier", "").lower()))
+        
+        # Write back to CSV
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            fieldnames = ["Vendor No. (Sage)", "Vendor Name", "Identifier"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        
+        print(f"[INFO] Saved manual mapping: '{identifier}' → '{vendor}'")
+        
+        # Reload the manual mapping cache since we just changed the CSV
+        global MANUAL_MAP
+        MANUAL_MAP = load_manual_mapping()
+        
     except Exception as e:
         print(f"[ERROR] Failed to save manual mapping: {e}")

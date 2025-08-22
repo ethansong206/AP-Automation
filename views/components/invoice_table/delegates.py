@@ -84,12 +84,13 @@ class BodyEditDelegate(QStyledItemDelegate):
                 painter.restore()
             else:
                 vals = src_model.row_values(r)
-                filled = [bool(str(v).strip()) for v in vals]
+                # Exclude shipping cost (index 6) from empty cell checks for yellow stripe
+                filled = [bool(str(v).strip()) for i, v in enumerate(vals) if i != 6]
                 any_empty = any(not f for f in filled)
                 all_empty = not any(filled)
                 if any_empty and not all_empty:
                     painter.save()
-                    painter.fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), QColor("#FFEB80"))
+                    painter.fillRect(QRect(option.rect.left(), option.rect.top(), 4, option.rect.height()), QColor("#FFF1A6"))
                     painter.restore()
 
         # Column divider

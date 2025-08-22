@@ -214,12 +214,47 @@ class ManualEntryDialog(QDialog):
                 subcontrol-position: center !important;
             }}
             
+            /* QDateEdit dropdown styling to match QComboBox */
+            ManualEntryDialog QDateEdit::drop-down {{
+                subcontrol-origin: padding !important;
+                subcontrol-position: top right !important;
+                width: 28px !important;
+                border-left: 2px solid {THEME['card_border']} !important;
+                border-top-right-radius: 6px !important;
+                border-bottom-right-radius: 6px !important;
+                background-color: #FFFFFF !important;
+                padding-right: 8px !important;
+                margin: 0 !important;
+            }}
+            ManualEntryDialog QDateEdit::drop-down:hover {{
+                background-color: #e0e0e0 !important;
+            }}
+            ManualEntryDialog QDateEdit::drop-down:pressed {{
+                background-color: #d0d0d0 !important;
+            }}
+            ManualEntryDialog QDateEdit::down-arrow {{
+                image: url({ARROW_ICON}) !important;
+                width: 12px !important;
+                height: 12px !important;
+                subcontrol-origin: padding !important;
+                subcontrol-position: center !important;
+            }}
+            
             /* Additional specific overrides for problematic elements */
-            QWidget QLineEdit,
-            QWidget QComboBox, 
-            QWidget QDateEdit {{
+            /* Exclude calendar widgets from global styling */
+            QWidget QLineEdit:not(QCalendarWidget QLineEdit),
+            QWidget QComboBox:not(QCalendarWidget QComboBox), 
+            QWidget QDateEdit:not(QCalendarWidget QDateEdit) {{
                 background-color: #FFFFFF !important;
                 color: #000000 !important;
+            }}
+            
+            /* Ensure calendar widgets are excluded from main styling */
+            QCalendarWidget, QCalendarWidget * {{
+                font-family: default;
+                font-size: 9pt;
+                background-color: white;
+                color: black;
             }}
             
             ManualEntryDialog QLineEdit:focus, 
@@ -238,6 +273,20 @@ class ManualEntryDialog(QDialog):
             
 
             ManualEntryDialog QComboBox::down-arrow {{
+                image: url({ARROW_ICON}) !important;
+                width: 12px !important;
+                height: 12px !important;
+                subcontrol-origin: padding !important;
+                subcontrol-position: center !important;
+            }}
+            
+            /* Second QDateEdit dropdown styling block */
+            ManualEntryDialog QDateEdit::drop-down {{
+                border: none !important;
+                padding-right: 8px !important;
+                background-color: #FFFFFF !important;
+            }}
+            ManualEntryDialog QDateEdit::down-arrow {{
                 image: url({ARROW_ICON}) !important;
                 width: 12px !important;
                 height: 12px !important;
@@ -437,6 +486,30 @@ class ManualEntryDialog(QDialog):
         self.fields["Invoice Date"].setCalendarPopup(True)
         self.fields["Invoice Date"].setDisplayFormat("MM/dd/yyyy")
         self.fields["Invoice Date"].setDate(QDate.currentDate())
+        
+        # Configure calendar to be large enough and look default
+        calendar = self.fields["Invoice Date"].calendarWidget()
+        if calendar:
+            calendar.setMinimumSize(380, 240)  # Ensure calendar is wide enough for all 7 days
+            # Remove any inherited styling to make it look default
+            calendar.setStyleSheet("""
+                QCalendarWidget {
+                    font-family: default !important;
+                    font-size: 9pt !important;
+                    background-color: white !important;
+                    alternate-background-color: #f0f0f0 !important;
+                }
+                QCalendarWidget QTableView {
+                    selection-background-color: #3399ff !important;
+                    selection-color: white !important;
+                    font-size: 9pt !important;
+                }
+                QCalendarWidget QWidget {
+                    color: black !important;
+                    background-color: white !important;
+                }
+            """)
+        
         form_layout.addRow(QLabel("Invoice Date:"), self.fields["Invoice Date"])
 
         # Discount Terms
@@ -448,6 +521,30 @@ class ManualEntryDialog(QDialog):
         self.fields["Due Date"].setCalendarPopup(True)
         self.fields["Due Date"].setDisplayFormat("MM/dd/yyyy")
         self.fields["Due Date"].setDate(QDate.currentDate())
+        
+        # Configure Due Date calendar to be large enough and look default
+        due_calendar = self.fields["Due Date"].calendarWidget()
+        if due_calendar:
+            due_calendar.setMinimumSize(380, 240)  # Ensure calendar is wide enough for all 7 days
+            # Remove any inherited styling to make it look default
+            due_calendar.setStyleSheet("""
+                QCalendarWidget {
+                    font-family: default !important;
+                    font-size: 9pt !important;
+                    background-color: white !important;
+                    alternate-background-color: #f0f0f0 !important;
+                }
+                QCalendarWidget QTableView {
+                    selection-background-color: #3399ff !important;
+                    selection-color: white !important;
+                    font-size: 9pt !important;
+                }
+                QCalendarWidget QWidget {
+                    color: black !important;
+                    background-color: white !important;
+                }
+            """)
+        
         due_row = QHBoxLayout()
         due_row.addWidget(self.fields["Due Date"], 1)
         due_row.addSpacing(10)
@@ -669,12 +766,15 @@ class ManualEntryDialog(QDialog):
         for w in self._calc_currency_fields:
             w.installEventFilter(self)
 
+        # Track manually edited fields
+        self.manually_edited_fields = set()
+        
         # Highlight on change
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
-                widget.textChanged.connect(self._highlight_empty_fields)
+                widget.textChanged.connect(lambda _, l=label: self._on_field_changed(l))
             elif isinstance(widget, QComboBox):
-                widget.currentTextChanged.connect(self._highlight_empty_fields)
+                widget.currentTextChanged.connect(lambda _, l=label: self._on_field_changed(l))
             elif isinstance(widget, QDateEdit):
                 widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
 
@@ -704,28 +804,9 @@ class ManualEntryDialog(QDialog):
             if isinstance(widget, QLineEdit):
                 widget.setStyleSheet(input_field_style)
             elif isinstance(widget, QDateEdit):
-                widget.setStyleSheet(input_field_style + f"""
-                    QDateEdit::drop-down {{
-                        subcontrol-origin: padding;
-                        subcontrol-position: top right;
-                        width: 24px;
-                        border-left: 1px solid {THEME['card_border']};
-                        border-top-right-radius: 6px;
-                        border-bottom-right-radius: 6px;
-                        background-color: #f0f0f0;
-                    }}
-                    QDateEdit::drop-down:hover {{
-                        background-color: #e0e0e0;
-                    }}
-                    QDateEdit::down-arrow {{
-                        image: none;
-                        border-left: 5px solid transparent;
-                        border-right: 5px solid transparent;
-                        border-top: 8px solid #333333;
-                        width: 0px;
-                        height: 0px;
-                    }}
-                """)
+                # QDateEdit now uses global ManualEntryDialog styles with SVG arrow
+                # Just apply basic field styling - dropdown handled by global styles
+                widget.setStyleSheet(input_field_style)
             elif isinstance(widget, QComboBox):
                 # Special handling for vendor dropdown with enhanced visibility
                 enhanced_combo_style = input_field_style + f"""
@@ -957,6 +1038,10 @@ class ManualEntryDialog(QDialog):
                 self.empty_date_fields.add("Invoice Date")
             if not vals[5].strip():
                 self.empty_date_fields.add("Due Date")
+            
+            # Reset manual edit tracking when loading new data
+            self.manually_edited_fields = set()
+            
             self._highlight_empty_fields()
         finally:
             # Reset dirty to reflect snapshot equality
@@ -977,6 +1062,16 @@ class ManualEntryDialog(QDialog):
                 return QDate()
         return QDate.fromString(s, "MM/dd/yy")
 
+    def _clear_quick_calculator(self):
+        """Clear all Quick Calculator fields when navigating to another file."""
+        self.qc_subtotal.clear()
+        self.qc_disc_pct.clear()
+        self.qc_disc_amt.clear()
+        self.qc_shipping.clear()
+        # Also clear the calculated totals
+        self.qc_total_wo_shipping.setText("$0.00")
+        self.qc_grand_total.setText("$0.00")
+
     def load_invoice(self, index):
         if not self.pdf_paths:
             self.file_tracker_label.setText("0/0")
@@ -987,6 +1082,9 @@ class ManualEntryDialog(QDialog):
 
         #Update tracker label
         self.file_tracker_label.setText(f"{index + 1}/{len(self.pdf_paths)}")
+
+        # Clear Quick Calculator fields when navigating to another file
+        self._clear_quick_calculator()
 
         # Load widgets (guard prevents dirty)
         self._load_values_into_widgets(self.values_list[index])
@@ -1246,11 +1344,99 @@ class ManualEntryDialog(QDialog):
     def open_vendor_list(self):
         """Open the editable vendor list dialog and refresh the combo after closing."""
         dlg = VendorListDialog(self)
+        dlg.vendor_list_updated.connect(self._on_vendor_list_updated)
         dlg.exec_()
         self.load_vendors()
 
+    def _on_vendor_list_updated(self):
+        """Handle vendor list updates by re-extracting vendor names for empty cells."""
+        self._reextract_empty_vendor_names()
+
+    def _reextract_empty_vendor_names(self):
+        """Re-extract vendor names for all empty vendor name cells in the invoice table."""
+        # Get the parent application through parent chain
+        parent_app = self.parent()
+        if not hasattr(parent_app, 'table'):
+            return
+        
+        invoice_table = parent_app.table
+        
+        # Import vendor extraction function
+        from extractors.vendor_name import extract_vendor_name
+        
+        # Track updates made
+        updates_made = 0
+        
+        # Iterate through all rows in the invoice table
+        for row in range(invoice_table.rowCount()):
+            # Check if vendor name is empty (column 1)
+            vendor_name = invoice_table.get_cell_text(row, 1).strip()
+            if not vendor_name:
+                # Get the file path for this row to extract words
+                file_path = invoice_table.get_file_path_for_row(row)
+                if file_path and os.path.exists(file_path):
+                    try:
+                        # Extract text from the PDF and attempt vendor extraction
+                        import fitz  # PyMuPDF
+                        doc = fitz.open(file_path)
+                        
+                        # Extract all words from all pages
+                        words = []
+                        for page_num in range(len(doc)):
+                            page = doc[page_num]
+                            word_list = page.get_text("words")
+                            for w in word_list:
+                                words.append({"text": w[4]})  # w[4] is the text content
+                        doc.close()
+                        
+                        # Try to extract vendor name
+                        print(f"[DEBUG] Re-extracting vendor for file: {file_path}")
+                        extracted_vendor = extract_vendor_name(words)
+                        if extracted_vendor.strip():
+                            print(f"[DEBUG] Re-extraction successful: '{extracted_vendor}' for file: {file_path}")
+                            # Update the table with the new vendor name using the model
+                            # Convert view row to source row
+                            src_row = invoice_table._view_to_source_row(row)
+                            if src_row >= 0:
+                                model_index = invoice_table._model.index(src_row, 1)  # Column 1 is vendor
+                                invoice_table._model.setData(model_index, extracted_vendor, Qt.EditRole)
+                                updates_made += 1
+                        else:
+                            print(f"[DEBUG] Re-extraction failed: No vendor found for file: {file_path}")
+                            
+                    except Exception as e:
+                        print(f"[ERROR] Failed to re-extract vendor for row {row}, file: {file_path}: {e}")
+                        continue
+        
+        # Update all values_list entries to stay in sync with the table
+        if updates_made > 0:
+            # Update all entries in values_list to match the updated table
+            for i in range(min(len(self.values_list), invoice_table.rowCount())):
+                updated_vendor = invoice_table.get_cell_text(i, 1)
+                if self.values_list[i][0] != updated_vendor:
+                    self.values_list[i][0] = updated_vendor
+            
+            # Update the current dialog display if we're viewing an affected row
+            current_index = getattr(self, 'current_index', 0)
+            if (current_index < len(self.values_list) and 
+                current_index < invoice_table.rowCount()):
+                updated_vendor = invoice_table.get_cell_text(current_index, 1)
+                if not self._loading:
+                    self.vendor_combo.setCurrentText(updated_vendor)
+            
+            print(f"[INFO] Re-extracted vendor names for {updates_made} empty cells")
+
+    def _on_field_changed(self, label):
+        if not self._loading:
+            self.manually_edited_fields.add(label)
+        self._highlight_empty_fields()
+    
     def _on_date_changed(self, label):
         self._clear_date_highlight(label)
+        if not self._loading:
+            self.manually_edited_fields.add(label)
+        # Immediately update highlighting when date changes
+        self._highlight_empty_fields()
 
     # ---------- Highlighting / data extraction ----------
     def _clear_date_highlight(self, label):
@@ -1270,8 +1456,20 @@ class ManualEntryDialog(QDialog):
             min-height: 20px;
         """
         
+        # Use the same yellow as invoice table for empty fields
         empty_input_style = f"""
-            background-color: yellow;
+            background-color: #FFF1A6;
+            color: #000000;
+            border: 1px solid {THEME['card_border']};
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 15px;
+            min-height: 20px;
+        """
+        
+        # Use the same green as invoice table for manually edited fields
+        manual_edit_style = f"""
+            background-color: #DCFCE7;
             color: #000000;
             border: 1px solid {THEME['card_border']};
             border-radius: 6px;
@@ -1281,138 +1479,117 @@ class ManualEntryDialog(QDialog):
         """
         
         for label, widget in self.fields.items():
+            # Skip highlighting for Shipping Cost field entirely
+            if label == "Shipping Cost":
+                # Apply base style for shipping cost field
+                widget.setStyleSheet(base_input_style)
+                continue
+                
             if isinstance(widget, QLineEdit):
                 empty = not widget.text().strip()
             elif isinstance(widget, QComboBox):
                 empty = not widget.currentText().strip()
-                # ComboBox needs special handling
-                if empty:
-                    widget.setStyleSheet(empty_input_style + f"""
-                        QComboBox::drop-down {{
-                            subcontrol-origin: padding;
-                            subcontrol-position: top right;
-                            width: 20px;
-                            border-left: 1px solid {THEME['card_border']};
-                            border-top-right-radius: 6px;
-                            border-bottom-right-radius: 6px;
-                            background-color: #ffeb3b;
-                        }}
-                        QComboBox::down-arrow {{
-                            image: none;
-                            border-left: 4px solid transparent;
-                            border-right: 4px solid transparent;
-                            border-top: 6px solid #666666;
-                            width: 0px;
-                            height: 0px;
-                        }}
-                        QComboBox QAbstractItemView {{
-                            background-color: #FFFFFF;
-                            color: #000000;
-                            border: 1px solid {THEME['card_border']};
-                            border-radius: 4px;
-                            selection-background-color: {THEME['brand_green']};
-                            selection-color: white;
-                            outline: none;
-                        }}
-                    """)
-                else:
-                    widget.setStyleSheet(base_input_style + f"""
-                        QComboBox {{
-                            padding-right: 30px;
-                        }}
-                        QComboBox::drop-down {{
-                            subcontrol-origin: padding;
-                            subcontrol-position: top right;
-                            width: 28px;
-                            border-left: 2px solid {THEME['card_border']};
-                            border-top-right-radius: 6px;
-                            border-bottom-right-radius: 6px;
-                            background-color: #f0f0f0;
-                            margin-top: 1px;
-                            margin-bottom: 1px;
-                            margin-right: 1px;
-                        }}
-                        QComboBox::drop-down:hover {{
-                            background-color: #e0e0e0;
-                        }}
-                        QComboBox::drop-down:pressed {{
-                            background-color: #d0d0d0;
-                        }}
-                        QComboBox::down-arrow {{
-                            image: none;
-                            background-color: transparent;
-                            width: 16px;
-                            height: 16px;
-                            border: 2px solid #333333;
-                            border-left: transparent;
-                            border-right: transparent;
-                            border-bottom: transparent;
-                            border-top: 8px solid #333333;
-                            margin-top: 4px;
-                        }}
-                        QComboBox QAbstractItemView {{
-                            background-color: #FFFFFF;
-                            color: #000000;
-                            border: 2px solid {THEME['card_border']};
-                            border-radius: 4px;
-                            selection-background-color: {THEME['brand_green']};
-                            selection-color: white;
-                            outline: none;
-                            show-decoration-selected: 1;
-                            min-height: 20px;
-                        }}
-                        QComboBox QAbstractItemView::item {{
-                            min-height: 25px;
-                            padding: 4px;
-                        }}
-                        QComboBox QScrollBar:vertical {{
-                            background-color: #f0f0f0;
-                            width: 16px;
-                            border: 1px solid {THEME['card_border']};
-                            border-radius: 8px;
-                        }}
-                        QComboBox QScrollBar::handle:vertical {{
-                            background-color: #c0c0c0;
-                            border-radius: 6px;
-                            min-height: 20px;
-                        }}
-                        QComboBox QScrollBar::handle:vertical:hover {{
-                            background-color: #a0a0a0;
-                        }}
-                    """)
-                continue
             elif isinstance(widget, QDateEdit):
                 empty = label in getattr(self, "empty_date_fields", set())
             else:
                 empty = False
+                
+            # Determine style based on priority: manual edit > empty > base
+            manually_edited = label in getattr(self, "manually_edited_fields", set())
             
-            # Apply appropriate style with proper dropdown styling for QDateEdit
-            if isinstance(widget, QDateEdit):
-                date_dropdown_style = f"""
-                    QDateEdit::drop-down {{
+            if isinstance(widget, QComboBox):
+                # ComboBox needs special handling
+                if manually_edited:
+                    base_style = manual_edit_style
+                    dropdown_bg = "#dcfce7"
+                elif empty:
+                    base_style = empty_input_style
+                    dropdown_bg = "#FFF1A6"
+                else:
+                    base_style = base_input_style
+                    dropdown_bg = "#f0f0f0"
+                    
+                widget.setStyleSheet(base_style + f"""
+                    QComboBox {{
+                        padding-right: 30px;
+                    }}
+                    QComboBox::drop-down {{
                         subcontrol-origin: padding;
                         subcontrol-position: top right;
-                        width: 24px;
-                        border-left: 1px solid {THEME['card_border']};
+                        width: 28px;
+                        border-left: 2px solid {THEME['card_border']};
                         border-top-right-radius: 6px;
                         border-bottom-right-radius: 6px;
-                        background-color: {'#ffeb3b' if empty else '#f0f0f0'};
+                        background-color: {dropdown_bg};
+                        margin-top: 1px;
+                        margin-bottom: 1px;
+                        margin-right: 1px;
                     }}
-                    QDateEdit::drop-down:hover {{
-                        background-color: {'#ffdd00' if empty else '#e0e0e0'};
+                    QComboBox::drop-down:hover {{
+                        background-color: #e0e0e0;
                     }}
-                    QDateEdit::down-arrow {{
+                    QComboBox::drop-down:pressed {{
+                        background-color: #d0d0d0;
+                    }}
+                    QComboBox::down-arrow {{
                         image: none;
-                        border-left: 5px solid transparent;
-                        border-right: 5px solid transparent;
+                        background-color: transparent;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid #333333;
+                        border-left: transparent;
+                        border-right: transparent;
+                        border-bottom: transparent;
                         border-top: 8px solid #333333;
-                        width: 0px;
-                        height: 0px;
+                        margin-top: 4px;
                     }}
-                """
-                widget.setStyleSheet((empty_input_style if empty else base_input_style) + date_dropdown_style)
+                    QComboBox QAbstractItemView {{
+                        background-color: #FFFFFF;
+                        color: #000000;
+                        border: 2px solid {THEME['card_border']};
+                        border-radius: 4px;
+                        selection-background-color: {THEME['brand_green']};
+                        selection-color: white;
+                        outline: none;
+                        show-decoration-selected: 1;
+                        min-height: 20px;
+                    }}
+                    QComboBox QAbstractItemView::item {{
+                        min-height: 25px;
+                        padding: 4px;
+                    }}
+                    QComboBox QScrollBar:vertical {{
+                        background-color: #f0f0f0;
+                        width: 16px;
+                        border: 1px solid {THEME['card_border']};
+                        border-radius: 8px;
+                    }}
+                    QComboBox QScrollBar::handle:vertical {{
+                        background-color: #c0c0c0;
+                        border-radius: 6px;
+                        min-height: 20px;
+                    }}
+                    QComboBox QScrollBar::handle:vertical:hover {{
+                        background-color: #a0a0a0;
+                    }}
+                """)
+            elif isinstance(widget, QDateEdit):
+                # QDateEdit uses global ManualEntryDialog styles for dropdown arrow
+                # Only apply field background highlighting - dropdown handled globally
+                if manually_edited:
+                    widget.setStyleSheet(manual_edit_style)
+                elif empty:
+                    widget.setStyleSheet(empty_input_style)
+                else:
+                    widget.setStyleSheet(base_input_style)
             else:
-                widget.setStyleSheet(empty_input_style if empty else base_input_style)
+                # QLineEdit
+                if manually_edited:
+                    widget.setStyleSheet(manual_edit_style)
+                elif empty:
+                    widget.setStyleSheet(empty_input_style)
+                else:
+                    widget.setStyleSheet(base_input_style)
 
     def get_data(self):
         data = []
