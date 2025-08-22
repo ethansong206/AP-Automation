@@ -53,9 +53,10 @@ class _DialogTitleBar(QWidget):
     - Reuses your SVG icons (minimize/close) via _resolve_icon
     - Drag anywhere on the left/title area to move the frameless window
     """
-    def __init__(self, parent=None, title_text: str = "Manual Entry", titlebar_height: int = 60):
+    def __init__(self, parent=None, title_text: str = "Manual Entry", titlebar_height: int = 60, dpi_scale: float = 1.0):
         super().__init__(parent)
         self._drag_offset = None
+        self.dpi_scale = dpi_scale  # Store DPI scale for button sizing
         self.setMouseTracking(True)
 
         # Scale margins and spacing based on titlebar height
@@ -83,20 +84,21 @@ class _DialogTitleBar(QWidget):
         def make_winbtn(icon: QIcon) -> QToolButton:
             b = QToolButton(self)
             b.setObjectName("WinBtn")
-            # Scale window control buttons based on titlebar height
-            btn_width = max(40, int(titlebar_height * 0.8))
-            btn_height = max(28, int(titlebar_height * 0.6))
-            icon_size = max(24, int(titlebar_height * 0.5))
+            # Match main window button sizes with DPI scaling
+            btn_width = max(54, int(64 * self.dpi_scale))   # Scale main window's 64px width
+            btn_height = max(40, int(48 * self.dpi_scale))  # Scale main window's 48px height  
+            icon_size = max(45, int(54 * self.dpi_scale))   # Scale main window's 54px icon
             b.setFixedSize(btn_width, btn_height)
             b.setIcon(icon)
             b.setIconSize(QSize(icon_size, icon_size))
             b.setCursor(Qt.PointingHandCursor)
             b.setFocusPolicy(Qt.NoFocus)
-            border_radius = max(4, int(titlebar_height * 0.1))
+            border_radius = max(4, int(6 * self.dpi_scale))  # DPI-scaled border radius
             b.setStyleSheet(
                 "QToolButton#WinBtn { background: transparent; border: none; padding: 0; }"
                 f"QToolButton#WinBtn:hover {{ background: rgba(0,0,0,0.06); border-radius: {border_radius}px; }}"
             )
+            b.setMouseTracking(True)  # Match main window's mouse tracking
             return b
 
         self.btn_min = make_winbtn(self._icon_min)
@@ -164,10 +166,15 @@ class ManualEntryDialog(QDialog):
         if screen:
             screen_size = screen.availableGeometry()
             min_width = max(1200, int(screen_size.width() * 0.75))  # 75% of screen width, min 1200
-            min_height = max(800, int(screen_size.height() * 0.8))  # 80% of screen height, min 800
+            min_height = max(850, int(screen_size.height() * 0.85))  # 85% of screen height, min 850
             self.setMinimumSize(min_width, min_height)
+            
+            # Calculate DPI scaling factor for better cross-resolution support
+            dpi = screen.logicalDotsPerInch()
+            self.dpi_scale = dpi / 96.0  # 96 DPI is standard Windows DPI
         else:
-            self.setMinimumSize(1200, 800)  # Fallback for smaller screens
+            self.setMinimumSize(1200, 850)  # Fallback for smaller screens
+            self.dpi_scale = 1.0
         self.setObjectName("ManualEntryRoot")
 
         # Root layout (lets us paint a rounded background in paintEvent)
@@ -182,7 +189,7 @@ class ManualEntryDialog(QDialog):
             titlebar_height = max(50, int(screen.availableGeometry().height() * 0.035))
         else:
             titlebar_height = 60
-        self.titlebar = _DialogTitleBar(self, title_text="Manual Entry", titlebar_height=titlebar_height)
+        self.titlebar = _DialogTitleBar(self, title_text="Manual Entry", titlebar_height=titlebar_height, dpi_scale=self.dpi_scale)
         self.titlebar.setMouseTracking(True)
         self.titlebar.setFixedHeight(titlebar_height)
         root.addWidget(self.titlebar, 0)  # 0 stretch factor = fixed size
@@ -199,8 +206,17 @@ class ManualEntryDialog(QDialog):
 
         # ---------- Enhanced dialog UI styling ----------
         # Calculate responsive font sizes
-        base_font_size = 15  # Restore original size
-        large_font_size = 18  # Restore original size
+        # DPI-aware font sizes
+        base_font_size = max(13, int(15 * self.dpi_scale))  # Scale base font with DPI
+        large_font_size = max(16, int(18 * self.dpi_scale))  # Scale large font with DPI
+        
+        # Scaled CSS values for consistent proportions
+        self.css_padding_sm = max(6, int(8 * self.dpi_scale))
+        self.css_padding_md = max(9, int(12 * self.dpi_scale))
+        self.css_margin_sm = max(4, int(6 * self.dpi_scale))
+        self.css_font_base = max(13, int(15 * self.dpi_scale))
+        self.css_font_large = max(16, int(20 * self.dpi_scale))
+        self.css_border_radius = max(4, int(6 * self.dpi_scale))
         
         base_style = load_stylesheet(get_style_path('default.qss'))
         self.setStyleSheet(base_style + f"""
@@ -244,8 +260,8 @@ class ManualEntryDialog(QDialog):
             }}
             ManualEntryDialog QComboBox::down-arrow {{
                 image: url({ARROW_ICON}) !important;
-                width: 12px !important;
-                height: 12px !important;
+                width: {max(10, int(12 * self.dpi_scale))}px !important;
+                height: {max(10, int(12 * self.dpi_scale))}px !important;
                 subcontrol-origin: padding !important;
                 subcontrol-position: center !important;
             }}
@@ -254,12 +270,12 @@ class ManualEntryDialog(QDialog):
             ManualEntryDialog QDateEdit::drop-down {{
                 subcontrol-origin: padding !important;
                 subcontrol-position: top right !important;
-                width: 28px !important;
+                width: {max(24, int(28 * self.dpi_scale))}px !important;
                 border-left: 2px solid {THEME['card_border']} !important;
-                border-top-right-radius: 6px !important;
-                border-bottom-right-radius: 6px !important;
+                border-top-right-radius: {self.css_border_radius}px !important;
+                border-bottom-right-radius: {self.css_border_radius}px !important;
                 background-color: #FFFFFF !important;
-                padding-right: 8px !important;
+                padding-right: {self.css_padding_sm}px !important;
                 margin: 0 !important;
             }}
             ManualEntryDialog QDateEdit::drop-down:hover {{
@@ -270,8 +286,8 @@ class ManualEntryDialog(QDialog):
             }}
             ManualEntryDialog QDateEdit::down-arrow {{
                 image: url({ARROW_ICON}) !important;
-                width: 12px !important;
-                height: 12px !important;
+                width: {max(10, int(12 * self.dpi_scale))}px !important;
+                height: {max(10, int(12 * self.dpi_scale))}px !important;
                 subcontrol-origin: padding !important;
                 subcontrol-position: center !important;
             }}
@@ -334,24 +350,24 @@ class ManualEntryDialog(QDialog):
                 background-color: #FFFFFF !important;
                 color: #000000 !important;
                 border: 1px solid {THEME['card_border']} !important;
-                border-radius: 4px !important;
+                border-radius: {max(3, int(4 * self.dpi_scale))}px !important;
                 selection-background-color: {THEME['brand_green']} !important;
                 selection-color: white !important;
             }}
             
             QPushButton {{ 
                 font-size: {base_font_size}px; 
-                padding: 9px 15px; 
+                padding: {max(7, int(9 * self.dpi_scale))}px {max(12, int(15 * self.dpi_scale))}px; 
             }}
             
             QGroupBox {{ 
                 font-size: {large_font_size}px; 
                 font-weight: bold; 
-                margin-top: 15px; 
+                margin-top: {max(12, int(15 * self.dpi_scale))}px; 
                 background-color: transparent;
                 border: 1px solid {THEME['card_border']};
-                border-radius: 8px;
-                padding-top: 10px;
+                border-radius: {self.css_padding_sm}px;
+                padding-top: {max(8, int(10 * self.dpi_scale))}px;
             }}
             
             QGroupBox::title {{
@@ -640,10 +656,13 @@ class ManualEntryDialog(QDialog):
         qc.addRow(btn_row)
         self.quick_calc_group.setLayout(qc)
 
-        # Button styles
+        # Button styles - DPI-aware
+        btn_border_radius = max(3, int(4 * self.dpi_scale))
+        btn_padding_v = max(7, int(9 * self.dpi_scale))
+        btn_padding_h = max(12, int(15 * self.dpi_scale))
         primary_btn_css = (
-            "QPushButton { background-color: #5E6F5E; color: white; border-radius: 4px; "
-            "padding: 9px 15; font-weight: bold; } "
+            f"QPushButton {{ background-color: #5E6F5E; color: white; border-radius: {btn_border_radius}px; "
+            f"padding: {btn_padding_v}px {btn_padding_h}px; font-weight: bold; }} "
             "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
@@ -653,9 +672,11 @@ class ManualEntryDialog(QDialog):
         # Navigation + delete
         self.prev_button = QPushButton("←")
         self.next_button = QPushButton("→")
+        nav_font_size = max(24, int(28 * self.dpi_scale))  # DPI-scaled navigation font
+        nav_padding = max(8, int(10 * self.dpi_scale))    # DPI-scaled navigation padding
         nav_css = (
-            "QPushButton { background-color: #5E6F5E; color: #f0f0f0; border: 1px solid #3E4F3E; "
-            "font-size: 28px; padding: 10px; } "
+            f"QPushButton {{ background-color: #5E6F5E; color: #f0f0f0; border: 1px solid #3E4F3E; "
+            f"font-size: {nav_font_size}px; padding: {nav_padding}px; }} "
             "QPushButton:hover { background-color: #546454; } "
             "QPushButton:pressed { background-color: #485848; } "
             "QPushButton:disabled { background-color: #bbbbbb; color: #666666; }"
@@ -691,9 +712,13 @@ class ManualEntryDialog(QDialog):
 
         self.delete_btn = QPushButton("Delete This Invoice")
         self.delete_btn.setToolTip("Remove this invoice from the list and table")
+        delete_border_radius = max(3, int(4 * self.dpi_scale))
+        delete_padding_v = max(7, int(9 * self.dpi_scale))
+        delete_padding_h = max(12, int(15 * self.dpi_scale))
+        delete_font_size = max(13, int(15 * self.dpi_scale))
         self.delete_btn.setStyleSheet(
-            "QPushButton { background-color: #C0392B; color: white; border-radius: 4px; "
-            "padding: 9px 15; font-weight: bold; font-size: 15px; } "
+            f"QPushButton {{ background-color: #C0392B; color: white; border-radius: {delete_border_radius}px; "
+            f"padding: {delete_padding_v}px {delete_padding_h}px; font-weight: bold; font-size: {delete_font_size}px; }} "
             "QPushButton:hover { background-color: #D3543C; } "
             "QPushButton:pressed { background-color: #A93226; }"
         )
@@ -836,20 +861,20 @@ class ManualEntryDialog(QDialog):
             background-color: #FFFFFF;
             color: #000000;
             border: 1px solid {THEME['card_border']};
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 15px;
-            min-height: 20px;
+            border-radius: {self.css_border_radius}px;
+            padding: {self.css_padding_sm}px {self.css_padding_md}px;
+            font-size: {self.css_font_base}px;
+            min-height: {max(16, int(20 * self.dpi_scale))}px;
         """
         
         focus_style = f"""
             background-color: #FFFFFF;
             color: #000000;
             border: 2px solid {THEME['brand_green']};
-            border-radius: 6px;
-            padding: 7px 11px;
-            font-size: 15px;
-            min-height: 20px;
+            border-radius: {self.css_border_radius}px;
+            padding: {max(5, int(7 * self.dpi_scale))}px {max(9, int(11 * self.dpi_scale))}px;
+            font-size: {self.css_font_base}px;
+            min-height: {max(16, int(20 * self.dpi_scale))}px;
         """
         
         # Apply white background styling directly to all input fields
@@ -864,15 +889,15 @@ class ManualEntryDialog(QDialog):
                 # Special handling for vendor dropdown with enhanced visibility
                 enhanced_combo_style = input_field_style + f"""
                     QComboBox {{
-                        padding-right: 30px;
+                        padding-right: {max(25, int(30 * self.dpi_scale))}px;
                     }}
                     QComboBox::drop-down {{
                         subcontrol-origin: padding;
                         subcontrol-position: top right;
-                        width: 28px;
+                        width: {max(24, int(28 * self.dpi_scale))}px;
                         border-left: 2px solid {THEME['card_border']};
-                        border-top-right-radius: 6px;
-                        border-bottom-right-radius: 6px;
+                        border-top-right-radius: {self.css_border_radius}px;
+                        border-bottom-right-radius: {self.css_border_radius}px;
                         background-color: #f0f0f0;
                         margin-top: 1px;
                         margin-bottom: 1px;
@@ -887,15 +912,15 @@ class ManualEntryDialog(QDialog):
                     QComboBox::down-arrow {{
                         image: none;
                         background-color: transparent;
-                        width: 16px;
-                        height: 16px;
+                        width: {max(13, int(16 * self.dpi_scale))}px;
+                        height: {max(13, int(16 * self.dpi_scale))}px;
                         border: 2px solid #333333;
                         border-left: transparent;
                         border-right: transparent;
                         border-bottom: transparent;
-                        border-top: 8px solid #333333;
-                        margin-top: 4px;
-                    }}
+                        border-top: {max(6, int(8 * self.dpi_scale))}px solid #333333;
+                        margin-top: {max(3, int(4 * self.dpi_scale))}px;
+                    }}"
                     QComboBox QAbstractItemView {{
                         background-color: #FFFFFF;
                         color: #000000;
@@ -969,7 +994,7 @@ class ManualEntryDialog(QDialog):
         avail = screen.availableGeometry()
         # Set responsive target size based on screen dimensions
         target_w = max(1200, min(avail.width() * 0.9, 1800))  # 90% of screen width, between 1200-1800px
-        target_h = max(800, min(avail.height() * 0.85, 1200)) # 85% of screen height, between 800-1200px
+        target_h = max(850, min(avail.height() * 0.88, 1250)) # 88% of screen height, between 850-1250px
         self.resize(int(target_w), int(target_h))
         self._apply_splitter_proportions()
         if hasattr(self, "viewer") and self.viewer:
@@ -1282,16 +1307,19 @@ class ManualEntryDialog(QDialog):
     # ---------- Tiny saved toast ----------
     def _flash_saved(self):
         note = QLabel("Saved", self)
+        toast_border_radius = max(3, int(4 * self.dpi_scale))
+        toast_padding_v = max(2, int(3 * self.dpi_scale))
+        toast_padding_h = max(6, int(8 * self.dpi_scale))
         note.setStyleSheet(
-            """
-            QLabel {
+            f"""
+            QLabel {{
                 background-color: #e7f5e7;
                 color: #2f7a2f;
                 border: 1px solid #b9e0b9;
-                border-radius: 4px;
-                padding: 3px 8px;
+                border-radius: {toast_border_radius}px;
+                padding: {toast_padding_v}px {toast_padding_h}px;
                 font-weight: bold;
-            }
+            }}
             """
         )
         note.adjustSize()
@@ -1514,22 +1542,22 @@ class ManualEntryDialog(QDialog):
         else:
             min_width, min_height = 1200, 800
             
-        # Calculate responsive values - use original font sizes
-        base_font_size = 15  # Use original font size
-        input_padding_v = max(6, int(min_height * 0.008))
-        input_padding_h = max(8, int(min_width * 0.008))
-        border_radius = max(4, int(min_width * 0.004))
-        min_input_height = max(16, int(min_height * 0.02))
+        # Calculate responsive values - use DPI-aware scaling
+        base_font_size = self.css_font_base  # Use DPI-scaled font size
+        input_padding_v = self.css_padding_sm
+        input_padding_h = self.css_padding_md
+        border_radius = self.css_border_radius
+        min_input_height = max(16, int(20 * self.dpi_scale))
         
         # Define base style for input fields
         base_input_style = f"""
             background-color: #FFFFFF;
             color: #000000;
             border: 1px solid {THEME['card_border']};
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 15px;
-            min-height: 20px;
+            border-radius: {border_radius}px;
+            padding: {input_padding_v}px {input_padding_h}px;
+            font-size: {base_font_size}px;
+            min-height: {min_input_height}px;
         """
         
         # Use the same yellow as invoice table for empty fields
@@ -1537,10 +1565,10 @@ class ManualEntryDialog(QDialog):
             background-color: #FFF1A6;
             color: #000000;
             border: 1px solid {THEME['card_border']};
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 15px;
-            min-height: 20px;
+            border-radius: {border_radius}px;
+            padding: {input_padding_v}px {input_padding_h}px;
+            font-size: {base_font_size}px;
+            min-height: {min_input_height}px;
         """
         
         # Use the same green as invoice table for manually edited fields
@@ -1548,10 +1576,10 @@ class ManualEntryDialog(QDialog):
             background-color: #DCFCE7;
             color: #000000;
             border: 1px solid {THEME['card_border']};
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 15px;
-            min-height: 20px;
+            border-radius: {border_radius}px;
+            padding: {input_padding_v}px {input_padding_h}px;
+            font-size: {base_font_size}px;
+            min-height: {min_input_height}px;
         """
         
         for label, widget in self.fields.items():
@@ -1587,20 +1615,20 @@ class ManualEntryDialog(QDialog):
                     
                 widget.setStyleSheet(base_style + f"""
                     QComboBox {{
-                        padding-right: 30px;
+                        padding-right: {max(25, int(30 * self.dpi_scale))}px;
                     }}
                     QComboBox::drop-down {{
                         subcontrol-origin: padding;
                         subcontrol-position: top right;
-                        width: 28px;
+                        width: {max(24, int(28 * self.dpi_scale))}px;
                         border-left: 2px solid {THEME['card_border']};
-                        border-top-right-radius: 6px;
-                        border-bottom-right-radius: 6px;
+                        border-top-right-radius: {border_radius}px;
+                        border-bottom-right-radius: {border_radius}px;
                         background-color: {dropdown_bg};
                         margin-top: 1px;
                         margin-bottom: 1px;
                         margin-right: 1px;
-                    }}
+                    }}"
                     QComboBox::drop-down:hover {{
                         background-color: #e0e0e0;
                     }}
@@ -1610,29 +1638,29 @@ class ManualEntryDialog(QDialog):
                     QComboBox::down-arrow {{
                         image: none;
                         background-color: transparent;
-                        width: 16px;
-                        height: 16px;
+                        width: {max(13, int(16 * self.dpi_scale))}px;
+                        height: {max(13, int(16 * self.dpi_scale))}px;
                         border: 2px solid #333333;
                         border-left: transparent;
                         border-right: transparent;
                         border-bottom: transparent;
-                        border-top: 8px solid #333333;
-                        margin-top: 4px;
+                        border-top: {max(6, int(8 * self.dpi_scale))}px solid #333333;
+                        margin-top: {max(3, int(4 * self.dpi_scale))}px;
                     }}
                     QComboBox QAbstractItemView {{
                         background-color: #FFFFFF;
                         color: #000000;
                         border: 2px solid {THEME['card_border']};
-                        border-radius: 4px;
+                        border-radius: {max(3, int(4 * self.dpi_scale))}px;
                         selection-background-color: {THEME['brand_green']};
                         selection-color: white;
                         outline: none;
                         show-decoration-selected: 1;
-                        min-height: 20px;
+                        min-height: {min_input_height}px;
                     }}
                     QComboBox QAbstractItemView::item {{
-                        min-height: 25px;
-                        padding: 4px;
+                        min-height: {max(20, int(25 * self.dpi_scale))}px;
+                        padding: {max(3, int(4 * self.dpi_scale))}px;
                     }}
                     QComboBox QAbstractItemView QScrollBar:vertical {{
                         background-color: #f0f0f0;
