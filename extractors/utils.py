@@ -106,9 +106,7 @@ def load_vendor_list():
     """
     Loads vendor names from vendors.csv as a lowercase set (used for fuzzy matching).
     """
-    from PyQt5.QtCore import QStandardPaths
-    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-    csv_path = os.path.join(roaming_dir, "vendors.csv")
+    csv_path = get_vendor_csv_path()
     vendor_set = set()
 
     if not os.path.exists(csv_path):
@@ -132,9 +130,7 @@ def get_vendor_list():
     Returns list of vendor names from vendors.csv.
     Used for dropdown selection (preserves formatting).
     """
-    from PyQt5.QtCore import QStandardPaths
-    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-    csv_path = os.path.join(roaming_dir, "vendors.csv")
+    csv_path = get_vendor_csv_path()
     if not os.path.exists(csv_path):
         return []
 
@@ -173,10 +169,8 @@ def load_manual_mapping():
     Returns a dictionary mapping normalized identifier -> vendor name.
     """
     # Use direct path to Roaming root where vendors.csv actually is
-    from PyQt5.QtCore import QStandardPaths
-    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-    csv_path = os.path.join(roaming_dir, "vendors.csv")
-
+    csv_path = get_vendor_csv_path()
+    
     if os.path.exists(csv_path):
         try:
             mapping = {}

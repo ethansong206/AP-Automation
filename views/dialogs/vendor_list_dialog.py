@@ -222,12 +222,7 @@ class VendorListDialog(QDialog):
 
     # ---------- Data loading ----------
     def _vendors_csv_path(self):
-        # Use the direct Roaming path since that's where the vendors.csv file actually is
-        from PyQt5.QtCore import QStandardPaths
-        roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-        # Go up one level from the app-specific directory to the Roaming root
-        roaming_root = os.path.dirname(roaming_dir)
-        return os.path.join(roaming_root, "vendors.csv")
+        return get_vendor_csv_path()
 
     def _normalize_vendor_number(self, raw):
         digits = "".join(ch for ch in (raw or "") if ch.isdigit())
@@ -248,14 +243,6 @@ class VendorListDialog(QDialog):
         csv_path = self._vendors_csv_path()
         print(f"[DEBUG] Loading vendor data from: {csv_path}")
         
-        # Also check if the file exists at the expected Roaming location
-        roaming_path = r"C:\Users\ethan\AppData\Roaming\vendors.csv"
-        print(f"[DEBUG] Expected Roaming path: {roaming_path}")
-        print(f"[DEBUG] Roaming file exists: {os.path.exists(roaming_path)}")
-        print(f"[DEBUG] Function path exists: {os.path.exists(csv_path)}")
-        
-        if csv_path != roaming_path:
-            print(f"[DEBUG] *** PATH MISMATCH: Function returns different path than expected!")
         if os.path.exists(csv_path):
             with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
                 reader = csv.DictReader(f)

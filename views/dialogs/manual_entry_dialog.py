@@ -45,6 +45,7 @@ from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_list_dialog import VendorListDialog
 from extractors.utils import get_vendor_list, calculate_discount_due_date
 from assets.constants import COLORS
+from views.helpers.style_loader import load_stylesheet, get_style_path
 
 
 class _DialogTitleBar(QWidget):
@@ -167,7 +168,8 @@ class ManualEntryDialog(QDialog):
         root.addLayout(gray_area, 1)  # 1 stretch factor = expands
 
         # ---------- Enhanced dialog UI styling ----------
-        self.setStyleSheet(self.styleSheet() + f"""
+        base_style = load_stylesheet(get_style_path('default.qss'))
+        self.setStyleSheet(base_style + f"""
             QLabel {{ font-size: 15px; }}
             
             /* Input fields with white background - using specific selectors and !important */
@@ -461,10 +463,18 @@ class ManualEntryDialog(QDialog):
         self.vendor_combo = QComboBox()
         self.vendor_combo.setEditable(True)
         self.vendor_combo.setInsertPolicy(QComboBox.NoInsert)
-        self.load_vendors()
+        self.vendor_combo.setMaxVisibleItems(20)
+
+        # Ensure the dropdown uses a view with a scroll bar that can actually scroll
+        combo_view = self.vendor_combo.view()
+        combo_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         comp = self.vendor_combo.completer()
         if comp:
             comp.setCompletionMode(QCompleter.PopupCompletion)
+            # The completer's popup is a separate view; make sure it also scrolls
+            comp.popup().setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        self.load_vendors()
         self.vendor_combo.currentTextChanged.connect(self._on_display_fields_changed)
         vendor_layout.addWidget(self.vendor_combo, 1)
         vendor_layout.addSpacing(10)
@@ -858,18 +868,18 @@ class ManualEntryDialog(QDialog):
                         min-height: 25px;
                         padding: 4px;
                     }}
-                    QComboBox QScrollBar:vertical {{
+                    QComboBox QAbstractItemView QScrollBar:vertical {{
                         background-color: #f0f0f0;
                         width: 16px;
                         border: 1px solid {THEME['card_border']};
                         border-radius: 8px;
                     }}
-                    QComboBox QScrollBar::handle:vertical {{
+                    QComboBox QAbstractItemView QScrollBar::handle:vertical {{
                         background-color: #c0c0c0;
                         border-radius: 6px;
                         min-height: 20px;
                     }}
-                    QComboBox QScrollBar::handle:vertical:hover {{
+                    QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {{
                         background-color: #a0a0a0;
                     }}
                 """
@@ -1350,6 +1360,8 @@ class ManualEntryDialog(QDialog):
 
     def _on_vendor_list_updated(self):
         """Handle vendor list updates by re-extracting vendor names for empty cells."""
+        from extractors import vendor_name
+        vendor_name.reload_vendor_cache()
         self._reextract_empty_vendor_names()
 
     def _reextract_empty_vendor_names(self):
@@ -1558,18 +1570,18 @@ class ManualEntryDialog(QDialog):
                         min-height: 25px;
                         padding: 4px;
                     }}
-                    QComboBox QScrollBar:vertical {{
+                    QComboBox QAbstractItemView QScrollBar:vertical {{
                         background-color: #f0f0f0;
                         width: 16px;
                         border: 1px solid {THEME['card_border']};
                         border-radius: 8px;
                     }}
-                    QComboBox QScrollBar::handle:vertical {{
+                    QComboBox QAbstractItemView QScrollBar::handle:vertical {{
                         background-color: #c0c0c0;
                         border-radius: 6px;
                         min-height: 20px;
                     }}
-                    QComboBox QScrollBar::handle:vertical:hover {{
+                    QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {{
                         background-color: #a0a0a0;
                     }}
                 """)
@@ -1732,21 +1744,6 @@ class ManualEntryDialog(QDialog):
             if w and not w.hasFocus():
                 w.setText(self._money_pretty(w.text()))
 
-    # ---------- Event filter: pretty/plain on focus ----------
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.FocusIn:
-            for label in getattr(self, "_currency_labels", set()):
-                w = self.fields.get(label)
-                if w is obj:
-                    w.setText(self._money_plain(w.text()))
-        elif event.type() == QEvent.FocusOut:
-            for label in getattr(self, "_currency_labels", set()):
-                w = self.fields.get(label)
-                if w is obj:
-                    if not w.hasFocus():
-                        w.setText(self._money_pretty(w.text()))
-        return super().eventFilter(obj, event)
-
     # ---------- Dirty tracking + unsaved guard ----------
     def _wire_dirty_tracking(self):
         def mark_dirty(*_):
@@ -1779,9 +1776,23 @@ class ManualEntryDialog(QDialog):
         # at this point either saved or user chose No
         proceed_fn()
 
-    # ---------- Resize functionality (similar to AppShell) ----------
+    # ---------- Event filter: currency formatting + resize handling ----------
     def eventFilter(self, obj, event):
-        # Only handle events for this dialog window
+        et = event.type()
+
+        # Pretty/plain formatting for currency fields
+        if et == QEvent.FocusIn:
+            for label in getattr(self, "_currency_labels", set()):
+                w = self.fields.get(label)
+                if w is obj:
+                    w.setText(self._money_plain(w.text()))
+        elif et == QEvent.FocusOut:
+            for label in getattr(self, "_currency_labels", set()):
+                w = self.fields.get(label)
+                if w is obj and not w.hasFocus():
+                    w.setText(self._money_pretty(w.text()))
+
+        # Only handle resize events for the dialog itself
         if obj != self:
             return super().eventFilter(obj, event)
         
@@ -1791,7 +1802,6 @@ class ManualEntryDialog(QDialog):
                 self._restoreOverrideCursor()
             return super().eventFilter(obj, event)
             
-        et = event.type()
         if et in (QEvent.MouseMove, QEvent.HoverMove):
             self._updateResizeCursor()
             if self._resizing:

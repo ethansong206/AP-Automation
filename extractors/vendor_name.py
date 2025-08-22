@@ -7,6 +7,15 @@ VENDOR_NAMES = get_vendor_list()
 NORMALIZED_VENDOR_NAMES = [normalize_vendor_name(v) for v in VENDOR_NAMES]
 MANUAL_MAP = load_manual_mapping()
 
+def reload_vendor_cache():
+    """Reload vendor names and identifier mappings from vendors.csv."""
+    global VENDOR_NAMES, NORMALIZED_VENDOR_NAMES, MANUAL_MAP
+    VENDOR_NAMES = get_vendor_list()
+    NORMALIZED_VENDOR_NAMES = [normalize_vendor_name(v) for v in VENDOR_NAMES]
+    MANUAL_MAP = load_manual_mapping()
+    print(
+        f"[DEBUG] Reloaded {len(VENDOR_NAMES)} vendors and {len(MANUAL_MAP)} manual mappings"
+    )
 
 def extract_vendor_name(words):
     all_words = [w["text"] for w in words]

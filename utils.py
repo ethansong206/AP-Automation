@@ -462,8 +462,20 @@ def _get_data_file(name: str, merge_fn) -> str:
 
 
 def get_vendor_csv_path() -> str:
-    """Path to user-managed vendors.csv with default entries merged in."""
-    return _get_data_file("vendors.csv", _merge_vendors_csv)
+    """Path to vendors.csv stored directly in the user's Roaming directory."""
+    # Resolve Roaming root (parent of application-specific directory)
+    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    roaming_root = os.path.dirname(roaming_dir)
+    user_path = os.path.join(roaming_root, "vendors.csv")
+
+    bundled_path = resource_path(os.path.join("data", "vendors.csv"))
+    if not os.path.exists(user_path):
+        if os.path.exists(bundled_path):
+            shutil.copyfile(bundled_path, user_path)
+    else:
+        if os.path.exists(bundled_path):
+            _merge_vendors_csv(bundled_path, user_path)
+    return user_path
 
 
 def get_manual_map_path() -> str:
