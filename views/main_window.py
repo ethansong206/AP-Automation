@@ -366,7 +366,7 @@ class InvoiceApp(QWidget):
 
     # ---------------- Export ----------------
     def export_to_csv(self):
-        if self.table.rowCount() == 0:
+        if self.table.total_row_count() == 0:
             QMessageBox.warning(self, "No Data", "There is no data to export.")
             return
         options = QFileDialog.Options() | QFileDialog.DontConfirmOverwrite
@@ -387,7 +387,7 @@ class InvoiceApp(QWidget):
             QMessageBox.critical(self, "Export Failed", f"Error: {message}")
 
     def export_files_to_folder(self):
-        if self.table.rowCount() == 0:
+        if self.table.total_row_count() == 0:
             QMessageBox.warning(self, "No Files", "There are no files to export.")
             return
         target_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")
@@ -399,15 +399,25 @@ class InvoiceApp(QWidget):
             p = os.path.join(target_dir, f"{i:02d} - {name}")
             os.makedirs(p, exist_ok=True)
             month_dirs.append(p)
-        for row in range(self.table.rowCount()):
-            file_path = self.table.get_file_path_for_row(row)
+
+        model = getattr(self.table, "_model", None)
+        total_rows = model.rowCount() if model else self.table.rowCount()
+        for src_row in range(total_rows):
+            file_path = model.get_file_path(src_row) if model else self.table.get_file_path_for_row(src_row)
             if not file_path or not os.path.isfile(file_path):
                 continue
-            vendor = self._sanitize_filename(self.table.get_cell_text(row, 1)) or "UNKNOWN"
-            po_number = self._sanitize_filename(self.table.get_cell_text(row, 3)) or "PO"
-            invoice_number = self._sanitize_filename(self.table.get_cell_text(row, 2)) or "INV"
+            if model:
+                vals = model.row_values(src_row)
+                vendor = self._sanitize_filename(vals[0]) or "UNKNOWN"
+                po_number = self._sanitize_filename(vals[2]) or "PO"
+                invoice_number = self._sanitize_filename(vals[1]) or "INV"
+                date_str = vals[3]
+            else:
+                vendor = self._sanitize_filename(self.table.get_cell_text(src_row, 1)) or "UNKNOWN"
+                po_number = self._sanitize_filename(self.table.get_cell_text(src_row, 3)) or "PO"
+                invoice_number = self._sanitize_filename(self.table.get_cell_text(src_row, 2)) or "INV"
+                date_str = self.table.get_cell_text(src_row, 4)
             new_name = f"{vendor}_{po_number}_{invoice_number}.pdf"
-            date_str = self.table.get_cell_text(row, 4)
             date_obj = self._parse_invoice_date(date_str)
             dest_dir = month_dirs[date_obj.month - 1] if date_obj else target_dir
             dest_path = os.path.join(dest_dir, new_name)
@@ -422,7 +432,10 @@ class InvoiceApp(QWidget):
                     and not os.path.exists(new_src_path)
                 ):
                     os.rename(file_path, new_src_path)
-                    self.table.set_file_path_for_row(row, new_src_path)
+                    if model:
+                        model.set_file_path(src_row, new_src_path)
+                    else:
+                        self.table.set_file_path_for_row(src_row, new_src_path)
                     old_norm = os.path.normpath(file_path)
                     new_norm = os.path.normpath(new_src_path)
                     if old_norm in self.file_controller.loaded_files:

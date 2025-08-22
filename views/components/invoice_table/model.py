@@ -444,10 +444,15 @@ class InvoiceSortProxy(QSortFilterProxyModel):
             if not model.get_flag(src_row):
                 return False
 
-        # 2) Incomplete-only (any empty body cell)
+        # 2) Incomplete-only (any empty body cell, excluding shipping cost)
         vals = model.row_values(src_row)
         if self._incomplete_only:
-            if all(bool(str(v).strip()) for v in vals):
+            # Enumerate starting at C_VENDOR so indexes align with column constants
+            required = [
+                v for i, v in enumerate(vals, start=C_VENDOR)
+                if i != C_SHIPPING
+            ]
+            if all(bool(str(v).strip()) for v in required):
                 return False
 
         # 3) Text search

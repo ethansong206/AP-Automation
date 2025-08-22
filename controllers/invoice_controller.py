@@ -85,24 +85,37 @@ class InvoiceController:
         vendor_mapping = self.load_vendor_mapping()
         rows_to_export = []
         
-        print(f"[INFO] Preparing export data from {table.rowCount()} rows")
-        
-        for row in range(table.rowCount()):
-            # Get data from table cells and clean thoroughly
-            raw_vendor_name = table.get_cell_text(row, 1)
-            vendor_name = ' '.join(raw_vendor_name.strip().split())
-            
-            # Get other invoice data
-            invoice_number = ' '.join(table.get_cell_text(row, 2).strip().split())
-            po_number = ' '.join(table.get_cell_text(row, 3).strip().split())
-            invoice_date = ' '.join(table.get_cell_text(row, 4).strip().split())
-            due_date = ' '.join(table.get_cell_text(row, 6).strip().split())
-            shipping_cost = ' '.join(table.get_cell_text(row, 7).strip().split())
-            total_amount = ' '.join(table.get_cell_text(row, 8).strip().split())
+        # Use the underlying model so filtered-out rows are also exported
+        model = getattr(table, "_model", None)
+        total_rows = model.rowCount() if model else table.rowCount()
+
+        print(f"[INFO] Preparing export data from {total_rows} rows")
+
+        for src_row in range(total_rows):
+            if model:
+                vals = model.row_values(src_row)
+                raw_vendor_name = vals[0]
+                invoice_number = ' '.join((vals[1] or '').strip().split())
+                po_number = ' '.join((vals[2] or '').strip().split())
+                invoice_date = ' '.join((vals[3] or '').strip().split())
+                due_date = ' '.join((vals[5] or '').strip().split())
+                shipping_cost = ' '.join((vals[6] or '').strip().split())
+                total_amount = ' '.join((vals[7] or '').strip().split())
+            else:
+                # Fallback to view-access methods
+                raw_vendor_name = table.get_cell_text(src_row, 1)
+                invoice_number = ' '.join(table.get_cell_text(src_row, 2).strip().split())
+                po_number = ' '.join(table.get_cell_text(src_row, 3).strip().split())
+                invoice_date = ' '.join(table.get_cell_text(src_row, 4).strip().split())
+                due_date = ' '.join(table.get_cell_text(src_row, 6).strip().split())
+                shipping_cost = ' '.join(table.get_cell_text(src_row, 7).strip().split())
+                total_amount = ' '.join(table.get_cell_text(src_row, 8).strip().split())
+
+            vendor_name = ' '.join((raw_vendor_name or '').strip().split())
             
             # Skip incomplete rows
             if not vendor_name or not invoice_number or not invoice_date or not total_amount:
-                print(f"[WARN] Skipping incomplete row {row+1}")
+                print(f"[WARN] Skipping incomplete row {src_row+1}")
                 continue
         
             # Look up vendor number
@@ -124,7 +137,7 @@ class InvoiceController:
             }
             
             rows_to_export.append(invoice_data)
-            print(f"[INFO] Prepared row {row} for export: {vendor_name} ({vendor_number})")
+            print(f"[INFO] Prepared row {src_row} for export: {vendor_name} ({vendor_number})")
     
         print(f"[INFO] Export data preparation complete: {len(rows_to_export)} rows")
         return rows_to_export
