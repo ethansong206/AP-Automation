@@ -1337,7 +1337,7 @@ class ManualEntryDialog(QDialog):
     # ---------- Vendors ----------
     def load_vendors(self):
         vendors = get_vendor_list()
-        current = self.vendor_combo.currentText()
+        current = (self.vendor_combo.currentText() or "").strip()
         if vendors:
             vendors.sort()
             self.vendor_combo.blockSignals(True)
@@ -1348,7 +1348,12 @@ class ManualEntryDialog(QDialog):
                 if idx >= 0:
                     self.vendor_combo.setCurrentIndex(idx)
                 else:
+                    # Preserve the user's typed vendor even if not in list
                     self.vendor_combo.setEditText(current)
+            else:
+                # Keep vendor field blank instead of defaulting to first item
+                self.vendor_combo.setCurrentIndex(-1)
+                self.vendor_combo.setEditText("")
             self.vendor_combo.blockSignals(False)
 
     def open_vendor_list(self):

@@ -176,7 +176,13 @@ class InvoiceTableModel(QAbstractTableModel):
         if role != Qt.EditRole:
             return False
 
-        old = self._get_cell_value(r, c)
+        old_val = self._get_cell_value(r, c)
+        new_val = str(value) if value is not None else ""
+
+        # If the value isn't actually changing, bail out early so we don't
+        # mark the cell as edited and highlight it unnecessarily.
+        if (old_val or "") == new_val:
+            return False
 
         def set_and_mark(val):
             if c == C_VENDOR:
@@ -199,14 +205,13 @@ class InvoiceTableModel(QAbstractTableModel):
                 return
             row.edited_cells.add(c)
 
-        set_and_mark(str(value) if value is not None else "")
+        set_and_mark(new_val)
 
         if c == C_INVOICE:
             self._rebuild_duplicates()
 
-        if old != value:
-            self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
-            self.rawEdited.emit(r, c)
+        self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
+        self.rawEdited.emit(r, c)
         return True
 
     # --- helpers ---
