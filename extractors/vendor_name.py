@@ -1,6 +1,13 @@
 import re
-from .utils import get_vendor_list, normalize_vendor_name, normalize_string, load_manual_mapping
 import os
+import csv
+from .utils import (
+    get_vendor_list,
+    normalize_vendor_name,
+    normalize_string,
+    load_manual_mapping,
+)
+from utils import get_vendor_csv_path
 
 # Load vendor names and manual map once
 VENDOR_NAMES = get_vendor_list()
@@ -64,10 +71,7 @@ def extract_vendor_name(words):
 
 
 def save_manual_mapping(key, vendor_name):
-    """Add a new identifier mapping by appending a row to the vendors CSV."""
-    import csv
-    from utils import get_vendor_csv_path
-    
+    """Add a new identifier mapping by appending a row to the vendors CSV."""    
     csv_path = get_vendor_csv_path()
     identifier = key.strip()
     vendor = vendor_name.strip()

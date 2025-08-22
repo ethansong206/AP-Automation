@@ -259,7 +259,8 @@ def get_vendor_id(vendor_name):
     
     # Look up vendor ID in vendors.csv
     try:
-        with open('data/vendors.csv', 'r', encoding='utf-8') as f:
+        csv_path = get_vendor_csv_path()
+        with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             for row in reader:
                 if len(row) >= 2:
@@ -462,10 +463,9 @@ def _get_data_file(name: str, merge_fn) -> str:
 
 
 def get_vendor_csv_path() -> str:
-    """Path to vendors.csv stored directly in the user's Roaming directory."""
-    # Resolve Roaming root (parent of application-specific directory)
-    roaming_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-    roaming_root = os.path.dirname(roaming_dir)
+    """Return path to vendors.csv under the user's Roaming directory."""
+    # On Windows, APPDATA points to ``AppData/Roaming``. Fallback to home dir if unset.
+    roaming_root = os.getenv("APPDATA") or os.path.expanduser("~")
     user_path = os.path.join(roaming_root, "vendors.csv")
 
     bundled_path = resource_path(os.path.join("data", "vendors.csv"))
