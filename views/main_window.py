@@ -26,6 +26,7 @@ from controllers.file_controller import FileController
 from controllers.invoice_controller import InvoiceController
 from models.invoice import Invoice
 from views.app_shell import _resolve_icon
+from utils import get_vendor_csv_path
 
 class InvoiceApp(QWidget):
     """Main application window for invoice processing."""
@@ -57,6 +58,9 @@ class InvoiceApp(QWidget):
         # Autosave/restore
         self.setup_autosave()
         self.load_session()
+        
+        # Initialize vendor data (merge if needed)
+        self.initialize_vendor_data()
 
     # ---------------- UI ----------------
     def setup_ui(self):
@@ -564,3 +568,11 @@ class InvoiceApp(QWidget):
                 os.remove(self.session_file)
         except Exception:
             pass
+    
+    def initialize_vendor_data(self):
+        """Initialize vendor data on app startup - triggers merge if needed."""
+        try:
+            # This call will trigger the merge process if there are conflicts
+            get_vendor_csv_path()
+        except Exception as e:
+            print(f"[WARN] Failed to initialize vendor data: {e}")

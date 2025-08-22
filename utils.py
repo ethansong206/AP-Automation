@@ -56,142 +56,6 @@ DIST_HEADER = [
     "DistributionAmt"
 ]
 
-def export_accounting_csv(filename, invoice_table):
-    """Export invoices to accounting system format with multiple record types."""
-    try:
-        print(f"[INFO] Starting export to {filename}")
-        print(f"[INFO] Table has {invoice_table.rowCount()} rows")
-        
-        write_headers = _should_write_headers(filename)
-        existing_vouchers = _scan_existing_voucher_rows(filename) if not write_headers else set()
-        
-        mode = 'a' if not write_headers else 'w'
-        with open(filename, mode, newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
-            
-            # Write the record type headers
-            if write_headers:
-                writer.writerow(VCHR_HEADER)
-                writer.writerow(DIST_HEADER)
-            
-            # Process each invoice row
-            rows_written = 0
-            rows_skipped_dup = 0
-
-            for row in range(invoice_table.rowCount()):
-                print(f"[INFO] Processing row {row}")
-                
-                # Get vendor name for lookup - ensure aggressive cleaning
-                raw_vendor_name = invoice_table.get_cell_text(row, 1)
-                vendor_name = re.sub(r'\s+', ' ', raw_vendor_name.strip())
-                if not vendor_name:
-                    print(f"[INFO] Skipping row {row}: Invalid vendor '{vendor_name}'")
-                    continue
-
-                # Get vendor ID
-                vendor_id = get_vendor_id(vendor_name)
-                if vendor_id == "0":  # Default unknown ID
-                    print(f"[WARN] Using default vendor ID for '{vendor_name}'")
-                
-                # Get other invoice data
-                invoice_no = clean_text(invoice_table.get_cell_text(row, 2))
-                po_no = clean_text(invoice_table.get_cell_text(row, 3))
-                invoice_date = clean_text(invoice_table.get_cell_text(row, 4))
-                terms = clean_text(invoice_table.get_cell_text(row, 5))
-                due_date = clean_text(invoice_table.get_cell_text(row, 6))
-                disc_amount = clean_text(invoice_table.get_cell_text(row, 7))
-                total_amount = clean_text(invoice_table.get_cell_text(row, 8))
-                
-                # Validate required fields
-                if not invoice_no or not invoice_date or not total_amount:
-                    print(f"[INFO] Skipping row {row}: Missing required data")
-                    continue
-                
-                # Calculate needed values
-                batch_id = "AP-0001"  # Default batch ID
-                dist_date = format_date_for_export(datetime.now())
-                invoice_date_formatted = format_date_for_export(parse_date(invoice_date))
-                due_date_formatted = format_date_for_export(parse_date(due_date))
-                
-                # Parse terms information
-                terms_info = parse_terms(terms)
-                terms_code = terms_info['code']
-                due_days = terms_info['due_days']
-                
-                # Clean up amounts
-                clean_total = clean_amount(total_amount)
-                clean_disc = clean_amount(disc_amount) if disc_amount else "0.00"
-                
-                # Write invoice header record (1-AI_VCHR)
-                vchr_row = ["1-AI_VCHR", vendor_id, invoice_no, batch_id, dist_date, 
-                          invoice_date_formatted, invoice_no, "", vendor_name, "0.00",
-                          due_date_formatted, invoice_date_formatted, clean_disc, "0.00", po_no]
-                
-                # Add misc amounts - CHANGED: All set to 0.00
-                for i in range(5):  # VCHR_MISC_AMT_1 through 5
-                    vchr_row.append("0.00")
-                
-                # Add totals - CHANGED: VCHR_TOT_MISC set to 0.00
-                vchr_row.append("0.00")  # VCHR_TOT_MISC
-                vchr_row.append(clean_total)  # VCHR_SUB_TOT
-                vchr_row.append(clean_total)  # VCHR_SUB_TOT_LANDED
-                vchr_row.append(clean_total)  # VCHR_TOT
-                
-                # Add line misc charges (all 0)
-                for i in range(5):
-                    vchr_row.append("0.00")
-                vchr_row.append("0.00")  # TOT_LIN_MISC_CHRG
-                
-                # Add receiver counts and amounts
-                vchr_row.append("1")  # NO_OF_RECVRS
-                for i in range(5):
-                    vchr_row.append("0.00")  # RECVR_MISC_AMT_1 through 5
-                vchr_row.append("0.00")  # RECVR_TOT_MISC
-                
-                # CHANGED: RECVR_SUB_TOT and RECVR_TOT set to 0.00
-                vchr_row.append("0.00")  # RECVR_SUB_TOT
-                vchr_row.append("0.00")  # RECVR_TOT
-                
-                # Add terms information
-                # CHANGED: Set terms code and due days according to specifications
-                vchr_row.append(terms_code)  # TERMS_COD - Format Nxx
-                vchr_row.append(str(due_days))  # DUE_DAYS - Numeric part only
-                vchr_row.append(str(terms_info['disc_days']))
-                vchr_row.append(format_float(terms_info['disc_pct']))
-                
-                # CHANGED: Account numbers as requested
-                vchr_row.append(DEFAULT_DISCOUNT_ACCT)
-                vchr_row.append(DEFAULT_CP_DISCOUNT_ACCT)  # Now empty string
-                vchr_row.append("")  # SPEC_TERMS
-                vchr_row.append("")  # VEND_TERMS
-                
-                # Write main distribution line (inventory account)
-                dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", 
-                          DEFAULT_INVENTORY_ACCT, DEFAULT_INVENTORY_ACCT, 
-                          clean_total]
-                
-                vchr_tuple = tuple(vchr_row)
-                if vchr_tuple in existing_vouchers:
-                    rows_skipped_dup += 1
-                    print(f"[INFO] Skipping duplicate voucher for invoice '{invoice_no}'")
-                    continue
-
-                writer.writerow(vchr_row)
-                writer.writerow(dist_row)
-                existing_vouchers.add(vchr_tuple)
-                
-                print(f"[INFO] Successfully wrote row {row} for {vendor_name} (ID: {vendor_id})")
-                rows_written += 1
-            
-            print(f"[INFO] Export completed: wrote={rows_written}, skipped_dups={rows_skipped_dup}")
-            if write_headers:
-                return True, f"Created new file and wrote {rows_written} invoices to {filename}."
-            else:
-                return True, f"Appended {rows_written} invoices to existing file (skipped {rows_skipped_dup} duplicates)."
-    except Exception as e:
-        print(f"[ERROR] Export failed: {str(e)}")
-        return False, f"Export failed: {str(e)}"
-
 def is_row_valid_for_export(invoice_table, row):
     """Check if row is valid for export (no errors, complete data)"""
     # Get required fields
@@ -386,36 +250,297 @@ def resource_path(relative_path):
 
 def _appdata_dir() -> str:
     """Return writable application data directory, creating it if needed."""
-    base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    # Use consistent "AP Automation" folder instead of Qt's versioned AppDataLocation
+    roaming_root = os.getenv("APPDATA") or os.path.expanduser("~")
+    base = os.path.join(roaming_root, "AP Automation")
+    
+    # Migrate from old versioned Qt folders if they exist
+    if not os.path.exists(base):
+        _migrate_from_qt_appdata(roaming_root, base)
+    
     if not os.path.exists(base):
         os.makedirs(base, exist_ok=True)
     return base
 
 
+def _migrate_from_qt_appdata(roaming_root: str, target_dir: str) -> None:
+    """Migrate data from old Qt AppDataLocation folders to standardized location."""
+    # Look for existing "AP Automation" folders with version suffixes
+    try:
+        for item in os.listdir(roaming_root):
+            item_path = os.path.join(roaming_root, item)
+            if (os.path.isdir(item_path) and 
+                item.startswith("AP Automation") and 
+                item != "AP Automation"):
+                
+                # Found an old versioned folder - migrate its contents
+                print(f"[INFO] Migrating data from {item} to AP Automation")
+                
+                # Create target directory
+                os.makedirs(target_dir, exist_ok=True)
+                
+                # Move vendors.csv if it exists
+                old_vendors = os.path.join(item_path, "vendors.csv")
+                new_vendors = os.path.join(target_dir, "vendors.csv")
+                if os.path.exists(old_vendors) and not os.path.exists(new_vendors):
+                    shutil.move(old_vendors, new_vendors)
+                    print(f"[INFO] Migrated vendors.csv from {item}")
+                
+                # Move manual_vendor_map.json if it exists
+                old_map = os.path.join(item_path, "manual_vendor_map.json")
+                new_map = os.path.join(target_dir, "manual_vendor_map.json")
+                if os.path.exists(old_map) and not os.path.exists(new_map):
+                    shutil.move(old_map, new_map)
+                    print(f"[INFO] Migrated manual_vendor_map.json from {item}")
+                
+                # Only migrate from the first found folder to avoid conflicts
+                break
+                
+    except Exception as e:
+        print(f"[WARN] Could not migrate from old AppData folders: {e}")
+
+
+def _add_rows_with_duplicate_prevention(existing_rows: list[dict], new_rows: list[dict]) -> None:
+    """Add new rows to existing_rows, preventing exact duplicates."""
+    # Create a set of existing row signatures for fast duplicate detection
+    existing_signatures = set()
+    for row in existing_rows:
+        signature = (
+            (row.get("Vendor No. (Sage)", "") or "").strip(),
+            (row.get("Vendor Name", "") or "").strip().lower(),
+            (row.get("Identifier", "") or "").strip()
+        )
+        existing_signatures.add(signature)
+    
+    # Add new rows that don't already exist
+    for new_row in new_rows:
+        new_signature = (
+            (new_row.get("Vendor No. (Sage)", "") or "").strip(),
+            (new_row.get("Vendor Name", "") or "").strip().lower(),
+            (new_row.get("Identifier", "") or "").strip()
+        )
+        
+        if new_signature not in existing_signatures:
+            existing_rows.append(new_row)
+            existing_signatures.add(new_signature)
+            print(f"[INFO] Added vendor: {new_row.get('Vendor Name', '')} (#{new_row.get('Vendor No. (Sage)', '')})")
+        else:
+            print(f"[INFO] Skipped duplicate vendor: {new_row.get('Vendor Name', '')} (#{new_row.get('Vendor No. (Sage)', '')})")
+
+
 def _merge_vendors_csv(src: str, dest: str) -> None:
-    """Merge default vendors.csv into user copy without overwriting entries."""
+    """Merge default vendors.csv into user copy with interactive conflict resolution."""
     user_rows: list[dict] = []
     if os.path.exists(dest):
         with open(dest, newline="", encoding="utf-8-sig") as f:
             user_rows = list(csv.DictReader(f))
+    
     src_rows: list[dict] = []
     if os.path.exists(src):
         with open(src, newline="", encoding="utf-8-sig") as f:
             src_rows = list(csv.DictReader(f))
-    existing = {(r.get("Vendor Name", "") or "").strip().lower() for r in user_rows}
-    changed = False
+    
+    # Upgrade 2-column format to 3-column format if needed
+    if user_rows and "Identifier" not in user_rows[0]:
+        for row in user_rows:
+            if "Identifier" not in row:
+                row["Identifier"] = ""
+    
+    # Ensure all src_rows have 3 columns
     for row in src_rows:
-        name = (row.get("Vendor Name", "") or "").strip().lower()
-        if name and name not in existing:
-            user_rows.append(row)
-            existing.add(name)
-            changed = True
-    if not os.path.exists(dest) or changed:
-        with open(dest, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["Vendor No. (Sage)", "Vendor Name"])
-            writer.writeheader()
-            for r in user_rows:
-                writer.writerow(r)
+        if "Identifier" not in row:
+            row["Identifier"] = ""
+    
+    # Analyze conflicts and changes
+    conflicts = []
+    additions = []
+    
+    # Create lookup dictionaries for efficient comparison
+    user_by_number = {(r.get("Vendor No. (Sage)", "") or "").strip(): r for r in user_rows}
+    user_by_name = {(r.get("Vendor Name", "") or "").strip().lower(): r for r in user_rows}
+    
+    for src_row in src_rows:
+        src_number = (src_row.get("Vendor No. (Sage)", "") or "").strip()
+        src_name = (src_row.get("Vendor Name", "") or "").strip()
+        src_name_lower = src_name.lower()
+        src_identifier = (src_row.get("Identifier", "") or "").strip()
+        
+        # Skip empty rows
+        if not src_number and not src_name:
+            continue
+            
+        user_row_by_number = user_by_number.get(src_number)
+        user_row_by_name = user_by_name.get(src_name_lower)
+        
+        # Case 1: Same vendor number, different vendor name
+        # Skip conflicts for vendor number 000000 (placeholder/unknown vendors)
+        if (user_row_by_number and src_number != "000000" and
+            (user_row_by_number.get("Vendor Name", "") or "").strip().lower() != src_name_lower):
+            conflicts.append({
+                'type': 'number_conflict',
+                'user_row': user_row_by_number,
+                'bundle_row': src_row,
+                'reason': f"Same vendor number ({src_number}) but different names"
+            })
+            
+        # Case 2: Same vendor name, different vendor number  
+        elif (user_row_by_name and 
+              (user_row_by_name.get("Vendor No. (Sage)", "") or "").strip() != src_number):
+            conflicts.append({
+                'type': 'name_conflict', 
+                'user_row': user_row_by_name,
+                'bundle_row': src_row,
+                'reason': f"Same vendor name ({src_name}) but different numbers"
+            })
+            
+        # Case 3: Same number and name, different identifier - keep both (handled later)
+        elif (user_row_by_number and user_row_by_name and 
+              user_row_by_number == user_row_by_name):
+            user_identifier = (user_row_by_number.get("Identifier", "") or "").strip()
+            if user_identifier != src_identifier:
+                # This will be handled by keeping both entries
+                pass
+                
+        # Case 4: Complete duplicate - skip
+        elif (user_row_by_number and user_row_by_name and 
+              user_row_by_number == user_row_by_name):
+            user_identifier = (user_row_by_number.get("Identifier", "") or "").strip()
+            if user_identifier == src_identifier:
+                # Complete duplicate - skip
+                continue
+                
+        # No conflict - can be added
+        elif not user_row_by_number and not user_row_by_name:
+            additions.append(src_row)
+        # Special case: vendor number 000000 should always be added without conflict
+        elif src_number == "000000":
+            additions.append(src_row)
+    
+    # Handle conflicts if any exist
+    final_user_rows = user_rows.copy()
+    conflicts_resolved = False
+    
+    if conflicts:
+        print(f"[INFO] Found {len(conflicts)} vendor conflicts to resolve")
+        # Import here to avoid circular imports
+        try:
+            from views.dialogs.vendor_merge_dialog import VendorMergeDialog
+            from PyQt5.QtWidgets import QApplication
+            
+            app = QApplication.instance()
+            if app is None:
+                # If no QApplication exists, we can't show dialogs
+                print("[WARN] Cannot show merge dialog - no Qt application running")
+                return
+                
+            print("[INFO] Showing merge dialog to user")
+            dialog = VendorMergeDialog(conflicts)
+            dialog_result = dialog.exec_()
+            
+            if dialog_result == dialog.Accepted:
+                user_choices = dialog.get_user_choices()
+                print(f"[INFO] User made choices for {len(user_choices)} conflicts")
+                conflicts_resolved = True
+                
+                # Apply user choices
+                bundle_rows_to_add = []  # Track bundle rows to add (for "both" option)
+                
+                for conflict_index, choice in user_choices.items():
+                    conflict = conflicts[conflict_index]
+                    print(f"[INFO] Conflict {conflict_index}: User chose '{choice}'")
+                    
+                    if choice == 'bundle':
+                        # Replace user row with bundle row
+                        old_row = conflict['user_row']
+                        new_row = conflict['bundle_row']
+                        
+                        # Find and replace the old row by comparing all fields
+                        replaced = False
+                        for i, row in enumerate(final_user_rows):
+                            # Compare all fields to find the exact match
+                            if (row.get("Vendor No. (Sage)", "") == old_row.get("Vendor No. (Sage)", "") and
+                                row.get("Vendor Name", "") == old_row.get("Vendor Name", "") and
+                                row.get("Identifier", "") == old_row.get("Identifier", "")):
+                                final_user_rows[i] = new_row
+                                print(f"[INFO] Replaced vendor: {old_row.get('Vendor Name', '')} with bundle version")
+                                replaced = True
+                                break
+                        if not replaced:
+                            print(f"[WARN] Could not find row to replace for {old_row.get('Vendor Name', '')}")
+                                
+                    elif choice == 'both':
+                        # Keep both - user row stays, add bundle row if not duplicate
+                        bundle_row = conflict['bundle_row']
+                        bundle_rows_to_add.append(bundle_row)
+                        print(f"[INFO] Keeping both versions of vendor: {bundle_row.get('Vendor Name', '')}")
+                        
+                    # choice == 'user' means keep user's version (no action needed)
+                
+                # Add bundle rows from "both" choices, with duplicate prevention
+                if bundle_rows_to_add:
+                    print(f"[INFO] Adding {len(bundle_rows_to_add)} additional vendors from 'keep both' choices")
+                    _add_rows_with_duplicate_prevention(final_user_rows, bundle_rows_to_add)
+            else:
+                # User cancelled - don't merge
+                print("[INFO] User cancelled merge dialog")
+                return
+        except ImportError as e:
+            print(f"[WARN] Could not import merge dialog: {e}")
+            return
+    
+    # Add new vendors (no conflicts) with duplicate prevention
+    _add_rows_with_duplicate_prevention(final_user_rows, additions)
+    
+    # Handle Case 3: Same name/number, different identifier - add as separate entry
+    case3_additions = []
+    for src_row in src_rows:
+        src_number = (src_row.get("Vendor No. (Sage)", "") or "").strip()
+        src_name = (src_row.get("Vendor Name", "") or "").strip()
+        src_name_lower = src_name.lower()
+        src_identifier = (src_row.get("Identifier", "") or "").strip()
+        
+        user_row_by_number = user_by_number.get(src_number)
+        user_row_by_name = user_by_name.get(src_name_lower)
+        
+        if (user_row_by_number and user_row_by_name and 
+            user_row_by_number == user_row_by_name):
+            user_identifier = (user_row_by_number.get("Identifier", "") or "").strip()
+            if user_identifier != src_identifier and src_identifier:
+                # Add as separate entry
+                case3_additions.append(src_row)
+    
+    # Add Case 3 entries with duplicate prevention
+    _add_rows_with_duplicate_prevention(final_user_rows, case3_additions)
+    
+    # Always write the file after processing conflicts/merges
+    # Even if no "additions", there may have been conflict resolutions
+    should_write = (not os.path.exists(dest) or 
+                   conflicts_resolved or  # Force write if user resolved conflicts
+                   conflicts or           # Force write if there were any conflicts  
+                   additions or 
+                   len(final_user_rows) != len(user_rows))
+    
+    if should_write:
+        print(f"[INFO] Writing updated vendors.csv with {len(final_user_rows)} entries to {dest}")
+        try:
+            with open(dest, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=["Vendor No. (Sage)", "Vendor Name", "Identifier"])
+                writer.writeheader()
+                written_count = 0
+                for r in final_user_rows:
+                    output_row = {
+                        "Vendor No. (Sage)": r.get("Vendor No. (Sage)", ""),
+                        "Vendor Name": r.get("Vendor Name", ""),
+                        "Identifier": r.get("Identifier", "")
+                    }
+                    writer.writerow(output_row)
+                    written_count += 1
+            print(f"[INFO] Successfully wrote {written_count} vendors to {dest}")
+        except Exception as e:
+            print(f"[ERROR] Failed to write vendors file: {e}")
+            raise
+    else:
+        print("[INFO] No vendor data changes needed")
 
 
 def _merge_manual_map(src: str, dest: str) -> None:
@@ -448,16 +573,20 @@ def _get_data_file(name: str, merge_fn) -> str:
     return user_path
 
 def get_vendor_csv_path() -> str:
-    """Return path to vendors.csv under the user's Roaming directory."""
-    # On Windows, APPDATA points to ``AppData/Roaming``. Fallback to home dir if unset.
-    roaming_root = os.getenv("APPDATA") or os.path.expanduser("~")
-    user_path = os.path.join(roaming_root, "vendors.csv")
+    """Return path to vendors.csv under the standardized AP Automation directory."""
+    # Use standardized "AP Automation" folder in AppData/Roaming
+    user_dir = _appdata_dir()
+    user_path = os.path.join(user_dir, "vendors.csv")
+    print(f"[DEBUG] Vendor CSV path: {user_path}")
 
     bundled_path = resource_path(os.path.join("data", "vendors.csv"))
     if not os.path.exists(user_path):
+        print(f"[INFO] User vendors.csv doesn't exist, copying from bundle")
         if os.path.exists(bundled_path):
             shutil.copyfile(bundled_path, user_path)
+            print(f"[INFO] Copied {bundled_path} to {user_path}")
     else:
+        print(f"[INFO] User vendors.csv exists, checking for merge needed")
         if os.path.exists(bundled_path):
             _merge_vendors_csv(bundled_path, user_path)
     return user_path

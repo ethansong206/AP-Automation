@@ -53,20 +53,27 @@ class _DialogTitleBar(QWidget):
     - Reuses your SVG icons (minimize/close) via _resolve_icon
     - Drag anywhere on the left/title area to move the frameless window
     """
-    def __init__(self, parent=None, title_text: str = "Manual Entry"):
+    def __init__(self, parent=None, title_text: str = "Manual Entry", titlebar_height: int = 60):
         super().__init__(parent)
         self._drag_offset = None
         self.setMouseTracking(True)
 
+        # Scale margins and spacing based on titlebar height
+        margin_h = max(16, int(titlebar_height * 0.4))
+        margin_v = max(12, int(titlebar_height * 0.25))
+        spacing = max(8, int(titlebar_height * 0.15))
+
         row = QHBoxLayout(self)
-        row.setContentsMargins(24, 16, 12, 16)
-        row.setSpacing(10)
+        row.setContentsMargins(margin_h, margin_v, margin_h//2, margin_v)
+        row.setSpacing(spacing)
 
         self.title = QLabel(title_text, self)
         self.title.setObjectName("DialogBigTitle")
-        main_title_font = QFont("Inter", 24, QFont.Bold)
+        # Scale font size based on titlebar height
+        font_size = max(18, int(titlebar_height * 0.4))
+        main_title_font = QFont("Inter", font_size, QFont.Bold)
         self.title.setFont(main_title_font)
-        self.title.setStyleSheet(f"color: {THEME['brand_green']}; font-size: 24px; font-weight: bold;")
+        self.title.setStyleSheet(f"color: {THEME['brand_green']}; font-size: {font_size}px; font-weight: bold;")
 
         # Window control buttons (match main window look)
         self._icon_min = QIcon(_resolve_icon("minimize.svg"))
@@ -76,14 +83,19 @@ class _DialogTitleBar(QWidget):
         def make_winbtn(icon: QIcon) -> QToolButton:
             b = QToolButton(self)
             b.setObjectName("WinBtn")
-            b.setFixedSize(48, 36)
+            # Scale window control buttons based on titlebar height
+            btn_width = max(40, int(titlebar_height * 0.8))
+            btn_height = max(28, int(titlebar_height * 0.6))
+            icon_size = max(24, int(titlebar_height * 0.5))
+            b.setFixedSize(btn_width, btn_height)
             b.setIcon(icon)
-            b.setIconSize(QSize(36, 36))
+            b.setIconSize(QSize(icon_size, icon_size))
             b.setCursor(Qt.PointingHandCursor)
             b.setFocusPolicy(Qt.NoFocus)
+            border_radius = max(4, int(titlebar_height * 0.1))
             b.setStyleSheet(
                 "QToolButton#WinBtn { background: transparent; border: none; padding: 0; }"
-                "QToolButton#WinBtn:hover { background: rgba(0,0,0,0.06); border-radius: 6px; }"
+                f"QToolButton#WinBtn:hover {{ background: rgba(0,0,0,0.06); border-radius: {border_radius}px; }}"
             )
             return b
 
@@ -147,7 +159,15 @@ class ManualEntryDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setWindowModality(Qt.ApplicationModal)
         self.setWindowTitle("Manual Entry")
-        self.setMinimumSize(1600, 1000)
+        # Set responsive minimum size based on screen dimensions
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            screen_size = screen.availableGeometry()
+            min_width = max(1200, int(screen_size.width() * 0.75))  # 75% of screen width, min 1200
+            min_height = max(800, int(screen_size.height() * 0.8))  # 80% of screen height, min 800
+            self.setMinimumSize(min_width, min_height)
+        else:
+            self.setMinimumSize(1200, 800)  # Fallback for smaller screens
         self.setObjectName("ManualEntryRoot")
 
         # Root layout (lets us paint a rounded background in paintEvent)
@@ -155,28 +175,42 @@ class ManualEntryDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Titlebar - fixed height
-        self.titlebar = _DialogTitleBar(self, title_text="Manual Entry")
+        # Titlebar - responsive height
+        # Scale titlebar height based on screen size (3-4% of screen height, min 50px)
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            titlebar_height = max(50, int(screen.availableGeometry().height() * 0.035))
+        else:
+            titlebar_height = 60
+        self.titlebar = _DialogTitleBar(self, title_text="Manual Entry", titlebar_height=titlebar_height)
         self.titlebar.setMouseTracking(True)
-        self.titlebar.setFixedHeight(60)  # Set fixed height for titlebar
+        self.titlebar.setFixedHeight(titlebar_height)
         root.addWidget(self.titlebar, 0)  # 0 stretch factor = fixed size
 
         # Direct gray background area for splitter - this should expand
         gray_area = QVBoxLayout()
-        gray_area.setContentsMargins(24, 6, 24, 24)
-        gray_area.setSpacing(10)
+        # Scale margins based on screen size
+        margin_h = max(16, int(min_width * 0.015))  # 1.5% of width, min 16px
+        margin_v = max(8, int(min_height * 0.01))   # 1% of height, min 8px
+        spacing = max(8, int(min_height * 0.01))    # 1% of height, min 8px
+        gray_area.setContentsMargins(margin_h, margin_v//2, margin_h, margin_v*2)
+        gray_area.setSpacing(spacing)
         root.addLayout(gray_area, 1)  # 1 stretch factor = expands
 
         # ---------- Enhanced dialog UI styling ----------
+        # Calculate responsive font sizes
+        base_font_size = 15  # Restore original size
+        large_font_size = 18  # Restore original size
+        
         base_style = load_stylesheet(get_style_path('default.qss'))
         self.setStyleSheet(base_style + f"""
-            QLabel {{ font-size: 15px; }}
+            QLabel {{ font-size: {base_font_size}px; }}
             
             /* Input fields with white background - using specific selectors and !important */
             ManualEntryDialog QLineEdit,
             ManualEntryDialog QComboBox,
             ManualEntryDialog QDateEdit {{
-                font-size: 15px !important; 
+                font-size: {base_font_size}px !important; 
                 padding: 8px 12px !important; 
                 background-color: #FFFFFF !important;
                 color: #000000 !important;
@@ -306,12 +340,12 @@ class ManualEntryDialog(QDialog):
             }}
             
             QPushButton {{ 
-                font-size: 15px; 
+                font-size: {base_font_size}px; 
                 padding: 9px 15px; 
             }}
             
             QGroupBox {{ 
-                font-size: 18px; 
+                font-size: {large_font_size}px; 
                 font-weight: bold; 
                 margin-top: 15px; 
                 background-color: transparent;
@@ -375,14 +409,17 @@ class ManualEntryDialog(QDialog):
         left_shadow.setColor(QColor(0, 0, 0, 15))
         left_card.setGraphicsEffect(left_shadow)
         left_card_layout = QVBoxLayout(left_card)
-        left_card_layout.setContentsMargins(12, 12, 12, 12)
-        left_card_layout.setSpacing(8)
+        # Scale card margins and spacing
+        card_margin = max(8, int(min_width * 0.008))  # 0.8% of width, min 8px
+        card_spacing = max(6, int(min_height * 0.008)) # 0.8% of height, min 6px
+        left_card_layout.setContentsMargins(card_margin, card_margin, card_margin, card_margin)
+        left_card_layout.setSpacing(card_spacing)
         
         # File list title
         file_list_title = QLabel("Files")
-        title_font = QFont("Inter", 18, QFont.Bold)
+        title_font = QFont("Inter", large_font_size, QFont.Bold)
         file_list_title.setFont(title_font)
-        file_list_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: 18px; font-weight: bold;")
+        file_list_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: {large_font_size}px; font-weight: bold;")
         left_card_layout.addWidget(file_list_title)
         
         self.file_list = QListWidget()
@@ -427,29 +464,19 @@ class ManualEntryDialog(QDialog):
         center_widget = QWidget()
         center_widget.setMouseTracking(True)
         center_layout = QVBoxLayout(center_widget)
-        center_layout.setContentsMargins(16, 4, 16, 16)  # Reduced top margin from 8 to 4
-        center_layout.setSpacing(3)  # Reduced spacing from 6 to 3
+        # Scale center layout margins and spacing
+        center_margin_h = max(12, int(min_width * 0.01))   # 1% of width, min 12px
+        center_margin_v = max(4, int(min_height * 0.005))  # 0.5% of height, min 4px
+        center_spacing = max(3, int(min_height * 0.003))   # 0.3% of height, min 3px
+        center_layout.setContentsMargins(center_margin_h, center_margin_v, center_margin_h, center_margin_h)
+        center_layout.setSpacing(center_spacing)
         
         # Manual entry title with reduced margins - use !important to override global QDialog QLabel styles
         entry_title = QLabel("Invoice Details")
-        entry_title.setObjectName("InvoiceDetailsTitle")  # Give it a specific ID
-        title_font = QFont("Inter", 18, QFont.Bold)
+        title_font = QFont("Inter", large_font_size, QFont.Bold)
         entry_title.setFont(title_font)
-        entry_title.setStyleSheet(f"""
-            QLabel#InvoiceDetailsTitle {{
-                color: {THEME['brand_green']} !important;
-                font-size: 18px !important;
-                font-weight: bold !important;
-                margin: 0px !important;
-                padding: 0px !important;
-                margin-top: 0px !important;
-                margin-bottom: 0px !important;
-            }}
-        """)
+        entry_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: {large_font_size}px; font-weight: bold;")
         center_layout.addWidget(entry_title)
-        
-        # Add explicit small spacing after title
-        center_layout.addSpacing(2)
         
         form_layout = QFormLayout()
         form_layout.setVerticalSpacing(10)
@@ -500,7 +527,10 @@ class ManualEntryDialog(QDialog):
         # Configure calendar to be large enough and look default
         calendar = self.fields["Invoice Date"].calendarWidget()
         if calendar:
-            calendar.setMinimumSize(380, 240)  # Ensure calendar is wide enough for all 7 days
+            # Scale calendar size based on screen dimensions
+            cal_width = max(320, int(min_width * 0.25))   # 25% of min width, min 320px
+            cal_height = max(200, int(min_height * 0.25)) # 25% of min height, min 200px
+            calendar.setMinimumSize(cal_width, cal_height)
             # Remove any inherited styling to make it look default
             calendar.setStyleSheet("""
                 QCalendarWidget {
@@ -535,7 +565,7 @@ class ManualEntryDialog(QDialog):
         # Configure Due Date calendar to be large enough and look default
         due_calendar = self.fields["Due Date"].calendarWidget()
         if due_calendar:
-            due_calendar.setMinimumSize(380, 240)  # Ensure calendar is wide enough for all 7 days
+            due_calendar.setMinimumSize(cal_width, cal_height)  # Use same responsive size as invoice calendar
             # Remove any inherited styling to make it look default
             due_calendar.setStyleSheet("""
                 QCalendarWidget {
@@ -573,9 +603,9 @@ class ManualEntryDialog(QDialog):
         # Quick Calculator (no tax rows)
         self.quick_calc_group = QGroupBox("Quick Calculator")
         qc = QFormLayout()
-        qc.setVerticalSpacing(10)
-        qc.setHorizontalSpacing(12)
-        qc.setContentsMargins(15, 10, 15, 15)
+        qc.setVerticalSpacing(10)  # Restore original spacing
+        qc.setHorizontalSpacing(12)  # Restore original spacing
+        qc.setContentsMargins(15, 10, 15, 15)  # Restore original margins
 
         def new_lineedit():
             e = QLineEdit()
@@ -593,7 +623,7 @@ class ManualEntryDialog(QDialog):
         self.qc_grand_total.setStyleSheet("font-weight: bold;")
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(10)  # Restore original spacing
         self.qc_push_shipping = QPushButton("Push to Shipping Cost")
         self.qc_push_total = QPushButton("Push to Total Amount")
         self.qc_push_shipping.clicked.connect(self._push_shipping_from_qc)
@@ -630,15 +660,17 @@ class ManualEntryDialog(QDialog):
             "QPushButton:pressed { background-color: #485848; } "
             "QPushButton:disabled { background-color: #bbbbbb; color: #666666; }"
         )
+        # Scale navigation button size based on screen dimensions
+        nav_btn_size = max(50, min(70, int(min_width * 0.04)))  # 4% of min width, between 50-70px
         for b in (self.prev_button, self.next_button):
             b.setStyleSheet(nav_css)
-            b.setFixedSize(60, 60)
+            b.setFixedSize(nav_btn_size, nav_btn_size)
         self.prev_button.clicked.connect(self._on_prev_clicked)
         self.next_button.clicked.connect(self._on_next_clicked)
 
         self.flag_button = QPushButton("⚑")
         self.flag_button.setStyleSheet(nav_css)
-        self.flag_button.setFixedSize(60, 60)
+        self.flag_button.setFixedSize(nav_btn_size, nav_btn_size)
         self.flag_button.setToolTip("Toggle follow-up flag for this invoice")
         self.flag_button.clicked.connect(lambda: self.toggle_file_flag(self.current_index))
 
@@ -683,7 +715,7 @@ class ManualEntryDialog(QDialog):
         # Add form and other content to center widget
         center_layout.addLayout(form_layout)
         center_layout.addWidget(self.quick_calc_group)
-        center_layout.addSpacing(6)
+        center_layout.addSpacing(6)  # Restore original spacing
         center_layout.addWidget(row_container)
 
         # Wrap center widget in scroll area
@@ -711,14 +743,14 @@ class ManualEntryDialog(QDialog):
         right_shadow.setColor(QColor(0, 0, 0, 15))
         right_card.setGraphicsEffect(right_shadow)
         right_card_layout = QVBoxLayout(right_card)
-        right_card_layout.setContentsMargins(12, 12, 12, 12)
-        right_card_layout.setSpacing(8)
+        right_card_layout.setContentsMargins(card_margin, card_margin, card_margin, card_margin)
+        right_card_layout.setSpacing(card_spacing)
         
         # PDF viewer title
         pdf_title = QLabel("PDF Preview")
-        title_font = QFont("Inter", 18, QFont.Bold)
+        title_font = QFont("Inter", large_font_size, QFont.Bold)
         pdf_title.setFont(title_font)
-        pdf_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: 18px; font-weight: bold;")
+        pdf_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: {large_font_size}px; font-weight: bold;")
         right_card_layout.addWidget(pdf_title)
         
         # Don't create viewer here - let load_invoice handle it
@@ -727,7 +759,9 @@ class ManualEntryDialog(QDialog):
         # ===== Splitter with cards =====
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setHandleWidth(12)
+        # Scale splitter handle width
+        handle_width = max(8, int(min_width * 0.008))  # 0.8% of width, min 8px
+        self.splitter.setHandleWidth(handle_width)
         self.splitter.setStyleSheet("""
             QSplitter::handle {
                 background: transparent;
@@ -738,10 +772,13 @@ class ManualEntryDialog(QDialog):
             }
         """)
         
-        # Set minimum widths for sections
-        left_card.setMinimumWidth(180)
-        center_scroll.setMinimumWidth(400)
-        right_card.setMinimumWidth(300)
+        # Set responsive minimum widths for sections - reduce center minimum to allow smaller screens
+        left_min_width = max(120, int(min_width * 0.12))    # 12% of width, min 120px
+        center_min_width = max(200, int(min_width * 0.20))   # 20% of width, min 200px (reduced from 350px)
+        right_min_width = max(180, int(min_width * 0.15))    # 15% of width, min 180px
+        left_card.setMinimumWidth(left_min_width)
+        center_scroll.setMinimumWidth(center_min_width)
+        right_card.setMinimumWidth(right_min_width)
         
         self.splitter.addWidget(left_card)
         self.splitter.addWidget(center_scroll)
@@ -789,6 +826,12 @@ class ManualEntryDialog(QDialog):
                 widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
 
         # Apply direct styling to input fields (to override any global styles)
+        # Scale padding and sizing based on screen dimensions
+        input_padding_v = max(6, int(min_height * 0.008))  # 0.8% of height, min 6px
+        input_padding_h = max(8, int(min_width * 0.008))   # 0.8% of width, min 8px
+        border_radius = max(4, int(min_width * 0.004))     # 0.4% of width, min 4px
+        min_input_height = max(16, int(min_height * 0.02)) # 2% of height, min 16px
+        
         input_field_style = f"""
             background-color: #FFFFFF;
             color: #000000;
@@ -897,7 +940,7 @@ class ManualEntryDialog(QDialog):
 
         # Resize to avoid buttons being off-screen, and fit the PDF to width
         QTimer.singleShot(0, self._resize_to_fit_content)
-        QTimer.singleShot(0, lambda: self.viewer.fit_width())
+        QTimer.singleShot(0, lambda: self.viewer.fit_width() if self.viewer else None)
 
         # Guarded file list navigation
         self.file_list.currentRowChanged.connect(self._on_file_list_row_changed)
@@ -924,10 +967,10 @@ class ManualEntryDialog(QDialog):
         if not screen:
             return
         avail = screen.availableGeometry()
-        # Set fixed size of 1600x1050 as requested
-        target_w = 1600
-        target_h = 1050
-        self.resize(target_w, target_h)
+        # Set responsive target size based on screen dimensions
+        target_w = max(1200, min(avail.width() * 0.9, 1800))  # 90% of screen width, between 1200-1800px
+        target_h = max(800, min(avail.height() * 0.85, 1200)) # 85% of screen height, between 800-1200px
+        self.resize(int(target_w), int(target_h))
         self._apply_splitter_proportions()
         if hasattr(self, "viewer") and self.viewer:
             self.viewer.fit_width()
@@ -1462,6 +1505,22 @@ class ManualEntryDialog(QDialog):
             self._highlight_empty_fields()
 
     def _highlight_empty_fields(self):
+        # Get current screen dimensions for responsive styling
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            screen_size = screen.availableGeometry()
+            min_width = max(1200, int(screen_size.width() * 0.75))
+            min_height = max(800, int(screen_size.height() * 0.8))
+        else:
+            min_width, min_height = 1200, 800
+            
+        # Calculate responsive values - use original font sizes
+        base_font_size = 15  # Use original font size
+        input_padding_v = max(6, int(min_height * 0.008))
+        input_padding_h = max(8, int(min_width * 0.008))
+        border_radius = max(4, int(min_width * 0.004))
+        min_input_height = max(16, int(min_height * 0.02))
+        
         # Define base style for input fields
         base_input_style = f"""
             background-color: #FFFFFF;
@@ -1930,6 +1989,12 @@ class ManualEntryDialog(QDialog):
             g.setBottom(new_bottom)
 
         self.setGeometry(g)
+    
+    def resizeEvent(self, event):
+        """Handle window resize to maintain proportions and update responsive elements."""
+        super().resizeEvent(event)
+        if hasattr(self, 'splitter') and self.splitter:
+            QTimer.singleShot(10, self._apply_splitter_proportions)
         
     def closeEvent(self, event):
         """Clean up resize cursor override and guard window-X close."""
