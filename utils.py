@@ -461,7 +461,6 @@ def _get_data_file(name: str, merge_fn) -> str:
             merge_fn(bundled_path, user_path)
     return user_path
 
-
 def get_vendor_csv_path() -> str:
     """Return path to vendors.csv under the user's Roaming directory."""
     # On Windows, APPDATA points to ``AppData/Roaming``. Fallback to home dir if unset.
@@ -477,99 +476,9 @@ def get_vendor_csv_path() -> str:
             _merge_vendors_csv(bundled_path, user_path)
     return user_path
 
-
 def get_manual_map_path() -> str:
     """Path to user-managed manual_vendor_map.json with defaults merged."""
     return _get_data_file("manual_vendor_map.json", _merge_manual_map)
-
-def write_to_csv(filename, data_source):
-    """
-    Write invoice data to CSV file in accounting system format.
-    Handles both QTableWidget objects and pre-formatted data lists.
-    """
-    try:
-        if hasattr(data_source, 'rowCount'):
-            print(f"[INFO] Processing QTableWidget with {data_source.rowCount()} rows")
-            return export_accounting_csv(filename, data_source)
-        else:
-            print(f"[INFO] Processing pre-formatted list with {len(data_source)} rows")
-            
-            write_headers = _should_write_headers(filename)
-            existing_pairs = _scan_existing_pairs(filename) if not write_headers else set()
-
-            mode = 'a' if not write_headers else 'w'
-            with open(filename, mode, newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
-
-                if write_headers:
-                    writer.writerow(VCHR_HEADER)
-                    writer.writerow(DIST_HEADER)
-
-                rows_written = 0
-                rows_skipped_dup = 0
-
-                for row_data in data_source:
-                    if len(row_data) < 9:
-                        print(f"[WARN] Skipping invalid row: {row_data}")
-                        continue
-
-                    vendor_id = clean_text(row_data[0]) or "0"
-                    invoice_date = clean_text(row_data[1])
-                    invoice_no = clean_text(row_data[2])
-                    vendor_name = clean_text(row_data[3])
-                    due_date = clean_text(row_data[4])
-                    po_no = clean_text(row_data[5])
-                    acct_no = row_data[6]
-                    cp_acct_no = row_data[7]
-                    amount = clean_amount(row_data[8])
-
-                    batch_id = "AP-0001"
-                    dist_date = format_date_for_export(datetime.now())
-
-                    vchr_row = ["1-AI_VCHR", vendor_id, invoice_no, batch_id, dist_date,
-                                invoice_date, invoice_no, "", vendor_name, "0.00",
-                                due_date, invoice_date, "0.00", "0.00", po_no]
-                    for _ in range(5): vchr_row.append("0.00")
-                    vchr_row.append("0.00")
-                    vchr_row.append(amount)
-                    vchr_row.append(amount)
-                    vchr_row.append(amount)
-                    for _ in range(5): vchr_row.append("0.00")
-                    vchr_row.append("0.00")
-                    vchr_row.append("1")
-                    for _ in range(5): vchr_row.append("0.00")
-                    vchr_row.append("0.00")
-                    vchr_row.append("0.00")
-                    vchr_row.append("0.00")
-                    vchr_row.append("N30")
-                    vchr_row.append("30")
-                    vchr_row.append("0")
-                    vchr_row.append("0.000")
-                    vchr_row.append(DEFAULT_DISCOUNT_ACCT)
-                    vchr_row.append(DEFAULT_CP_DISCOUNT_ACCT)
-                    vchr_row.append("")
-                    vchr_row.append("")
-
-                    dist_row = ["2-AI_VCHR_DIST", vendor_id, invoice_no, "0", acct_no, cp_acct_no, amount]
-
-                    pair = (tuple(vchr_row), tuple(dist_row))
-                    if pair in existing_pairs:
-                        rows_skipped_dup += 1
-                        continue
-
-                    writer.writerow(vchr_row)
-                    writer.writerow(dist_row)
-                    existing_pairs.add(pair)
-                    rows_written += 1
-
-                if write_headers:
-                    return True, f"Created new file and wrote {rows_written} invoices to {filename}"
-                else:
-                    return True, f"Appended {rows_written} invoices to existing file (skipped {rows_skipped_dup} duplicates)."
-                
-    except Exception as e:
-        print(f"[ERROR] Export failed: {str(e)}")
-        return False, f"Export failed: {str(e)}"
 
 def format_and_write_csv(filename, invoice_data_list):
     """Write invoices to CSV using simplified export layout for SAGE"""
