@@ -1,6 +1,7 @@
 """File handling controller for invoice processing."""
 import os
 import subprocess
+import logging
 
 from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from PyQt5.QtCore import Qt
@@ -19,10 +20,10 @@ class FileController:
         """Process PDF files and add them to the table."""
         new_files = self.filter_new_files(pdf_paths)
         if not new_files:
-            print("[INFO] No new files to process.")
+            logging.info("No new files to process.")
             return False
 
-        print(f"[INFO] Processing {len(new_files)} new files...")
+        logging.info("Processing %d new files...", len(new_files))
         progress = QProgressDialog("Processing files...", "Cancel", 0, len(new_files), self.main_window)
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)

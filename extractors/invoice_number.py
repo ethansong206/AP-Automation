@@ -1,4 +1,5 @@
 import re
+import logging
 from .common_extraction import (
     normalize_words,
     find_label_positions,
@@ -40,10 +41,10 @@ def extract_invoice_number(words, vendor_name):
     
     # Prana-specific logic: check under the label "Reference"
     if vendor_name == "Prana Living LLC":
-        print("[DEBUG] Checking for all 'reference' labels for Prana Living LLC")
+        logging.debug("Checking for all 'reference' labels for Prana Living LLC")
         for idx, w in enumerate(normalized_words):
             if w["text"] == "reference":
-                print(f"[DEBUG] Reference label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
+                logging.debug("Reference label at index=%d, x0=%s, x1=%s, top=%s, bottom=%s", idx, w['x0'], w['x1'], w['top'], w['bottom'])
                 # Allow vertical overlap or small positive distance
                 candidates = [
                     cand for cand in normalized_words
@@ -51,20 +52,20 @@ def extract_invoice_number(words, vendor_name):
                        -5 <= (cand["top"] - w["bottom"]) <= 300 and
                        is_potential_invoice_number(cand["text"], vendor_name)
                 ]
-                print(f"[DEBUG] Candidates found below 'reference': {[c['orig'] for c in candidates]}")
+                logging.debug("Candidates found below 'reference': %s", [c['orig'] for c in candidates])
                 if candidates:
                     best = sorted(candidates, key=lambda x: abs(x["top"] - w["bottom"]))[0]
-                    print(f"[DEBUG] Invoice Number (below 'Reference' for Prana): {best['orig']}")
+                    logging.debug("Invoice Number (below 'Reference' for Prana): %s", best['orig'])
                     return best["orig"].lstrip("#:").strip()
                 else:
-                    print("[DEBUG] No valid invoice number found below this 'reference' label.")
+                    logging.debug("No valid invoice number found below this 'reference' label.")
     
     # Prism Designs-specific logic: look for "Invoice" label and check directly below it
     if vendor_name == "Prism Designs":
-        print("[DEBUG] Checking for 'Invoice' label for Prism Designs")
+        logging.debug("Checking for 'Invoice' label for Prism Designs")
         for idx, w in enumerate(normalized_words):
             if w["text"] == "invoice":
-                print(f"[DEBUG] Found 'invoice' label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
+                logging.debug("Found 'invoice' label at index=%d, x0=%s, x1=%s, top=%s, bottom=%s", idx, w['x0'], w['x1'], w['top'], w['bottom'])
                 # Look for values directly below this label with relaxed horizontal alignment
                 candidates = [
                     cand for cand in normalized_words
@@ -72,21 +73,21 @@ def extract_invoice_number(words, vendor_name):
                        5 <= (cand["top"] - w["bottom"]) <= 100 and
                        is_potential_invoice_number(cand["text"], vendor_name)
                 ]
-                print(f"[DEBUG] Candidates found below 'invoice': {[c['orig'] for c in candidates]}")
+                logging.debug("Candidates found below 'invoice': %s", [c['orig'] for c in candidates])
                 if candidates:
                     best = sorted(candidates, key=lambda x: abs(x["top"] - w["bottom"]))[0]
-                    print(f"[DEBUG] Invoice Number (below 'Invoice' for Prism Designs): {best['orig']}")
+                    logging.debug("Invoice Number (below 'Invoice' for Prism Designs): %s", best['orig'])
                     return best["orig"].lstrip("#:").strip()
     
     # Nite Ize Inc-specific logic: look for "Order Number" label
     if vendor_name == "Nite Ize Inc":
-        print("[DEBUG] Checking for 'Order Number' label for Nite Ize Inc")
+        logging.debug("Checking for 'Order Number' label for Nite Ize Inc")
         for idx, w in enumerate(normalized_words):
             # Look for "order" word followed by "number" word
             if w["text"] == "order" and idx < len(normalized_words) - 1 and normalized_words[idx + 1]["text"] == "number":
                 order_label = w
                 number_label = normalized_words[idx + 1]
-                print(f"[DEBUG] Found 'Order Number' at index={idx}, x0={order_label['x0']}, x1={number_label['x1']}")
+                logging.debug("Found 'Order Number' at index=%d, x0=%s, x1=%s", idx, order_label['x0'], number_label['x1'])
                 
                 # Look for values to the right of this label
                 candidates = [
@@ -96,11 +97,11 @@ def extract_invoice_number(words, vendor_name):
                        is_potential_invoice_number(cand["text"], vendor_name)
                 ]
                 
-                print(f"[DEBUG] Candidates found next to 'Order Number': {[c['orig'] for c in candidates]}")
+                logging.debug("Candidates found next to 'Order Number': %s", [c['orig'] for c in candidates])
                 if candidates:
                     # Get the closest candidate to the right
                     best = sorted(candidates, key=lambda x: x["x0"] - number_label["x1"])[0]
-                    print(f"[DEBUG] Invoice Number (from 'Order Number' for Nite Ize Inc): {best['orig']}")
+                    logging.debug("Invoice Number (from 'Order Number' for Nite Ize Inc): %s", best['orig'])
                     return best["orig"].lstrip("#:").strip()
     
     # Look for value to the right of any invoice label (strict)
@@ -142,7 +143,7 @@ def extract_invoice_number(words, vendor_name):
                 ):
                     match = re.match(yakima_regex, w["text"], re.IGNORECASE)
                     if match:
-                        print(f"[DEBUG] Yakima candidate from label {label_idx}: {w['orig']} (Δy={vertical_distance:.1f})")
+                        logging.debug("Yakima candidate from label %d: %s (Δy=%.1f)", label_idx, w['orig'], vertical_distance)
                         if vertical_distance < best_score:
                             best_score = vertical_distance
                             best_candidate = w
@@ -153,20 +154,20 @@ def extract_invoice_number(words, vendor_name):
                 0 < vertical_distance <= max_distance_below and
                 is_potential_invoice_number(w["text"], vendor_name)
             ):
-                print(f"[DEBUG] Candidate from label {label_idx}: {w['orig']} (Δy={vertical_distance:.1f})")
+                logging.debug("Candidate from label %d: %s (Δy=%.1f)", label_idx, w['orig'], vertical_distance)
                 if vertical_distance < best_score:
                     best_score = vertical_distance
                     best_candidate = w
 
     if best_candidate:
-        print(f"[DEBUG] Invoice Number (below fallback best): {best_candidate['orig']}")
+        logging.debug("Invoice Number (below fallback best): %s", best_candidate['orig'])
         return best_candidate["orig"].lstrip("#:").strip()
 
-    print("[DEBUG] No label match or fallback for Invoice Number.")
+    logging.debug("No label match or fallback for Invoice Number.")
     return ""
 
 def is_potential_invoice_number(text, vendor_name=None):
-    print(f"[DEBUG] Testing invoice candidate: '{text}' for vendor '{vendor_name}'")
+    logging.debug("Testing invoice candidate: '%s' for vendor '%s'", text, vendor_name)
     # Outdoor Research: match US.SI- followed by digits
     if vendor_name == "Outdoor Research":
         return re.match(r"^us\.si-\d+$", text.strip(), re.IGNORECASE) is not None

@@ -24,18 +24,6 @@ def _parse_date(text: str) -> Optional[datetime]:
     return None
 
 
-def _parse_money(text: str) -> Optional[float]:
-    if text is None:
-        return None
-    s = re.sub(r"[^\d\.\-]", "", str(text))
-    if s in {"", "-", ".", "-.", ".-"}:
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
 def _natural_key(s: str) -> Tuple:
     """Case-insensitive natural sort key."""
     return tuple(int(t) if t.isdigit() else t.lower() for t in re.findall(r'\d+|\D+', s or ""))

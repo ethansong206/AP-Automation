@@ -1,6 +1,7 @@
 import os
 import csv
 import re
+import logging
 
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableView, QPushButton,
@@ -241,17 +242,17 @@ class VendorListDialog(QDialog):
         # Load all vendor data from the single CSV (now includes optional identifier column)
         vendors = []
         csv_path = self._vendors_csv_path()
-        print(f"[DEBUG] Loading vendor data from: {csv_path}")
+        logging.debug("Loading vendor data from: %s", csv_path)
         
         if os.path.exists(csv_path):
             with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
                 reader = csv.DictReader(f)
                 header_row = reader.fieldnames
-                print(f"[DEBUG] CSV headers: {header_row}")
+                logging.debug("CSV headers: %s", header_row)
                 for row_num, row in enumerate(reader):
                     # Debug raw row data for first few rows
                     if row_num < 10:
-                        print(f"[DEBUG] Raw CSV row {row_num}: {dict(row)}")
+                        logging.debug("Raw CSV row %d: %s", row_num, dict(row))
                     
                     vendor_data = {
                         "name": (row.get("Vendor Name", "") or "").strip(),
@@ -262,16 +263,16 @@ class VendorListDialog(QDialog):
                     
                     # Debug processed data for first few rows and any with identifiers
                     if row_num < 10 or vendor_data["identifier"]:
-                        print(f"[DEBUG] Processed row {row_num}: {vendor_data}")
+                        logging.debug("Processed row %d: %s", row_num, vendor_data)
                         if vendor_data["identifier"]:
-                            print(f"[DEBUG] *** Found identifier: '{vendor_data['identifier']}' for vendor '{vendor_data['name']}'")
+                            logging.debug("*** Found identifier: '%s' for vendor '%s'", vendor_data['identifier'], vendor_data['name'])
         else:
-            print(f"[DEBUG] CSV file does not exist: {csv_path}")
+            logging.debug("CSV file does not exist: %s", csv_path)
 
         # Sort by vendor name, then by identifier (so multiple identifiers for same vendor are grouped)
         vendors.sort(key=lambda v: (v["name"].casefold(), v["identifier"].casefold()))
 
-        print(f"[DEBUG] Loaded {len(vendors)} vendor rows from CSV")
+        logging.debug("Loaded %d vendor rows from CSV", len(vendors))
 
         # Add all rows and set the data (without triggering updates)
         for i, v in enumerate(vendors):
@@ -283,17 +284,17 @@ class VendorListDialog(QDialog):
             
             # Debug every vendor that should have an identifier based on the CSV data
             if v["identifier"]:
-                print(f"[DEBUG] ✓ Setting identifier '{v['identifier']}' for vendor '{v['name']}' at model row {row}")
+                logging.debug("✓ Setting identifier '%s' for vendor '%s' at model row %d", v['identifier'], v['name'], row)
             else:
                 # Only log first 10 without identifiers to avoid spam
                 if i < 10:
-                    print(f"[DEBUG] ✗ No identifier for vendor '{v['name']}' at model row {row}")
+                    logging.debug("✗ No identifier for vendor '%s' at model row %d", v['name'], row)
             
             # Double-check what actually got set in the model
             if v["identifier"]:
                 item = self.model.item(row, 2)
                 actual_text = item.text() if item else "NO_ITEM"
-                print(f"[DEBUG] Model verification - Expected: '{v['identifier']}', Actually set: '{actual_text}'")
+                logging.debug("Model verification - Expected: '%s', Actually set: '%s'", v['identifier'], actual_text)
 
         # Re-enable signals and trigger single update
         self.model.blockSignals(False)
@@ -420,7 +421,7 @@ class VendorListDialog(QDialog):
             name_item = self.model.item(item.row(), 0)
             if name_item:
                 vendor_name = name_item.text().strip()
-            print(f"[DEBUG] Identifier changed for vendor '{vendor_name}': '{orig}' → '{new_text}'")
+            logging.debug("Identifier changed for vendor '%s': '%s' → '%s'", vendor_name, orig, new_text)
         
         # No highlighting - just track changes
         self._update_dirty()
@@ -495,7 +496,7 @@ class VendorListDialog(QDialog):
         mapping = {}
         invalid_rows = []
         
-        print(f"[DEBUG] Gathering rows from {self.model.rowCount()} rows in model...")
+        logging.debug("Gathering rows from %d rows in model...", self.model.rowCount())
         
         for r in range(self.model.rowCount()):
             name_item = self.model.item(r, 0)
@@ -506,22 +507,22 @@ class VendorListDialog(QDialog):
             number = self._normalize_vendor_number(num_item.text() if num_item else "")
             ident = id_item.text().strip() if id_item else ""
             
-            print(f"[DEBUG] Row {r}: name='{name}', number='{number}', identifier='{ident}'")
+            logging.debug("Row %d: name='%s', number='%s', identifier='%s'", r, name, number, ident)
             
             # Skip completely empty rows
             if not name and not number and not ident:
-                print(f"[DEBUG] Skipping completely empty row {r}")
+                logging.debug("Skipping completely empty row %d", r)
                 continue
             
             # Check for invalid rows (name without number)
             if name and not number:
-                print(f"[DEBUG] Invalid row {r}: has name but no number")
+                logging.debug("Invalid row %d: has name but no number", r)
                 invalid_rows.append(r + 1)  # 1-based for user display
                 continue
             
             # Only add valid rows
             if name and number:  # Both name and number required
-                print(f"[DEBUG] Adding valid row {r}: '{name}' with number '{number}' and identifier '{ident}'")
+                logging.debug("Adding valid row %d: '%s' with number '%s' and identifier '%s'", r, name, number, ident)
                 rows.append({
                     "Vendor Name": name, 
                     "Vendor No. (Sage)": number,
@@ -570,17 +571,17 @@ class VendorListDialog(QDialog):
             rows.sort(key=lambda r: (r["Vendor Name"].casefold(), r["Identifier"].casefold()))
             
             csv_path = self._vendors_csv_path()
-            print(f"[DEBUG] Saving {len(rows)} rows to CSV: {csv_path}")
+            logging.debug("Saving %d rows to CSV: %s", len(rows), csv_path)
             with open(csv_path, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=["Vendor No. (Sage)", "Vendor Name", "Identifier"])
                 writer.writeheader()
                 for r in rows:
                     writer.writerow(r)
             
-            print(f"[DEBUG] Successfully saved {len(rows)} vendor rows to CSV")
+            logging.debug("Successfully saved %d vendor rows to CSV", len(rows))
             
             # Reset tracking (no highlighting)
-            print("[DEBUG] Resetting original tracking after save...")
+            logging.debug("Resetting original tracking after save...")
             self.original = {}
             for r in range(self.model.rowCount()):
                 for c in range(3):
@@ -589,7 +590,7 @@ class VendorListDialog(QDialog):
                         text = item.text()
                         self.original[(r, c)] = text
                         if c == 2:  # Identifier column
-                            print(f"[DEBUG] Tracking identifier for row {r}: '{text}'")
+                            logging.debug("Tracking identifier for row %d: '%s'", r, text)
             self._update_dirty()
             
             # Emit signal to notify that vendor list was updated

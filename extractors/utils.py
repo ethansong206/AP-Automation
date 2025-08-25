@@ -2,6 +2,7 @@ import re
 from datetime import datetime, timedelta
 import csv
 import os
+import logging
 
 from utils import get_vendor_csv_path
 
@@ -57,30 +58,6 @@ def calculate_discount_due_date(terms, invoice_date):
     return due_date.strftime("%m/%d/%y")
 
 
-# --- Calculate discounted total based on percentage in terms ---
-def calculate_discounted_total(terms, total_amount, vendor_name):
-    """
-    Calculates the discounted total based on discount percentage in terms.
-    
-    Args:
-        terms (str): Payment terms string (e.g., "2% 10 NET 30", "NET 30")
-        total_amount (str): Total invoice amount
-        
-    Returns:
-        str: Formatted discounted total or None if no discount percentage found
-    """
-    # Check for discount percentage
-    discount_match = re.search(r"(\d+)%", terms)
-    
-    discount_percent = float(discount_match.group(1)) / 100
-    return discount_total(discount_percent, total_amount)
-
-def discount_total(discount_percent, total_amount):
-    total = float(total_amount)
-    discounted_total = round(total * (1 - discount_percent), 2)
-    return f"{discounted_total:.2f}"
-
-
 # --- Try parsing a raw date string with multiple common formats ---
 def try_parse_date(raw):
     """
@@ -99,29 +76,6 @@ def try_parse_date(raw):
         except ValueError:
             continue
     return None
-
-
-# --- Load lowercase vendor names from vendors.csv into a set ---
-def load_vendor_list():
-    """
-    Loads vendor names from vendors.csv as a lowercase set (used for fuzzy matching).
-    """
-    csv_path = get_vendor_csv_path()
-    vendor_set = set()
-
-    if not os.path.exists(csv_path):
-        print(f"[WARN] Vendor file not found: {csv_path}")
-        return vendor_set
-
-    with open(csv_path, newline='', encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            name = row.get("Vendor Name")
-            if name:
-                vendor_set.add(name.lower().strip())
-
-    print(f"[INFO] Loaded {len(vendor_set)} known vendors")
-    return vendor_set
 
 
 # --- Load vendor names from vendors.csv as-is (for dropdown display) ---
@@ -186,13 +140,13 @@ def load_manual_mapping():
                         normalized_key = normalize_string(identifier)
                         mapping[normalized_key] = vendor_name
             
-            print(f"[INFO] Loaded {len(mapping)} manual vendor mappings from CSV")
+            logging.info("Loaded %d manual vendor mappings from CSV", len(mapping))
             return mapping
         except Exception as e:
-            print(f"[ERROR] Failed to load vendor CSV for identifiers: {e}")
+            logging.error("Failed to load vendor CSV for identifiers: %s", e)
             return {}
     else:
-        print(f"[WARN] Vendor CSV not found at {csv_path}")
+        logging.warning("Vendor CSV not found at %s", csv_path)
         return {}
 
 # Check if Credit Memo amount is Negative, Flip Sign if Not
@@ -202,6 +156,5 @@ def check_negative_total(total_amount, discount_terms):
         if term == discount_terms:
             if total > 0:
                 total = float(total * -1)
-                return f"{total:.2f}"
-        else:
             return f"{total:.2f}"
+    return f"{total:.2f}"

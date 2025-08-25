@@ -103,7 +103,12 @@ USE_SHELL = True  # ⟵ flip to False anytime to compare with your normal window
 
 def main():
     """Application entry point."""
-    logging.basicConfig(level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s")
+    # Configure logging - change to logging.DEBUG for development debugging
+    # Production: ERROR level means DEBUG statements have zero overhead
+    logging.basicConfig(
+        level=logging.ERROR,  # Change to logging.DEBUG to enable debug output
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
     sys.excepthook = handle_exception
 
     app = QApplication(sys.argv)

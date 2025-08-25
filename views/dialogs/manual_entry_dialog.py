@@ -1,4 +1,5 @@
 import os
+import logging
 from copy import deepcopy
 
 from PyQt5.QtWidgets import (
@@ -44,7 +45,6 @@ RESIZE_MARGIN = 14
 from views.components.pdf_viewer import InteractivePDFViewer
 from views.dialogs.vendor_list_dialog import VendorListDialog
 from extractors.utils import get_vendor_list, calculate_discount_due_date
-from assets.constants import COLORS
 from views.helpers.style_loader import load_stylesheet, get_style_path
 
 
@@ -1281,7 +1281,7 @@ class ManualEntryDialog(QDialog):
         try:
             due_str = calculate_discount_due_date(terms, invoice_date_str)
         except Exception as e:
-            print(f"[WARN] calculate_discount_due_date failed: {e}")
+            logging.warning("calculate_discount_due_date failed: %s", e)
             due_str = None
 
         if not due_str:
@@ -1369,7 +1369,7 @@ class ManualEntryDialog(QDialog):
         icon = "🚩" if flagged else "⚑"
         item.setText(f"{icon} {text}")
         if flagged:
-            item.setBackground(QColor(COLORS['LIGHT_RED']))
+            item.setBackground(QColor('#FFCDD2'))  # Light red for flagged rows
         else:
             item.setBackground(QBrush())
 
@@ -1478,10 +1478,10 @@ class ManualEntryDialog(QDialog):
                         doc.close()
                         
                         # Try to extract vendor name
-                        print(f"[DEBUG] Re-extracting vendor for file: {file_path}")
+                        logging.debug("Re-extracting vendor for file: %s", file_path)
                         extracted_vendor = extract_vendor_name(words)
                         if extracted_vendor.strip():
-                            print(f"[DEBUG] Re-extraction successful: '{extracted_vendor}' for file: {file_path}")
+                            logging.debug("Re-extraction successful: '%s' for file: %s", extracted_vendor, file_path)
                             # Update the table with the new vendor name using the model
                             # Convert view row to source row
                             src_row = invoice_table._view_to_source_row(row)
@@ -1490,10 +1490,10 @@ class ManualEntryDialog(QDialog):
                                 invoice_table._model.setData(model_index, extracted_vendor, Qt.EditRole)
                                 updates_made += 1
                         else:
-                            print(f"[DEBUG] Re-extraction failed: No vendor found for file: {file_path}")
+                            logging.debug("Re-extraction failed: No vendor found for file: %s", file_path)
                             
                     except Exception as e:
-                        print(f"[ERROR] Failed to re-extract vendor for row {row}, file: {file_path}: {e}")
+                        logging.error("Failed to re-extract vendor for row %d, file: %s: %s", row, file_path, e)
                         continue
         
         # Update all values_list entries to stay in sync with the table
@@ -1512,7 +1512,7 @@ class ManualEntryDialog(QDialog):
                 if not self._loading:
                     self.vendor_combo.setCurrentText(updated_vendor)
             
-            print(f"[INFO] Re-extracted vendor names for {updates_made} empty cells")
+            logging.info("Re-extracted vendor names for %d empty cells", updates_made)
 
     def _on_field_changed(self, label):
         if not self._loading:

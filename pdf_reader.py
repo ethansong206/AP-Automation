@@ -1,10 +1,10 @@
 import pdfplumber
+import logging
 
 def extract_text_data_from_pdfs(pdf_paths):
     all_documents = []
 
     for pdf_path in pdf_paths:
-        #print(f"[INFO] Reading file: {pdf_path}")
         document_words = []
 
         try:
@@ -22,14 +22,14 @@ def extract_text_data_from_pdfs(pdf_paths):
                         }
                         document_words.append(word_info)
 
-            print(f"[DEBUG] Extracted {len(document_words)} words from {pdf_path}")
+            logging.debug("Extracted %d words from %s", len(document_words), pdf_path)
             all_documents.append({
                 "file_name": pdf_path,
                 "words": document_words
             })
 
         except Exception as e:
-            print(f"[ERROR] Failed to read {pdf_path}: {e}")
+            logging.error("Failed to read %s: %s", pdf_path, e)
             all_documents.append({
                 "file_name": pdf_path,
                 "words": [],

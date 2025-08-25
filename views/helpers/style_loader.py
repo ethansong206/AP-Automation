@@ -1,6 +1,7 @@
 """Style loading utilities for the application."""
 import os
 import sys
+import logging
 
 def load_stylesheet(filename):
     """Load a QSS stylesheet from a file.
@@ -15,7 +16,7 @@ def load_stylesheet(filename):
         with open(filename, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        print(f"[ERROR] Failed to load stylesheet {filename}: {e}")
+        logging.error("Failed to load stylesheet %s: %s", filename, e)
         return ""
 
 def get_style_path(style_name):

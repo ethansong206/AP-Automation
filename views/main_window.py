@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import json
+import logging
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -446,7 +447,7 @@ class InvoiceApp(QWidget):
                         self.file_controller.loaded_files.remove(old_norm)
                         self.file_controller.loaded_files.add(new_norm)
             except Exception as e:
-                print(f"[ERROR] Failed to copy '{file_path}' to '{dest_path}': {e}")
+                logging.error("Failed to copy '%s' to '%s': %s", file_path, dest_path, e)
         QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")
 
     # ---------------- Search / Filter helpers ----------------
@@ -495,7 +496,7 @@ class InvoiceApp(QWidget):
             with open(self.session_file, "w", encoding="utf-8") as fh:
                 json.dump(payload, fh, indent=2)
         except Exception as e:
-            print(f"[ERROR] Failed to save session: {e}")
+            logging.error("Failed to save session: %s", e)
 
     def load_session(self):
         if not os.path.exists(self.session_file):
@@ -504,7 +505,7 @@ class InvoiceApp(QWidget):
             with open(self.session_file, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except Exception as e:
-            print(f"[ERROR] Failed to load session: {e}")
+            logging.error("Failed to load session: %s", e)
             return
         rows = data.get("rows", [])
         if not rows:
@@ -575,4 +576,4 @@ class InvoiceApp(QWidget):
             # This call will trigger the merge process if there are conflicts
             get_vendor_csv_path()
         except Exception as e:
-            print(f"[WARN] Failed to initialize vendor data: {e}")
+            logging.warning("Failed to initialize vendor data: %s", e)

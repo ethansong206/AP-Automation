@@ -55,27 +55,6 @@ def _exists_vendor_name(rows: list[dict], name: str) -> bool:
     name_l = (name or "").strip().lower()
     return any((r.get("Vendor Name","") or "").strip().lower() == name_l for r in rows)
 
-def _exists_vendor_name_and_no(rows: list[dict], name: str, vno: str) -> bool:
-    name_l = (name or "").strip().lower()
-    vno_n = _normalize_vendor_number(vno or "")
-    return any(
-        (r.get("Vendor Name","") or "").strip().lower() == name_l and
-        _normalize_vendor_number(r.get("Vendor No. (Sage)", "")) == vno_n
-        for r in rows
-    )
-
-def _append_vendor_csv(name: str, vno: str) -> None:
-    rows = _load_vendors_csv()
-    if _exists_vendor_name(rows, name):
-        raise ValueError(f"Vendor '{name}' already exists. Select it from the drop-down.")
-    if _exists_vendor_name_and_no(rows, name, vno):
-        raise ValueError(
-            f"Vendor '{name}' with number {_normalize_vendor_number(vno)} already exists. "
-            "Select it from the drop-down."
-        )
-    rows.append({"Vendor Name": name.strip(), "Vendor No. (Sage)": _normalize_vendor_number(vno)})
-    _write_vendors_csv(rows)
-
 class VendorDialog(QDialog):
     """Dialog for adding a new vendor."""
     def __init__(self, parent=None):

@@ -2,6 +2,7 @@
 import re
 from datetime import datetime
 import csv
+import logging
 
 from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem
 from utils import get_vendor_csv_path
@@ -33,7 +34,7 @@ class InvoiceController:
                     if key in self.main_window.table.manually_edited:
                         self.main_window.table.manually_edited.remove(key)
             except Exception as e:
-                print(f"[WARN] Could not compute due date: {e}")
+                logging.warning("Could not compute due date: %s", e)
     
     def format_date(self, date_str):
         """Format date for accounting system."""
@@ -60,7 +61,7 @@ class InvoiceController:
         try:
             vendors_csv_path = get_vendor_csv_path()
             
-            print(f"[DEBUG] Looking for vendors file at: {vendors_csv_path}")
+            logging.debug("Looking for vendors file at: %s", vendors_csv_path)
             
             with open(vendors_csv_path, 'r', encoding='utf-8') as file:
                 # Use regular CSV reader instead of DictReader
@@ -73,9 +74,9 @@ class InvoiceController:
                         if vendor_number and vendor_name:
                             vendor_mapping[vendor_name] = vendor_number
                     
-            print(f"[INFO] Loaded {len(vendor_mapping)} vendors from vendors.csv")
+            logging.info("Loaded %d vendors from vendors.csv", len(vendor_mapping))
         except Exception as e:
-            print(f"[ERROR] Failed to load vendor mapping: {e}")
+            logging.error("Failed to load vendor mapping: %s", e)
     
         return vendor_mapping
         
@@ -89,7 +90,7 @@ class InvoiceController:
         model = getattr(table, "_model", None)
         total_rows = model.rowCount() if model else table.rowCount()
 
-        print(f"[INFO] Preparing export data from {total_rows} rows")
+        logging.info("Preparing export data from %d rows", total_rows)
 
         for src_row in range(total_rows):
             if model:
@@ -115,14 +116,14 @@ class InvoiceController:
             
             # Skip incomplete rows
             if not vendor_name or not invoice_number or not invoice_date or not total_amount:
-                print(f"[WARN] Skipping incomplete row {src_row+1}")
+                logging.warning("Skipping incomplete row %d", src_row+1)
                 continue
         
             # Look up vendor number
-            print(f"[DEBUG] Looking up vendor in mapping: '{vendor_name}'")
+            logging.debug("Looking up vendor in mapping: '%s'", vendor_name)
             vendor_number = vendor_mapping.get(vendor_name, "0")  # Default to "0" if not found
             if not vendor_number or vendor_number == "0":
-                print(f"[WARN] No vendor number found for: '{vendor_name}'")
+                logging.warning("No vendor number found for: '%s'", vendor_name)
         
             # Create complete data dictionary with all needed information
             invoice_data = {
@@ -137,9 +138,9 @@ class InvoiceController:
             }
             
             rows_to_export.append(invoice_data)
-            print(f"[INFO] Prepared row {src_row} for export: {vendor_name} ({vendor_number})")
+            logging.info("Prepared row %d for export: %s (%s)", src_row, vendor_name, vendor_number)
     
-        print(f"[INFO] Export data preparation complete: {len(rows_to_export)} rows")
+        logging.info("Export data preparation complete: %d rows", len(rows_to_export))
         return rows_to_export
 
     def export_to_csv(self, filename):
@@ -147,16 +148,16 @@ class InvoiceController:
         rows_to_export = self.prepare_export_data()
         
         if not rows_to_export:
-            print("[WARN] No data to export")
+            logging.warning("No data to export")
             return False, "No data to export"
             
         try:
             # Import format_and_write_csv (renamed function) to avoid circular imports
             from utils import format_and_write_csv
             success, message = format_and_write_csv(filename, rows_to_export)
-            print(f"[INFO] Export completed: {message}")
+            logging.info("Export completed: %s", message)
             return success, message
         except Exception as e:
             error_msg = str(e)
-            print(f"[ERROR] Export failed: {error_msg}")
+            logging.error("Export failed: %s", error_msg)
             return False, f"Export failed: {error_msg}"
