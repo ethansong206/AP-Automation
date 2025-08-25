@@ -22,7 +22,7 @@ def extract_discount_terms(words, vendor_name):
     ]
     for term in special_terms:
         if term in first_n_words:
-            print(f"[DEBUG] Found Discount Terms: {term}")
+            #print(f"[DEBUG] Found Discount Terms: {term}")
             return term
 
     # Special cases of terms
@@ -30,21 +30,21 @@ def extract_discount_terms(words, vendor_name):
     match = re.search(r"\b(\d{1,3})\s+DAYS\s+NET\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
 
     # 2. "NET TERMS 30" -> "NET 30"
     match = re.search(r"\bNET\s+TERMS\s+(\d{1,3})\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
 
     # 3. "30 DAYS STRIPE" -> "NET 30"
     match = re.search(r"\b(\d{1,3})\s+DAYS\s+STRIPE\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
 
     # 4. "NET 120, 75 10%" -> "10% 75 NET 120"
@@ -55,28 +55,28 @@ def extract_discount_terms(words, vendor_name):
         second = match.group(2)
         net_days = match.group(1)
         result = f"{percent}% {second} NET {net_days}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
 
     # 5. "NET xxD" -> "NET xx" (Grundens and similar cases)
     match = re.search(r"NET\s*(\d{1,2})\s*D\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
     
     # 6. "PAYMENT 90 DAYS" -> "NET 90"
     match = re.search(r"PAYMENT\s*(\d{1,3})\s*DAYS", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
     
     # 7. "x/x/NET xx or x/xx/NET xx" -> "x% xx NET xx" (National Geographic Maps)
     match = re.search(r"\b(\d{1,2})\s*\/\s*(\d{1,3})\s*\/\s*NET\s*(\d{1,3})\b", all_text)
     if match:
         result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
-        print(f"[DEBUG] Found Discount Terms: {result}")
+        #print(f"[DEBUG] Found Discount Terms: {result}")
         return result
     
     if vendor_name == "Badfish":
@@ -114,9 +114,9 @@ def extract_discount_terms(words, vendor_name):
             if "DUE IN" in value:
                 net_days = match.group(1)
                 result = f"NET {net_days}"
-                print(f"[DEBUG] Found Discount Terms: {result}")
+                #print(f"[DEBUG] Found Discount Terms: {result}")
                 return result
-            print(f"[DEBUG] Found Discount Terms: {value}")
+            #print(f"[DEBUG] Found Discount Terms: {value}")
             return value
 
     return ""

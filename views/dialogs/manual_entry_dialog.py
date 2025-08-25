@@ -1727,7 +1727,7 @@ class ManualEntryDialog(QDialog):
         disc_pct = self._percent(self.qc_disc_pct.text())
         disc_amt_input = self._money(self.qc_disc_amt.text())
 
-        disc_amt = disc_amt_input if disc_amt_input is not None else (
+        disc_amt = abs(disc_amt_input) if disc_amt_input is not None else (
             (sub * disc_pct) if (sub is not None and disc_pct is not None) else 0.0
         )
         if disc_amt is None:

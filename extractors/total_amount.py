@@ -15,7 +15,7 @@ def extract_total_amount(words, vendor_name):
 
     # --- ON Running special-case ---
     if vendor_name == "ON Running":
-        print(f"[DEBUG] Special-case vendor detected: {vendor_name} (searching lowest 'Total')")
+        #print(f"[DEBUG] Special-case vendor detected: {vendor_name} (searching lowest 'Total')")
 
         def normalize_label(text):
             return ''.join(c for c in text.lower() if c not in string.punctuation).strip()
@@ -43,12 +43,12 @@ def extract_total_amount(words, vendor_name):
                 cleaned = clean_currency(preprocess_currency_text(value))
                 try:
                     amount = float(cleaned)
-                    print(f"[DEBUG] Selected ON Running amount: {value} → {amount:.2f}")
+                    #print(f"[DEBUG] Selected ON Running amount: {value} → {amount:.2f}")
                     return f"{amount:.2f}"
                 except Exception:
                     print(f"[DEBUG] Failed to convert '{value}' to float for ON Running")
 
-        print("[DEBUG] ON Running special-case failed, falling back to general logic.")
+        #print("[DEBUG] ON Running special-case failed, falling back to general logic.")
 
     # --- Special-case vendor/label mapping ---
     special_vendor_labels = {
@@ -71,10 +71,10 @@ def extract_total_amount(words, vendor_name):
 
     # --- Special-case logic ---
     if label:
-        print(f"[DEBUG] Special-case vendor detected: {vendor_name} (label: {label})")
+        #print(f"[DEBUG] Special-case vendor detected: {vendor_name} (label: {label})")
         # Use find_label_positions to find the label
         label_positions = find_label_positions(normalized_words, label_type=None, custom_label=label)
-        print(f"[DEBUG] Found {len(label_positions)} label positions for '{label}'")
+        #print(f"[DEBUG] Found {len(label_positions)} label positions for '{label}'")
         # Use find_value_to_right to find the first valid currency value to the right
         value = find_value_to_right(
             normalized_words,
@@ -86,11 +86,11 @@ def extract_total_amount(words, vendor_name):
             cleaned = clean_currency(preprocess_currency_text(value))
             try:
                 amount = float(cleaned)
-                print(f"[DEBUG] Selected special-case amount: {value} → {amount:.2f}")
+                #print(f"[DEBUG] Selected special-case amount: {value} → {amount:.2f}")
                 return f"{amount:.2f}"
             except Exception:
                 print(f"[DEBUG] Failed to convert '{value}' to float")
-        print("[DEBUG] Special-case label found, but no valid value to right. Falling back to general logic.")
+        #print("[DEBUG] Special-case label found, but no valid value to right. Falling back to general logic.")
 
     # --- General logic (existing) ---
     candidates = []
@@ -105,12 +105,12 @@ def extract_total_amount(words, vendor_name):
                     'raw': value,
                     'amount': amount
                 })
-                print(f"[DEBUG] Found candidate amount: {value} → {amount:.2f}")
+                #print(f"[DEBUG] Found candidate amount: {value} → {amount:.2f}")
             except ValueError:
                 continue
 
     if not candidates:
-        print("[DEBUG] No valid currency amounts found")
+        #print("[DEBUG] No valid currency amounts found")
         return ""
 
     # Find the amount with largest absolute value
@@ -124,7 +124,7 @@ def extract_total_amount(words, vendor_name):
 
     # Prefer negative amount if it exists with same absolute value
     result = negative_match if negative_match else largest_abs
-    print(f"[DEBUG] Selected amount: {result['raw']} → {result['amount']:.2f}")
+    #print(f"[DEBUG] Selected amount: {result['raw']} → {result['amount']:.2f}")
 
     return f"{result['amount']:.2f}"
 

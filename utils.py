@@ -643,11 +643,12 @@ def format_and_write_csv(filename, invoice_data_list):
                 ]
                 writer.writerow(dist_row_total)
 
-                # Distribution row for shipping cost (always included)
-                dist_row_ship = [
-                    "2-AI_VCHR_DIST", "520-000", shipping_cost
-                ]
-                writer.writerow(dist_row_ship)
+                # Distribution row for shipping cost (only if not 0)
+                if float(shipping_cost) != 0.0:
+                    dist_row_ship = [
+                        "2-AI_VCHR_DIST", "520-004", shipping_cost
+                    ]
+                    writer.writerow(dist_row_ship)
 
                 existing_vouchers.add(vchr_tuple)
                 rows_written += 1

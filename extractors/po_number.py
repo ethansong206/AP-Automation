@@ -11,82 +11,82 @@ def is_potential_po_number(text, vendor_name=None):
     """
     Validates if a string is potentially a PO number
     """
-    print(f"[DEBUG] Testing PO candidate: '{text}' for vendor '{vendor_name}'")
+    #print(f"[DEBUG] Testing PO candidate: '{text}' for vendor '{vendor_name}'")
     
     # Check for "TBD" (To Be Determined)
     if text.strip().upper() == "TBD":
-        print(f"[DEBUG] ✓ '{text}' matched TBD special case")
+        #print(f"[DEBUG] ✓ '{text}' matched TBD special case")
         return True
     
     # XD- pattern is specific to PO numbers
     if text.strip().upper().startswith("XD-"):
-        print(f"[DEBUG] ✓ '{text}' matched XD- pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched XD- pattern")
         return True
         
     # Alpha-hyphen-numeric pattern (like EXE-4609 or ARCADE-123098)
     alpha_hyphen_numeric = r"^[a-zA-Z]+-\d+$"
     if re.match(alpha_hyphen_numeric, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched alpha-hyphen-numeric pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched alpha-hyphen-numeric pattern")
         return True
     
     # CTX3/25 format
     ctx_pattern = r"^[a-zA-Z]+\d+\/\d+$"
     if re.match(ctx_pattern, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched CTX pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched CTX pattern")
         return True
     
     # WORD-DIGIT-DIGIT format
     multi_segment_pattern = r"^[a-zA-Z]+-\d+-\d+$"
     if re.match(multi_segment_pattern, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched multi-segment pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched multi-segment pattern")
         return True
         
     # DIGIT-WORD-DIGIT format
     digit_word_digit_pattern = r"^(?:\d+-)[a-zA-Z]+\s*-\s*\d+$"
     if re.match(digit_word_digit_pattern, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched digit-word-digit pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched digit-word-digit pattern")
         return True
         
     # DIGIT-WORD-DIGIT alternate format
     alt_digit_word_digit = r"^\d+\s*-\s*[a-zA-Z]+-(?:\d+)$"
     if re.match(alt_digit_word_digit, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched alternate digit-word-digit pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched alternate digit-word-digit pattern")
         return True
         
     # 5+ letters followed by numbers
     long_alpha_numeric = r"^[a-zA-Z]{5,}[0-9]+$"
     if re.match(long_alpha_numeric, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched long alpha-numeric pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched long alpha-numeric pattern")
         return True
         
     # Short alpha followed by digits and slash (CTX3/25)
     short_alpha_digit_slash = r"^[a-zA-Z]{3,}\d+\/\d+$"
     if re.match(short_alpha_digit_slash, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched alpha-digit-slash pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched alpha-digit-slash pattern")
         return True
         
     # B2-TARGA325-A format
     complex_pattern = r"^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z]$"
     if re.match(complex_pattern, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched complex pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched complex pattern")
         return True
     
     # 701-thread7.7.25
     period_pattern = r"^[0-9]{3}-[a-zA-Z0-9\.]+"
     if re.match(period_pattern, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched period pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched period pattern")
         return True
         
     # General alphanumeric with hyphens
     general_alphanumeric = r"^[a-zA-Z0-9]+-[a-zA-Z]+\d+[a-zA-Z0-9\-]*$"
     if re.match(general_alphanumeric, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched general alphanumeric pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched general alphanumeric pattern")
         return True
     
     # Number-dash-text format (like "401 - hallaman")
     num_dash_text_pattern = r"^\d+\s*[\-:]\s*[a-zA-Z]+$"
     if re.match(num_dash_text_pattern, text.strip()):
-        print(f"[DEBUG] ✓ '{text}' matched number-dash-text pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched number-dash-text pattern")
         return True
     
     # Customer Name format
@@ -94,30 +94,30 @@ def is_potential_po_number(text, vendor_name=None):
     if re.match(name_pattern, text.strip()):
         # Exclude names containing "Sale" or "Freeman" (case-insensitive)
         if "sale" in text.strip().lower() or "sales" in text.strip().lower() or "freeman" in text.strip().lower():
-            print(f"[DEBUG] ✗ '{text}' rejected: contains 'Sale' or 'Freeman'")
+            #print(f"[DEBUG] ✗ '{text}' rejected: contains 'Sale' or 'Freeman'")
             return False
-        print(f"[DEBUG] ✓ '{text}' matched name pattern")
+        #print(f"[DEBUG] ✓ '{text}' matched name pattern")
         return True
     
     # Pure numeric strings must be at least 5 digits
     if text.strip().isdigit():
         result = len(text.strip()) >= 5
-        if result:
-            print(f"[DEBUG] ✓ '{text}' is numeric with sufficient length")
-        else:
-            print(f"[DEBUG] ✗ '{text}' is numeric but too short")
+        #if result:
+            #print(f"[DEBUG] ✓ '{text}' is numeric with sufficient length")
+        #else:
+            #print(f"[DEBUG] ✗ '{text}' is numeric but too short")
         return result
     
     # Reject date-like patterns (MM/DD/YY or DD/MM/YY format)
     date_pattern = r"^(0?[1-9]|1[0-2])\/(0?[1-9]|[12][0-9]|3[01])\/\d{2,4}$|^(0?[1-9]|[12][0-9]|3[01])\/(0?[1-9]|1[0-2])\/\d{2,4}$"
     if re.match(date_pattern, text.strip()):
-        print(f"[DEBUG] ✗ '{text}' rejected as date format")
+        #print(f"[DEBUG] ✗ '{text}' rejected as date format")
         return False
         
     # Also reject MM/DD format without year
     short_date_pattern = r"^(0?[1-9]|1[0-2])\/(0?[1-9]|[12][0-9]|3[01])$|^(0?[1-9]|[12][0-9]|3[01])\/(0?[1-9]|1[0-2])$"
     if re.match(short_date_pattern, text.strip()):
-        print(f"[DEBUG] ✗ '{text}' rejected as short date format")
+        #print(f"[DEBUG] ✗ '{text}' rejected as short date format")
         return False
     
     # Modified general PO number pattern - more restrictive to avoid matching dates
@@ -127,28 +127,28 @@ def is_potential_po_number(text, vendor_name=None):
     if result:
         # Exclude candidates that start with "#SE" (case-insensitive)
         if text.strip().upper().startswith("#SE"):
-            print(f"[DEBUG] ✗ '{text}' rejected: starts with #SE")
+            #print(f"[DEBUG] ✗ '{text}' rejected: starts with #SE")
             return False
-        print(f"[DEBUG] ✓ '{text}' matched general PO pattern")
-    else:
-        print(f"[DEBUG] ✗ '{text}' failed all PO number tests")
+        #print(f"[DEBUG] ✓ '{text}' matched general PO pattern")
+    #else:
+        #print(f"[DEBUG] ✗ '{text}' failed all PO number tests")
     return result
 
 def extract_po_from_combined_text(text):
     """
     Extract PO number from combined text like PO#BADFISH-425
     """
-    print(f"[DEBUG] Attempting to extract PO from combined text: '{text}'")
+    #print(f"[DEBUG] Attempting to extract PO from combined text: '{text}'")
     
     # Look for patterns like PO#XXXXX or P.O.#XXXXX
     pattern = r"(?:PO#|P\.?O\.?#)([a-zA-Z0-9\-\/]+)"
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
         result = match.group(1)
-        print(f"[DEBUG] ✓ Found PO in combined text: '{result}'")
+        #print(f"[DEBUG] ✓ Found PO in combined text: '{result}'")
         return result
     
-    print("[DEBUG] ✗ No PO found in combined text")
+    #print("[DEBUG] ✗ No PO found in combined text")
     return None
 
 def extract_hobie_po_number(normalized_words):
@@ -156,7 +156,7 @@ def extract_hobie_po_number(normalized_words):
     Special case handler for Hobie Cat Company II, LLC purchase orders
     where the PO label and number are split across multiple lines
     """
-    print("[DEBUG] Running special Hobie PO extraction")
+    #print("[DEBUG] Running special Hobie PO extraction")
     
     # Find "Purchase" on one line and "Order #:" on the line below
     purchase_words = []
@@ -179,7 +179,7 @@ def extract_hobie_po_number(normalized_words):
                         "order_word": prev_words[1],
                         "is_purchase_order": True
                     })
-                    print(f"[DEBUG] Found 'Purchase Order #' sequence at y={word['top']}")
+                    #print(f"[DEBUG] Found 'Purchase Order #' sequence at y={word['top']}")
                 elif prev_words[0] and prev_words[0]["text"].lower() != "sales":
                     # This might be a different kind of order but not sales
                     order_hash_words.append({
@@ -187,16 +187,16 @@ def extract_hobie_po_number(normalized_words):
                         "order_word": prev_words[1],
                         "is_purchase_order": False
                     })
-                    print(f"[DEBUG] Found 'Order #' (non-Sales) sequence at y={word['top']}")
+                    #print(f"[DEBUG] Found 'Order #' (non-Sales) sequence at y={word['top']}")
         
         # Update the sliding window of previous words
         prev_words = [prev_words[1], word]
     
-    print(f"[DEBUG] Found {len(purchase_words)} 'Purchase' instances and {len(order_hash_words)} 'Order #' instances")
+    #print(f"[DEBUG] Found {len(purchase_words)} 'Purchase' instances and {len(order_hash_words)} 'Order #' instances")
     
     # Filter to only include Purchase Order # sequences
     purchase_order_hash_words = [item for item in order_hash_words if item["is_purchase_order"]]
-    print(f"[DEBUG] After filtering, found {len(purchase_order_hash_words)} 'Purchase Order #' sequences")
+    #print(f"[DEBUG] After filtering, found {len(purchase_order_hash_words)} 'Purchase Order #' sequences")
 
     # Try to match # that is vertically below Purchase or Order
     for order_hash in purchase_order_hash_words:
@@ -209,7 +209,7 @@ def extract_hobie_po_number(normalized_words):
             horizontal_overlap = min(ref_word["x1"], hash_mark["x1"]) - max(ref_word["x0"], hash_mark["x0"])
     
             if 5 < vertical_distance < 40 and horizontal_overlap > 0:
-                print(f"[DEBUG] Found matching label/# pair at y={ref_word['top']} and y={hash_mark['top']} (label='{ref_word['text']}')")
+                #print(f"[DEBUG] Found matching label/# pair at y={ref_word['top']} and y={hash_mark['top']} (label='{ref_word['text']}')")
     
                 # Now look for values to the right of both lines
                 right_of_label = []
@@ -247,10 +247,10 @@ def extract_hobie_po_number(normalized_words):
 
                 if po_parts:
                     po_number = "".join(po_parts).strip()
-                    print(f"[DEBUG] Extracted Hobie PO: {po_number}")
+                    #print(f"[DEBUG] Extracted Hobie PO: {po_number}")
                     return po_number
     
-    print("[DEBUG] Could not find matching Purchase/Order pattern for Hobie")
+    #print("[DEBUG] Could not find matching Purchase/Order pattern for Hobie")
     return None
 
 def filter_po_box_labels(po_label_positions, normalized_words):
@@ -265,7 +265,7 @@ def filter_po_box_labels(po_label_positions, normalized_words):
                 word["x0"] > x1 and 
                 abs(word["top"] - y) < 10):
                 is_po_box = True
-                print(f"[DEBUG] Filtered out 'PO Box' at position ({x0}, {x1}, {y})")
+                #print(f"[DEBUG] Filtered out 'PO Box' at position ({x0}, {x1}, {y})")
                 break
         if not is_po_box:
             filtered_positions.append((x0, x1, y))
@@ -275,8 +275,8 @@ def extract_po_number(words, vendor_name):
     """
     Extract PO number from document
     """
-    print(f"[DEBUG] Starting PO extraction for vendor: {vendor_name}")
-    print(f"[DEBUG] Document contains {len(words)} words")
+    #print(f"[DEBUG] Starting PO extraction for vendor: {vendor_name}")
+    #print(f"[DEBUG] Document contains {len(words)} words")
     
     normalized_words = normalize_words(words)
 
@@ -284,12 +284,12 @@ def extract_po_number(words, vendor_name):
     if vendor_name:
         vendor_lower = vendor_name.lower()
         if "nemo" in vendor_lower or "topo designs" in vendor_lower:
-            print(f"[DEBUG] Detected {vendor_name} - using special multi-line PO extraction")
+            #print(f"[DEBUG] Detected {vendor_name} - using special multi-line PO extraction")
             po_label_positions = find_label_positions(normalized_words, label_type="po")
             po_label_positions = filter_po_box_labels(po_label_positions, normalized_words)
-            print(f"[DEBUG] Found {len(po_label_positions)} PO label positions for {vendor_name}")
+            #print(f"[DEBUG] Found {len(po_label_positions)} PO label positions for {vendor_name}")
             if not po_label_positions:
-                print(f"[DEBUG] No PO label found for {vendor_name}")
+                #print(f"[DEBUG] No PO label found for {vendor_name}")
                 return ""
             label_x0, label_x1, label_y = po_label_positions[0]
             x0_delta = 10  # px tolerance for x0 alignment
@@ -331,34 +331,34 @@ def extract_po_number(words, vendor_name):
                 selected_lines.append(" ".join(w["orig"] for w in line_words))
             if selected_lines:
                 po_number = " ".join(selected_lines).strip()
-                print(f"[DEBUG] Extracted {vendor_name} PO: {po_number}")
+                #print(f"[DEBUG] Extracted {vendor_name} PO: {po_number}")
                 return po_number
-            print(f"[DEBUG] No lines found below label for {vendor_name}")
+            #print(f"[DEBUG] No lines found below label for {vendor_name}")
             return ""
 
     # Special case for Hobie Cat Company II, LLC
     if vendor_name and "hobie cat company ii" in vendor_name.lower():
-        print("[DEBUG] Detected Hobie Cat Company II, LLC - using special extraction")
+        #print("[DEBUG] Detected Hobie Cat Company II, LLC - using special extraction")
         hobie_po = extract_hobie_po_number(normalized_words)
         if hobie_po:
             return hobie_po
         # If special extraction fails, continue with standard methods
-        print("[DEBUG] Special Hobie extraction failed, falling back to standard methods")
+        #print("[DEBUG] Special Hobie extraction failed, falling back to standard methods")
     
     # First priority: Look for combined PO# text
-    print("[DEBUG] STRATEGY 1: Looking for combined PO# text")
+    #print("[DEBUG] STRATEGY 1: Looking for combined PO# text")
     
     for word in normalized_words:
         if "po#" in word["orig"].lower() or "p.o.#" in word["orig"].lower():
             po_number = extract_po_from_combined_text(word["orig"])
             if po_number:
-                print(f"[DEBUG] SUCCESS: Found combined PO#: {po_number}")
+                #print(f"[DEBUG] SUCCESS: Found combined PO#: {po_number}")
                 return po_number
     
-    print("[DEBUG] ✗ No combined PO# text found")
+    #print("[DEBUG] ✗ No combined PO# text found")
     
     # Second priority: Check for explicit patterns directly
-    print("[DEBUG] STRATEGY 2: Checking for explicit PO patterns")
+    #print("[DEBUG] STRATEGY 2: Checking for explicit PO patterns")
     
     patterns = [
         r"^XD-\d+$",  # XD-12345
@@ -368,17 +368,17 @@ def extract_po_number(words, vendor_name):
     ]
     
     for i, pattern in enumerate(patterns):
-        print(f"[DEBUG] Trying pattern {i+1}/{len(patterns)}: {pattern}")
+        #print(f"[DEBUG] Trying pattern {i+1}/{len(patterns)}: {pattern}")
         
         pattern_match = search_for_pattern(normalized_words, pattern, case_sensitive=False)
         if pattern_match:
-            print(f"[DEBUG] SUCCESS: Found match with pattern {i+1}: '{pattern_match}'")
+            #print(f"[DEBUG] SUCCESS: Found match with pattern {i+1}: '{pattern_match}'")
             return pattern_match
     
-    print("[DEBUG] ✗ No explicit pattern matches found")
+    #print("[DEBUG] ✗ No explicit pattern matches found")
     
     # Third priority: Find PO labels and look to the right
-    print("[DEBUG] STRATEGY 3: Finding PO labels and looking for values")
+    #print("[DEBUG] STRATEGY 3: Finding PO labels and looking for values")
     
     po_label_positions = find_label_positions(normalized_words, label_type="po")
     
@@ -394,11 +394,9 @@ def extract_po_number(words, vendor_name):
                 and third["text"] in ["no", "no.", "number", "num", "#"]
             ):
                 po_label_positions.append((first["x0"], third["x1"], first["top"]))
-                print(
-                    f"[DEBUG] Added Yakima 'Purchaser Order No.' label at position ({first['x0']}, {third['x1']}, {first['top']})"
-                )
+                #print(f"[DEBUG] Added Yakima 'Purchaser Order No.' label at position ({first['x0']}, {third['x1']}, {first['top']})")
 
-    print(f"[DEBUG] Found {len(po_label_positions)} initial PO label positions")
+    #print(f"[DEBUG] Found {len(po_label_positions)} initial PO label positions")
     
     # Add "P.O. No." labels
     for i in range(len(normalized_words) - 2):
@@ -411,7 +409,7 @@ def extract_po_number(words, vendor_name):
             # Combine their bounding boxes for the label position
             po_label_positions.append((first["x0"], second["x1"], first["top"]))
             label_text = f"{first['orig']} {second['orig']}"
-            print(f"[DEBUG] Added '{label_text}' label at position ({first['x0']}, {second['x1']}, {first['top']})")
+            #print(f"[DEBUG] Added '{label_text}' label at position ({first['x0']}, {second['x1']}, {first['top']})")
     
     # Add "Customer PO" labels
     for i in range(len(normalized_words) - 1):
@@ -422,14 +420,14 @@ def extract_po_number(words, vendor_name):
             (second["text"].lower() in ["po", "p.o", "p.o.", "purchase", "order"])):
             # Combine their bounding boxes for the label position
             po_label_positions.append((first["x0"], second["x1"], first["top"]))
-            print(f"[DEBUG] Added 'Customer PO' label at position ({first['x0'], second['x1'], first['top']})")
+            #print(f"[DEBUG] Added 'Customer PO' label at position ({first['x0'], second['x1'], first['top']})")
         
         # Also check for "Customer PO:" or "Customer PO#" as a combined term
         if (first["text"].lower().startswith("customer") and 
             ("po" in first["text"].lower() or "p.o" in first["text"].lower() or 
              "purchase order" in first["text"].lower())):
             po_label_positions.append((first["x0"], first["x1"], first["top"]))
-            print(f"[DEBUG] Added 'Customer PO' label from combined term at position ({first['x0'], first['x1'], first['top']})")
+            #print(f"[DEBUG] Added 'Customer PO' label from combined term at position ({first['x0'], first['x1'], first['top']})")
     
     # Add "PO/Ref #" labels
     for i in range(len(normalized_words) - 1):
@@ -440,17 +438,17 @@ def extract_po_number(words, vendor_name):
             ("ref" in second["text"].lower() or second["text"] == "#")):
             # Combine their bounding boxes for the label position
             po_label_positions.append((first["x0"], second["x1"], first["top"]))
-            print(f"[DEBUG] Added 'PO/Ref #' label at position ({first['x0'], second['x1'], first['top']})")
+            #print(f"[DEBUG] Added 'PO/Ref #' label at position ({first['x0'], second['x1'], first['top']})")
         
         # Also check for "PO/Ref" without the "#" as a single word
         if "po/ref" in first["text"].lower() or "p.o./ref" in first["text"].lower():
             po_label_positions.append((first["x0"], first["x1"], first["top"]))
-            print(f"[DEBUG] Added 'PO/Ref' label at position ({first['x0'], first['x1'], first['top']})")
+            #print(f"[DEBUG] Added 'PO/Ref' label at position ({first['x0'], first['x1'], first['top']})")
     
     # Filter out "PO Box" cases
     po_label_positions = filter_po_box_labels(po_label_positions, normalized_words)
 
-    print(f"[DEBUG] After filtering, found {len(po_label_positions)} valid PO labels")
+    #print(f"[DEBUG] After filtering, found {len(po_label_positions)} valid PO labels")
     for idx, (x0, x1, y) in enumerate(po_label_positions):
         # Find the words that make up this label
         label_text = []
@@ -460,27 +458,27 @@ def extract_po_number(words, vendor_name):
                 label_text.append(word["orig"])
         
         label_str = " ".join(label_text) if label_text else "Unknown"
-        print(f"[DEBUG]   Label {idx+1}: '{label_str}' at position ({x0}, {x1}, {y})")
+        #print(f"[DEBUG]   Label {idx+1}: '{label_str}' at position ({x0}, {x1}, {y})")
     
     # Look for value to the right of any PO label
-    print("[DEBUG] Looking for values to the right of PO labels (strict mode)")
+    #print("[DEBUG] Looking for values to the right of PO labels (strict mode)")
     
     po_right_match = find_value_to_right(normalized_words, po_label_positions, 
                                         lambda text: is_potential_po_number(text, vendor_name),
                                         strict=True)
     if po_right_match:
-        print(f"[DEBUG] SUCCESS: Found PO to the right (strict): {po_right_match}")
+        #print(f"[DEBUG] SUCCESS: Found PO to the right (strict): {po_right_match}")
         return po_right_match
     
-    print("[DEBUG] ✗ No strict right matches found")
+    #print("[DEBUG] ✗ No strict right matches found")
     
     # Fourth priority: Look below labels with direct line-based search
-    print("[DEBUG] STRATEGY 4: Looking for values below PO labels")
+    #print("[DEBUG] STRATEGY 4: Looking for values below PO labels")
     
     max_distance_below = 40  # Keep this modest to avoid false positives
     
     for label_idx, (label_x0, label_x1, label_y) in enumerate(po_label_positions):
-        print(f"[DEBUG] Searching below label {label_idx+1} at position ({label_x0}, {label_x1}, {label_y})")
+        #print(f"[DEBUG] Searching below label {label_idx+1} at position ({label_x0}, {label_x1}, {label_y})")
         
         # First, collect all words that appear below this label
         words_below = []
@@ -492,7 +490,7 @@ def extract_po_number(words, vendor_name):
             if (label_x0 - 30 <= mid_x <= label_x1 + 30 and
                 5 < vertical_distance <= max_distance_below):
                 words_below.append((w, vertical_distance))
-                print(f"[DEBUG] Candidate below label {label_idx+1}: '{w['orig']}' (Δy={vertical_distance:.1f})")
+                #print(f"[DEBUG] Candidate below label {label_idx+1}: '{w['orig']}' (Δy={vertical_distance:.1f})")
         
         # Group words by line (similar y-position)
         lines = {}
@@ -506,28 +504,28 @@ def extract_po_number(words, vendor_name):
         for line_y, line_words in lines.items():
             # Sort words by x-position
             line_words.sort(key=lambda w: w["x0"])
-            print(f"[DEBUG] Checking line at y={line_y} with {len(line_words)} words")
+            #print(f"[DEBUG] Checking line at y={line_y} with {len(line_words)} words")
             
             # First, try the ENTIRE line as a single PO if it's a reasonable length (2-5 words)
             if 2 <= len(line_words) <= 5:
                 # Reconstruct the full line with spaces
                 full_line = " ".join(word["orig"] for word in line_words)
-                print(f"[DEBUG] Testing complete line: '{full_line}'")
+                #print(f"[DEBUG] Testing complete line: '{full_line}'")
                 if is_potential_po_number(full_line, vendor_name):
-                    print(f"[DEBUG] SUCCESS: Found complete line PO: {full_line}")
+                    #print(f"[DEBUG] SUCCESS: Found complete line PO: {full_line}")
                     return full_line
                 
                 # Also try without spaces
                 full_line_no_spaces = "".join(word["orig"] for word in line_words)
-                print(f"[DEBUG] Testing complete line (no spaces): '{full_line_no_spaces}'")
+                #print(f"[DEBUG] Testing complete line (no spaces): '{full_line_no_spaces}'")
                 if is_potential_po_number(full_line_no_spaces, vendor_name):
-                    print(f"[DEBUG] SUCCESS: Found complete line PO (no spaces): {full_line_no_spaces}")
+                    #print(f"[DEBUG] SUCCESS: Found complete line PO (no spaces): {full_line_no_spaces}")
                     return full_line_no_spaces
             
             # Try each individual word
             for w in line_words:
                 if is_potential_po_number(w["orig"], vendor_name):
-                    print(f"[DEBUG] SUCCESS: Found single-word PO below: {w['orig']}")
+                    #print(f"[DEBUG] SUCCESS: Found single-word PO below: {w['orig']}")
                     return w["orig"]
             
             # Special case: Check for pattern like "401 - hallaman"
@@ -539,9 +537,9 @@ def extract_po_number(words, vendor_name):
                         not line_words[i+2]["orig"].strip().isdigit()):
                         
                         po_candidate = f"{line_words[i]['orig']} {line_words[i+1]['orig']} {line_words[i+2]['orig']}"
-                        print(f"[DEBUG] Testing special number-dash-text pattern: '{po_candidate}'")
+                        #print(f"[DEBUG] Testing special number-dash-text pattern: '{po_candidate}'")
                         if is_potential_po_number(po_candidate, vendor_name):
-                            print(f"[DEBUG] SUCCESS: Found number-dash-text PO: {po_candidate}")
+                            #print(f"[DEBUG] SUCCESS: Found number-dash-text PO: {po_candidate}")
                             return po_candidate
             
             # Try various combinations of adjacent words
@@ -559,16 +557,16 @@ def extract_po_number(words, vendor_name):
                     if not too_far_apart:
                         # Try with spaces
                         combined = " ".join(word["orig"] for word in word_group)
-                        print(f"[DEBUG] Testing {span}-word combo: '{combined}'")
+                        #print(f"[DEBUG] Testing {span}-word combo: '{combined}'")
                         if is_potential_po_number(combined, vendor_name):
-                            print(f"[DEBUG] SUCCESS: Found multi-word PO: {combined}")
+                            #print(f"[DEBUG] SUCCESS: Found multi-word PO: {combined}")
                             return combined
                         
                         # Try without spaces
                         combined_no_spaces = "".join(word["orig"] for word in word_group)
                         if is_potential_po_number(combined_no_spaces, vendor_name):
-                            print(f"[DEBUG] SUCCESS: Found multi-word PO (no spaces): {combined_no_spaces}")
+                            #print(f"[DEBUG] SUCCESS: Found multi-word PO (no spaces): {combined_no_spaces}")
                             return combined_no_spaces
     
-    print("[DEBUG] ✗ EXTRACTION FAILED: No PO number found after trying all strategies")
+    #print("[DEBUG] ✗ EXTRACTION FAILED: No PO number found after trying all strategies")
     return ""

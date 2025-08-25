@@ -6,8 +6,8 @@ def normalize_words(words, first_page_only=True):
     """
     if first_page_only:
         filtered_words = [w for w in words if w.get("page_num", 0) == 0]
-        print(f"[DEBUG] Using page_num == 0 to restrict to first page")
-        print(f"[DEBUG] Retained {len(filtered_words)} words for first-page check")
+        #print(f"[DEBUG] Using page_num == 0 to restrict to first page")
+        #print(f"[DEBUG] Retained {len(filtered_words)} words for first-page check")
     else:
         filtered_words = words
         
@@ -95,7 +95,7 @@ def find_value_to_right(normalized_words, label_positions, validation_func, stri
         ]
         if candidates:
             best = sorted(candidates, key=lambda x: abs(x["top"] - label_y))[0]
-            print(f"[DEBUG] Value (direct right match): {best['orig']}")
+            #print(f"[DEBUG] Value (direct right match): {best['orig']}")
             return best["orig"].lstrip("#:").strip()
     
     # Looser matching if strict didn't find anything
@@ -135,7 +135,7 @@ def find_value_below(normalized_words, label_positions, validation_func, max_dis
                     best_candidate = w
     
     if best_candidate:
-        print(f"[DEBUG] Value (below fallback best): {best_candidate['orig']}")
+        #print(f"[DEBUG] Value (below fallback best): {best_candidate['orig']}")
         return best_candidate["orig"].lstrip("#:").strip()
     
     return None
@@ -148,7 +148,7 @@ def search_for_pattern(normalized_words, pattern, case_sensitive=False):
     matches = [w for w in normalized_words if re.match(pattern, w["orig"].strip(), flags)]
     
     if matches:
-        print(f"[DEBUG] Pattern match found: {matches[0]['orig']}")
+        #print(f"[DEBUG] Pattern match found: {matches[0]['orig']}")
         return matches[0]["orig"].strip()
     
     return None

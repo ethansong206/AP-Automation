@@ -22,14 +22,14 @@ def extract_text_data_from_pdfs(pdf_paths):
                         }
                         document_words.append(word_info)
 
-            print(f"[DEBUG] Extracted {len(document_words)} words from {pdf_path}")
+            #print(f"[DEBUG] Extracted {len(document_words)} words from {pdf_path}")
             all_documents.append({
                 "file_name": pdf_path,
                 "words": document_words
             })
 
         except Exception as e:
-            print(f"[ERROR] Failed to read {pdf_path}: {e}")
+            #print(f"[ERROR] Failed to read {pdf_path}: {e}")
             all_documents.append({
                 "file_name": pdf_path,
                 "words": [],

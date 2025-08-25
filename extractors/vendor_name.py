@@ -20,27 +20,25 @@ def reload_vendor_cache():
     VENDOR_NAMES = get_vendor_list()
     NORMALIZED_VENDOR_NAMES = [normalize_vendor_name(v) for v in VENDOR_NAMES]
     MANUAL_MAP = load_manual_mapping()
-    print(
-        f"[DEBUG] Reloaded {len(VENDOR_NAMES)} vendors and {len(MANUAL_MAP)} manual mappings"
-    )
+    #print(f"[DEBUG] Reloaded {len(VENDOR_NAMES)} vendors and {len(MANUAL_MAP)} manual mappings")
 
 def extract_vendor_name(words):
     all_words = [w["text"] for w in words]
     normalized_blob = normalize_string(" ".join(all_words))
     
-    print(f"[DEBUG] Normalized text blob ({len(normalized_blob)} chars): '{normalized_blob[:200]}{'...' if len(normalized_blob) > 200 else ''}'")
-    print(f"[DEBUG] Checking {len(MANUAL_MAP)} manual identifiers for matches...")
+    #print(f"[DEBUG] Normalized text blob ({len(normalized_blob)} chars): '{normalized_blob[:200]}{'...' if len(normalized_blob) > 200 else ''}'")
+    #print(f"[DEBUG] Checking {len(MANUAL_MAP)} manual identifiers for matches...")
 
     # --- Check Manual Mapping First ---
     for key, value in MANUAL_MAP.items():
-        print(f"[DEBUG] Checking identifier '{key}' against text blob...")
+        #print(f"[DEBUG] Checking identifier '{key}' against text blob...")
         if key in normalized_blob:
-            print(f"[DEBUG] ✓ Manual identifier match found: '{key}' → vendor '{value}'")
+            #print(f"[DEBUG] ✓ Manual identifier match found: '{key}' → vendor '{value}'")
             return value
-        else:
-            print(f"[DEBUG] ✗ No match for identifier '{key}'")
+        #else:
+            #print(f"[DEBUG] ✗ No match for identifier '{key}'")
 
-    print("[DEBUG] No manual identifier matches found, proceeding to direct vendor name matching...")
+    #print("[DEBUG] No manual identifier matches found, proceeding to direct vendor name matching...")
 
     # --- Direct exact match: consecutive multi-word groups (2 to 6) ---
     for n in range(6, 1, -1):  # Start with longest chains first
@@ -50,12 +48,12 @@ def extract_vendor_name(words):
 
             # --- Hardcoded skip for Gray L edge-case \\\ Remove and improve later ---
             if norm.replace(" ", "") == "grayl":
-                print(f"[DEBUG] Skipping false match for normalized 'grayl'")
+                #print(f"[DEBUG] Skipping false match for normalized 'grayl'")
                 continue
 
             if norm in NORMALIZED_VENDOR_NAMES:
                 idx = NORMALIZED_VENDOR_NAMES.index(norm)
-                print(f"[DEBUG] Multi-word vendor match found: {VENDOR_NAMES[idx]}")
+                #print(f"[DEBUG] Multi-word vendor match found: {VENDOR_NAMES[idx]}")
                 return VENDOR_NAMES[idx]
 
     # --- Fallback: Direct exact match for single words ---
@@ -63,10 +61,10 @@ def extract_vendor_name(words):
         norm = normalize_vendor_name(word)
         if norm in NORMALIZED_VENDOR_NAMES:
             idx = NORMALIZED_VENDOR_NAMES.index(norm)
-            print(f"[DEBUG] Single-word vendor match found: {VENDOR_NAMES[idx]}")
+            #print(f"[DEBUG] Single-word vendor match found: {VENDOR_NAMES[idx]}")
             return VENDOR_NAMES[idx]
 
-    print(f"[DEBUG] No vendor match found for text blob containing {len(all_words)} words")
+    #print(f"[DEBUG] No vendor match found for text blob containing {len(all_words)} words")
     return ""
 
 
@@ -77,7 +75,7 @@ def save_manual_mapping(key, vendor_name):
     vendor = vendor_name.strip()
     
     if not identifier or not vendor:
-        print(f"[ERROR] Cannot save manual mapping with empty identifier or vendor name")
+        #print(f"[ERROR] Cannot save manual mapping with empty identifier or vendor name")
         return
     
     try:
@@ -86,10 +84,10 @@ def save_manual_mapping(key, vendor_name):
         normalized_key = normalize_string(identifier)
         if normalized_key in existing_mappings:
             if existing_mappings[normalized_key] == vendor:
-                print(f"[INFO] Mapping already exists: '{identifier}' → '{vendor}'")
+                #print(f"[INFO] Mapping already exists: '{identifier}' → '{vendor}'")
                 return
-            else:
-                print(f"[INFO] Updating existing mapping: '{identifier}' → '{vendor}'")
+            #else:
+                #print(f"[INFO] Updating existing mapping: '{identifier}' → '{vendor}'")
         
         # Read existing CSV data
         rows = []
@@ -116,7 +114,7 @@ def save_manual_mapping(key, vendor_name):
             writer.writeheader()
             writer.writerows(rows)
         
-        print(f"[INFO] Saved manual mapping: '{identifier}' → '{vendor}'")
+        #print(f"[INFO] Saved manual mapping: '{identifier}' → '{vendor}'")
         
         # Reload the manual mapping cache since we just changed the CSV
         global MANUAL_MAP
