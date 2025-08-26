@@ -99,8 +99,8 @@ class InvoiceController:
                 po_number = ' '.join((vals[2] or '').strip().split())
                 invoice_date = ' '.join((vals[3] or '').strip().split())
                 due_date = ' '.join((vals[5] or '').strip().split())
-                shipping_cost = ' '.join((vals[6] or '').strip().split())
-                total_amount = ' '.join((vals[7] or '').strip().split())
+                total_amount = ' '.join((vals[6] or '').strip().split())
+                shipping_cost = ' '.join((vals[7] or '').strip().split())
             else:
                 # Fallback to view-access methods
                 raw_vendor_name = table.get_cell_text(src_row, 1)
@@ -108,8 +108,8 @@ class InvoiceController:
                 po_number = ' '.join(table.get_cell_text(src_row, 3).strip().split())
                 invoice_date = ' '.join(table.get_cell_text(src_row, 4).strip().split())
                 due_date = ' '.join(table.get_cell_text(src_row, 6).strip().split())
-                shipping_cost = ' '.join(table.get_cell_text(src_row, 7).strip().split())
-                total_amount = ' '.join(table.get_cell_text(src_row, 8).strip().split())
+                total_amount = ' '.join(table.get_cell_text(src_row, 7).strip().split())
+                shipping_cost = ' '.join(table.get_cell_text(src_row, 8).strip().split())
 
             vendor_name = ' '.join((raw_vendor_name or '').strip().split())
             

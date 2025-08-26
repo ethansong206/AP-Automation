@@ -84,8 +84,8 @@ class BodyEditDelegate(QStyledItemDelegate):
                 painter.restore()
             else:
                 vals = src_model.row_values(r)
-                # Exclude shipping cost (index 6) from empty cell checks for yellow stripe
-                filled = [bool(str(v).strip()) for i, v in enumerate(vals) if i != 6]
+                # Exclude shipping (index 7 in new order) from empty cell checks for yellow stripe
+                filled = [bool(str(v).strip()) for i, v in enumerate(vals) if i != 7]
                 any_empty = any(not f for f in filled)
                 all_empty = not any(filled)
                 if any_empty and not all_empty:

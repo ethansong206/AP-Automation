@@ -381,7 +381,19 @@ class ManualEntryDialog(QDialog):
 
         # Data/state
         self.pdf_paths = list(pdf_paths or [])
-        self.values_list = values_list or [[""] * 8 for _ in self.pdf_paths]
+        # Expand values_list to include QC state: [0-7: form fields, 8-11: QC values, 12: QC used flag]
+        # QC indices: 8=subtotal, 9=disc_pct, 10=disc_amt, 11=shipping, 12=used_flag
+        self.QC_SUBTOTAL = 8
+        self.QC_DISC_PCT = 9
+        self.QC_DISC_AMT = 10
+        self.QC_SHIPPING = 11
+        self.QC_USED_FLAG = 12
+        
+        self.values_list = values_list or [[""] * 13 for _ in self.pdf_paths]
+        # Ensure existing data is expanded to new format
+        for values in self.values_list:
+            if len(values) < 13:
+                values.extend([""] * (13 - len(values)))
         self.flag_states = list(flag_states or [False] * len(self.pdf_paths))
         self.saved_flag_states = list(self.flag_states)
         self.saved_values_list = deepcopy(self.values_list)
@@ -616,44 +628,83 @@ class ManualEntryDialog(QDialog):
         self.fields["Total Amount"] = QLineEdit()
         form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
 
-        # Quick Calculator (no tax rows)
+        # Quick Calculator with Professional Cost Summary
         self.quick_calc_group = QGroupBox("Quick Calculator")
-        qc = QFormLayout()
-        qc.setVerticalSpacing(10)  # Restore original spacing
-        qc.setHorizontalSpacing(12)  # Restore original spacing
-        qc.setContentsMargins(15, 10, 15, 15)  # Restore original margins
+        qc = QVBoxLayout()
+        qc.setContentsMargins(15, 10, 15, 15)
+        qc.setSpacing(12)
+
+        # Input fields section
+        input_form = QFormLayout()
+        input_form.setVerticalSpacing(8)
+        input_form.setHorizontalSpacing(12)
 
         def new_lineedit():
             e = QLineEdit()
-            e.textChanged.connect(self._recalc_quick_calc)
+            e.textChanged.connect(self._recalc_quick_calc_and_update_fields)
             return e
 
         self.qc_subtotal = new_lineedit()
         self.qc_disc_pct = new_lineedit()   # %
         self.qc_disc_amt = new_lineedit()   # $
         self.qc_shipping = new_lineedit()
-        self.qc_total_wo_shipping = QLabel("$0.00")
-        self.qc_total_wo_shipping.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.qc_grand_total = QLabel("$0.00")
-        self.qc_grand_total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.qc_grand_total.setStyleSheet("font-weight: bold;")
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)  # Restore original spacing
-        self.qc_push_shipping = QPushButton("Push to Shipping Cost")
-        self.qc_push_total = QPushButton("Push to Total Amount")
-        self.qc_push_shipping.clicked.connect(self._push_shipping_from_qc)
-        self.qc_push_total.clicked.connect(lambda: self._apply_quick_total_to("Total Amount", self.qc_total_wo_shipping))
-        btn_row.addWidget(self.qc_push_shipping)
-        btn_row.addWidget(self.qc_push_total)
+        input_form.addRow(QLabel("Subtotal:"), self.qc_subtotal)
+        input_form.addRow(QLabel("Discount %:"), self.qc_disc_pct)
+        input_form.addRow(QLabel("Discount $:"), self.qc_disc_amt)
+        input_form.addRow(QLabel("Shipping:"), self.qc_shipping)
 
-        qc.addRow(QLabel("Subtotal:"), self.qc_subtotal)
-        qc.addRow(QLabel("Discount %:"), self.qc_disc_pct)
-        qc.addRow(QLabel("Discount $:"), self.qc_disc_amt)
-        qc.addRow(QLabel("Shipping:"), self.qc_shipping)
-        qc.addRow(QLabel("Total without Shipping:"), self.qc_total_wo_shipping)
-        qc.addRow(QLabel("Grand Total:"), self.qc_grand_total)
-        qc.addRow(btn_row)
+        qc.addLayout(input_form)
+        qc.addSpacing(15)
+
+        # Professional cost summary
+        summary_frame = QFrame()
+        summary_frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 6px;
+            }
+        """)
+        
+        summary_layout = QVBoxLayout(summary_frame)
+        summary_layout.setContentsMargins(12, 8, 12, 8)
+        summary_layout.setSpacing(3)
+
+        # Subtotal row
+        self.summary_subtotal_row = self._create_summary_row("Subtotal", "$0.00")
+        summary_layout.addLayout(self.summary_subtotal_row)
+
+        # Discount row  
+        self.summary_discount_row = self._create_summary_row("Discount", "$0.00")
+        summary_layout.addLayout(self.summary_discount_row)
+
+        # First separator line (gray)
+        separator1 = self._create_separator_line("#cccccc")
+        summary_layout.addWidget(separator1)
+
+        # Inventory row
+        self.summary_inventory_row = self._create_summary_row("Inventory (140-000)", "$0.00")
+        summary_layout.addLayout(self.summary_inventory_row)
+
+        # Shipping row
+        self.summary_shipping_row = self._create_summary_row("Shipping (520-004)", "$0.00")
+        summary_layout.addLayout(self.summary_shipping_row)
+
+        # Second separator line (gray)
+        separator2 = self._create_separator_line("#cccccc")
+        summary_layout.addWidget(separator2)
+
+        # Grand total row (bold with black line below)
+        self.summary_grand_row = self._create_summary_row("Grand Total", "$0.00", bold=True)
+        summary_layout.addLayout(self.summary_grand_row)
+
+        # Final separator line (black, bold)
+        separator3 = self._create_separator_line("#000000", height=2)
+        summary_layout.addWidget(separator3)
+
+        qc.addWidget(summary_frame)
         self.quick_calc_group.setLayout(qc)
 
         # Button styles - DPI-aware
@@ -666,7 +717,7 @@ class ManualEntryDialog(QDialog):
             "QPushButton:hover { background-color: #6b7d6b; } "
             "QPushButton:pressed { background-color: #526052; }"
         )
-        for b in (self.vendor_list_btn, self.qc_push_shipping, self.qc_push_total, self.due_calc_btn):
+        for b in (self.vendor_list_btn, self.due_calc_btn):
             b.setStyleSheet(primary_btn_css)
 
         # Navigation + delete
@@ -959,6 +1010,9 @@ class ManualEntryDialog(QDialog):
 
         # Wire dirty tracking AFTER fields exist
         self._wire_dirty_tracking()
+        
+        # Note: Auto-population only happens during initial load in _load_or_populate_quick_calculator
+        # No permanent wiring to avoid feedback loops during user input
 
         # Initial load
         self.load_invoice(self.current_index)
@@ -1002,6 +1056,14 @@ class ManualEntryDialog(QDialog):
 
     # ---------- Keyboard nav ----------
     def keyPressEvent(self, event):
+        # Handle Enter key for form navigation
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if self._entry_field_has_focus():
+                self._handle_enter_navigation()
+                event.accept()
+                return
+        
+        # Handle Left/Right arrows for file navigation (when not in input fields)
         if event.key() in (Qt.Key_Left, Qt.Key_Right):
             if not self._entry_field_has_focus():
                 if event.key() == Qt.Key_Left:
@@ -1015,6 +1077,54 @@ class ManualEntryDialog(QDialog):
     def _entry_field_has_focus(self):
         w = self.focusWidget()
         return isinstance(w, (QLineEdit, QComboBox, QDateEdit))
+
+    def _handle_enter_navigation(self):
+        """Handle Enter key to navigate to next field or next file."""
+        current_widget = self.focusWidget()
+        
+        # Define field order for navigation
+        field_order = [
+            self.vendor_combo,
+            self.fields["Invoice Number"],
+            self.fields["PO Number"], 
+            self.fields["Invoice Date"],
+            self.fields["Discount Terms"],
+            self.fields["Due Date"],
+            self.fields["Shipping Cost"],
+            self.fields["Total Amount"],
+            self.qc_subtotal,
+            self.qc_disc_pct,
+            self.qc_disc_amt,
+            self.qc_shipping
+        ]
+        
+        try:
+            current_index = field_order.index(current_widget)
+            next_index = current_index + 1
+            
+            if next_index < len(field_order):
+                # Move to next field
+                field_order[next_index].setFocus()
+            else:
+                # On last field - navigate to next file with save prompt
+                self._navigate_to_next_file_with_save()
+        except ValueError:
+            # Current widget not in our field order, try to find a reasonable next field
+            if hasattr(current_widget, 'parent'):
+                # For QC fields or other widgets, just move focus to first main field
+                self.vendor_combo.setFocus()
+
+    def _navigate_to_next_file_with_save(self):
+        """Navigate to next file with save prompt if changes were made."""
+        if self.current_index >= len(self.pdf_paths) - 1:
+            # Already on last file, do nothing
+            return
+            
+        def proceed_to_next():
+            self._on_next_clicked()
+            
+        # Use existing unsaved changes logic
+        self._confirm_unsaved_then(proceed_to_next)
 
     # ---------- Deletion ----------
     def _confirm_delete_current(self):
@@ -1075,13 +1185,17 @@ class ManualEntryDialog(QDialog):
     def save_current_invoice(self):
         if not self.values_list:
             return
-        self.values_list[self.current_index] = self.get_data()
+        new_data = self.get_data()
+        print(f"[QC DEBUG] save_current_invoice() saving data: {new_data}")
+        self.values_list[self.current_index] = new_data
 
     def _load_values_into_widgets(self, values):
         """Programmatic set (guarded -> doesn't mark dirty)."""
+        # Note: _loading should already be True when this is called
+        was_loading = self._loading
         self._loading = True
         try:
-            vals = list(values) + [""] * (8 - len(values))
+            vals = list(values) + [""] * (13 - len(values))
 
             self.vendor_combo.setCurrentText(vals[0])
             self.fields["Invoice Number"].setText(vals[1])
@@ -1106,8 +1220,8 @@ class ManualEntryDialog(QDialog):
                     self.fields["Due Date"].setDate(d2)
 
             # Currency fields
-            self.fields["Shipping Cost"].setText("")
-            self.fields["Total Amount"].setText(vals[7])
+            self.fields["Shipping Cost"].setText(vals[7])
+            self.fields["Total Amount"].setText(vals[6])
             self._apply_pretty_currency_display()
 
             # Highlighting
@@ -1122,9 +1236,12 @@ class ManualEntryDialog(QDialog):
             
             self._highlight_empty_fields()
         finally:
-            # Reset dirty to reflect snapshot equality
-            self._dirty = False
-            self._loading = False
+            # Restore previous loading state (don't force it to False since load_invoice manages it)
+            self._loading = was_loading
+            # Only reset dirty if we weren't already loading (for backwards compatibility)
+            if not was_loading:
+                print(f"[DIRTY DEBUG] Setting dirty=False from _load_values_into_widgets (backwards compatibility)")
+                self._dirty = False
 
     def _parse_mmddyy(self, s):
         # Accept MM/DD/YY or MM/DD/YYYY
@@ -1140,15 +1257,124 @@ class ManualEntryDialog(QDialog):
                 return QDate()
         return QDate.fromString(s, "MM/dd/yy")
 
+    def _create_summary_row(self, label_text, value_text, bold=False):
+        """Create a professional summary row with label and right-aligned value."""
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        
+        label = QLabel(label_text)
+        value = QLabel(value_text)
+        value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
+        # Clean styling - no boxes, black text
+        base_style = "background: transparent; border: none; color: black; padding: 0px; margin: 0px;"
+        if bold:
+            label.setStyleSheet(base_style + " font-weight: bold;")
+            value.setStyleSheet(base_style + " font-weight: bold;")
+        else:
+            label.setStyleSheet(base_style)
+            value.setStyleSheet(base_style)
+        
+        row_layout.addWidget(label)
+        row_layout.addWidget(value)
+        
+        # Store reference to value label for updates
+        if "Subtotal" in label_text:
+            self.summary_subtotal_value = value
+        elif "Discount" in label_text:
+            self.summary_discount_value = value
+        elif "Inventory" in label_text:
+            self.summary_inventory_value = value
+        elif "Shipping" in label_text:
+            self.summary_shipping_value = value
+        elif "Grand Total" in label_text:
+            self.summary_grand_value = value
+        
+        return row_layout
+
+    def _create_separator_line(self, color="#cccccc", height=1):
+        """Create a horizontal separator line."""
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Plain)
+        line.setStyleSheet(f"color: {color}; background-color: {color}; height: {height}px; border: none; margin: 2px 0px;")
+        line.setFixedHeight(height + 4)  # Add a bit of space around the line
+        return line
+
     def _clear_quick_calculator(self):
         """Clear all Quick Calculator fields when navigating to another file."""
         self.qc_subtotal.clear()
         self.qc_disc_pct.clear()
         self.qc_disc_amt.clear()
         self.qc_shipping.clear()
-        # Also clear the calculated totals
-        self.qc_total_wo_shipping.setText("$0.00")
-        self.qc_grand_total.setText("$0.00")
+        # Clear the summary display
+        self.summary_subtotal_value.setText("$0.00")
+        self.summary_discount_value.setText("$0.00")
+        self.summary_inventory_value.setText("$0.00")
+        self.summary_shipping_value.setText("$0.00")
+        self.summary_grand_value.setText("$0.00")
+
+    def _load_or_populate_quick_calculator(self):
+        """Load saved QC state OR auto-populate from form data (never both).
+        Returns True if auto-population occurred and recalculation is needed."""
+        # Note: This now runs during loading to prevent dirty state issues
+        print(f"[QC DEBUG] _load_or_populate_quick_calculator running, loading={self._loading}")
+            
+        if self.current_index < 0 or self.current_index >= len(self.values_list):
+            print(f"[QC DEBUG] _load_or_populate_quick_calculator skipped - invalid index {self.current_index}")
+            return False
+            
+        vals = self.values_list[self.current_index]
+        print(f"[QC DEBUG] vals length: {len(vals)}, vals: {vals}")
+        
+        if len(vals) <= self.QC_USED_FLAG:
+            print(f"[QC DEBUG] QC_USED_FLAG index {self.QC_USED_FLAG} not available, vals length is {len(vals)}")
+            return False
+            
+        qc_used = vals[self.QC_USED_FLAG].lower() == "true"
+        print(f"[QC DEBUG] QC used flag: '{vals[self.QC_USED_FLAG]}' -> {qc_used}")
+        
+        if qc_used:
+            # Restore saved Quick Calculator state
+            print(f"[QC DEBUG] Restoring saved QC values: subtotal={vals[self.QC_SUBTOTAL]}, disc_pct={vals[self.QC_DISC_PCT]}, disc_amt={vals[self.QC_DISC_AMT]}, shipping={vals[self.QC_SHIPPING]}")
+            self.qc_subtotal.setText(vals[self.QC_SUBTOTAL])
+            self.qc_disc_pct.setText(vals[self.QC_DISC_PCT])
+            self.qc_disc_amt.setText(vals[self.QC_DISC_AMT])
+            self.qc_shipping.setText(vals[self.QC_SHIPPING])
+            return False  # No auto-population, just restoration
+        else:
+            # Auto-populate from form fields (first time)
+            print(f"[QC DEBUG] Auto-populating QC from form fields")
+            total_amount = self.fields.get("Total Amount")
+            shipping_cost = self.fields.get("Shipping Cost")
+            discount_terms = self.fields.get("Discount Terms")
+            
+            auto_populated = False
+            
+            # Auto-populate Subtotal from Total Amount
+            if total_amount and total_amount.text().strip():
+                print(f"[QC DEBUG] Setting subtotal from Total Amount: {total_amount.text().strip()}")
+                self.qc_subtotal.setText(total_amount.text().strip())
+                auto_populated = True
+            
+            # Auto-populate Shipping from Shipping Cost
+            if shipping_cost and shipping_cost.text().strip():
+                print(f"[QC DEBUG] Setting shipping from Shipping Cost: {shipping_cost.text().strip()}")
+                self.qc_shipping.setText(shipping_cost.text().strip())
+                auto_populated = True
+            
+            # Auto-populate Discount % from Discount Terms
+            if discount_terms and discount_terms.text().strip():
+                terms = discount_terms.text().strip().lower()
+                import re
+                pct_match = re.search(r'(\d+(?:\.\d+)?)%', terms)
+                if pct_match:
+                    print(f"[QC DEBUG] Setting discount % from Discount Terms: {pct_match.group(1)}")
+                    self.qc_disc_pct.setText(pct_match.group(1))
+                    auto_populated = True
+            
+            # Return whether we need recalculation
+            return auto_populated
 
     def load_invoice(self, index):
         if not self.pdf_paths:
@@ -1164,8 +1390,22 @@ class ManualEntryDialog(QDialog):
         # Clear Quick Calculator fields when navigating to another file
         self._clear_quick_calculator()
 
-        # Load widgets (guard prevents dirty)
-        self._load_values_into_widgets(self.values_list[index])
+        # Load widgets AND QC state (both guarded to prevent dirty)
+        self._loading = True
+        needs_auto_calc = False
+        try:
+            self._load_values_into_widgets(self.values_list[index])
+            # Load saved QC state OR auto-populate from form data
+            needs_auto_calc = self._load_or_populate_quick_calculator()
+        finally:
+            print(f"[DIRTY DEBUG] Setting dirty=False and loading=False from load_invoice")
+            self._dirty = False
+            self._loading = False
+            
+        # Trigger recalculation AFTER loading is complete if auto-populated
+        if needs_auto_calc:
+            print(f"[QC DEBUG] Triggering recalculation after loading complete")
+            self._recalc_quick_calc_and_update_fields(during_auto_population=True)
 
         # Enable/disable nav
         self.prev_button.setDisabled(index == 0)
@@ -1269,6 +1509,7 @@ class ManualEntryDialog(QDialog):
             self.saved_values_list[idx] = deepcopy(self.values_list[idx])
             self.saved_flag_states[idx] = self.flag_states[idx]
             self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx], self.flag_states[idx])
+        print(f"[DIRTY DEBUG] Setting dirty=False from save")
         self._dirty = False
         self._flash_saved()
         return True
@@ -1302,6 +1543,7 @@ class ManualEntryDialog(QDialog):
 
         self.fields["Due Date"].setDate(d)
         # Mark as modified by the user action
+        print(f"[DIRTY DEBUG] Setting dirty=True from date update, loading={self._loading}")
         self._dirty = True
 
     # ---------- Tiny saved toast ----------
@@ -1389,6 +1631,7 @@ class ManualEntryDialog(QDialog):
             self._update_file_item(item, text, self.flag_states[idx])
         if idx == self.current_index:
             self._update_flag_button()
+        print(f"[DIRTY DEBUG] Setting dirty=True from flag toggle, loading={self._loading}")
         self._dirty = True
 
     def _file_list_mouse_press(self, event):
@@ -1699,7 +1942,7 @@ class ManualEntryDialog(QDialog):
         data = []
         for label in [
             "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-            "Discount Terms", "Due Date", "Shipping Cost", "Total Amount",
+            "Discount Terms", "Due Date", "Total Amount", "Shipping Cost",
         ]:
             w = self.fields[label]
             if isinstance(w, QDateEdit):
@@ -1710,6 +1953,19 @@ class ManualEntryDialog(QDialog):
                 txt = w.text().strip()
                 value = self._money_plain(txt) if label in getattr(self, "_currency_labels", set()) else txt
             data.append(value)
+        
+        # Add QC values (indices 8-11)
+        qc_subtotal = self._money_plain(self.qc_subtotal.text().strip()) if self.qc_subtotal.text().strip() else ""
+        qc_disc_pct = self.qc_disc_pct.text().strip()
+        qc_disc_amt = self._money_plain(self.qc_disc_amt.text().strip()) if self.qc_disc_amt.text().strip() else ""
+        qc_shipping = self._money_plain(self.qc_shipping.text().strip()) if self.qc_shipping.text().strip() else ""
+        
+        data.extend([qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping])
+        
+        # Add QC used flag (index 12)
+        data.append("true")  # Set to true when saving
+        
+        print(f"[QC DEBUG] get_data() returning QC values: subtotal={qc_subtotal}, disc_pct={qc_disc_pct}, disc_amt={qc_disc_amt}, shipping={qc_shipping}, flag=true")
         return data
 
     def get_all_data(self):
@@ -1719,55 +1975,64 @@ class ManualEntryDialog(QDialog):
     def get_deleted_files(self):
         return list(self._deleted_files)
 
-    # ---------- Quick Calculator (no tax) ----------
-    def _recalc_quick_calc(self):
+    # ---------- Quick Calculator with Dynamic Field Updates ----------
+    def _recalc_quick_calc_and_update_fields(self, during_auto_population=False):
+        """Calculate totals, update professional summary, and push values to form fields."""
         sub = self._money(self.qc_subtotal.text())
         ship = self._money(self.qc_shipping.text())
 
         disc_pct = self._percent(self.qc_disc_pct.text())
         disc_amt_input = self._money(self.qc_disc_amt.text())
 
+        # Calculate discount amount
         disc_amt = abs(disc_amt_input) if disc_amt_input is not None else (
             (sub * disc_pct) if (sub is not None and disc_pct is not None) else 0.0
         )
         if disc_amt is None:
             disc_amt = 0.0
 
-        if sub is None:
-            self.qc_total_wo_shipping.setText("$0.00")
-            self.qc_grand_total.setText("$0.00")
-            return
+        # Calculate totals
+        subtotal_val = sub or 0.0
+        discount_val = disc_amt
+        inventory_val = subtotal_val - discount_val  # Subtotal - Discount
+        shipping_val = ship or 0.0
+        grand_total_val = inventory_val + shipping_val
 
-        total_wo_shipping = sub - disc_amt
-        self.qc_total_wo_shipping.setText(self._fmt_money(total_wo_shipping))
+        # Update professional summary display
+        self.summary_subtotal_value.setText(self._fmt_money(subtotal_val))
+        self.summary_discount_value.setText(self._fmt_money(discount_val))
+        self.summary_inventory_value.setText(self._fmt_money(inventory_val))
+        self.summary_shipping_value.setText(self._fmt_money(shipping_val))
+        self.summary_grand_value.setText(self._fmt_money(grand_total_val))
 
-        total = total_wo_shipping + (ship or 0.0)
-        self.qc_grand_total.setText(self._fmt_money(total))
+        # Automatically update form fields (this is the key new feature!)
+        if not self._loading:  # Don't update during initial loading
+            changes_made = False
+            
+            # Check if shipping field would change
+            shipping_field = self.fields.get("Shipping Cost")
+            if shipping_field and shipping_val > 0:
+                current_shipping = self._money(shipping_field.text()) or 0
+                if abs(current_shipping - shipping_val) > 0.01:  # Changed
+                    shipping_field.setText(self._fmt_money(shipping_val))
+                    changes_made = True
+            
+            # Check if total field would change
+            total_field = self.fields.get("Total Amount") 
+            if total_field and inventory_val > 0:
+                current_total = self._money(total_field.text()) or 0
+                if abs(current_total - inventory_val) > 0.01:  # Changed
+                    total_field.setText(self._fmt_money(inventory_val))
+                    changes_made = True
+            
+            # Only mark dirty if we actually changed something
+            if changes_made:
+                if during_auto_population:
+                    print(f"[DIRTY DEBUG] Auto-population changed form fields - marking dirty, loading={self._loading}")
+                else:
+                    print(f"[DIRTY DEBUG] Setting dirty=True from QC calculation, loading={self._loading}")
+                self._dirty = True
 
-    def _apply_quick_total_to(self, target_label, source_label=None):
-        label = source_label or self.qc_grand_total
-        text = label.text().strip()
-        try:
-            val = float(text)
-            text = f"{val:.2f}"
-        except ValueError:
-            pass
-
-        if target_label in self.fields:
-            w = self.fields[target_label]
-            if isinstance(w, QLineEdit):
-                w.setText(text)
-                if not w.hasFocus():
-                    w.setText(self._money_pretty(w.text()))
-                self._highlight_empty_fields()
-
-    def _push_shipping_from_qc(self):
-        w = self.fields.get("Shipping Cost")
-        if w:
-            w.setText(self.qc_shipping.text())
-            if not w.hasFocus():
-                w.setText(self._money_pretty(w.text()))
-            self._highlight_empty_fields()
 
     # ---------- Currency utils ----------
     def _money(self, s):
@@ -1840,6 +2105,7 @@ class ManualEntryDialog(QDialog):
     def _wire_dirty_tracking(self):
         def mark_dirty(*_):
             if not self._loading:
+                print(f"[DIRTY DEBUG] Setting dirty=True from mark_dirty, loading={self._loading}")
                 self._dirty = True
         for label, w in self.fields.items():
             if isinstance(w, QLineEdit):
@@ -1848,6 +2114,9 @@ class ManualEntryDialog(QDialog):
                 w.currentTextChanged.connect(mark_dirty)
             elif isinstance(w, QDateEdit):
                 w.dateChanged.connect(mark_dirty)
+
+    # Removed _wire_auto_population method to prevent feedback loops.
+    # Auto-population now only happens during initial load via _load_or_populate_quick_calculator
 
     def _confirm_unsaved_then(self, proceed_fn):
         if not self._dirty:

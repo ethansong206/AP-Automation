@@ -23,8 +23,9 @@ from .model import (
     C_INV_DATE,
     C_TERMS,
     C_DUE,
-    C_SHIPPING,
     C_TOTAL,
+    C_SHIPPING,
+    C_GRAND_TOTAL,
 )
 from .delegates import BodyEditDelegate, ActionsDelegate, SelectCheckboxDelegate
 
@@ -329,13 +330,17 @@ class InvoiceTable(QWidget):
         for c in BODY_COLS:
             hdr.setSectionResizeMode(c, QHeaderView.Stretch)
 
-        # Make discounted/total columns a bit narrower by default
+        # Make date columns a bit narrower by default
         for c in (C_INV_DATE, C_DUE):
             hdr.setSectionResizeMode(c, QHeaderView.Interactive)
             hdr.resizeSection(c, 100)
 
         hdr.setSectionResizeMode(C_SELECT, QHeaderView.Fixed)
         hdr.resizeSection(C_SELECT, 36)
+
+        # Grand Total column - fixed size, not editable
+        hdr.setSectionResizeMode(C_GRAND_TOTAL, QHeaderView.Interactive)
+        hdr.resizeSection(C_GRAND_TOTAL, 120)
 
         hdr.setSectionResizeMode(C_ACTIONS, QHeaderView.Fixed)
         hdr.resizeSection(C_ACTIONS, 135)
@@ -352,6 +357,7 @@ class InvoiceTable(QWidget):
         self._body_delegate = BodyEditDelegate(self.table)
         for c in BODY_COLS:
             self.table.setItemDelegateForColumn(c, self._body_delegate)
+        # Grand Total column should not be editable - use default delegate
 
         # Edits → compatibility signals
         self._model.rawEdited.connect(self._bubble_edit_signal)
@@ -431,11 +437,20 @@ class InvoiceTable(QWidget):
         vals = self._model.row_values(src)
         mapping = {
             C_VENDOR: 0, C_INVOICE: 1, C_PO: 2, C_INV_DATE: 3,
-            C_TERMS: 4, C_DUE: 5, C_SHIPPING: 6, C_TOTAL: 7
+            C_TERMS: 4, C_DUE: 5, C_TOTAL: 6, C_SHIPPING: 7
         }
         if col in mapping:
             return vals[mapping[col]] or ""
+        elif col == C_GRAND_TOTAL:
+            return self._model._rows[src].grand_total or ""
         return ""
+    
+    def get_row_values(self, view_row: int) -> List[str]:
+        """Get all 13 values for a row (including QC values)."""
+        src = self._view_to_source_row(view_row)
+        if src < 0:
+            return [""] * 13
+        return self._model.row_values(src)
     
     def update_calculated_field(self, view_row: int, col: int, value: str, emit_change: bool = True):
         """Update a table cell without marking it as manually edited."""
@@ -450,8 +465,8 @@ class InvoiceTable(QWidget):
             C_INV_DATE: "inv_date",
             C_TERMS: "terms",
             C_DUE: "due",
-            C_SHIPPING: "shipping",
             C_TOTAL: "total",
+            C_SHIPPING: "shipping",
         }
 
         attr = attr_map.get(col)
@@ -463,12 +478,21 @@ class InvoiceTable(QWidget):
         row.edited_cells.discard(col)
         self.manually_edited.discard((view_row, col))
 
+        # Update grand total if total or shipping changed
+        if col in (C_TOTAL, C_SHIPPING):
+            row._update_grand_total()
+
         if col == C_INVOICE:
             self._model._rebuild_duplicates()
 
         if emit_change:
             idx = self._model.index(src, col)
             self._model.dataChanged.emit(idx, idx, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
+            
+            # Also emit change for grand total if total or shipping changed
+            if col in (C_TOTAL, C_SHIPPING):
+                grand_total_idx = self._model.index(src, C_GRAND_TOTAL)
+                self._model.dataChanged.emit(grand_total_idx, grand_total_idx, [Qt.DisplayRole])
 
     def is_row_flagged(self, view_row: int) -> bool:
         src = self._view_to_source_row(view_row)

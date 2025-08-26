@@ -268,7 +268,8 @@ class InvoiceApp(QWidget):
         file_paths, values_list, flag_states = [], [], []
         for r in range(self.table.rowCount()):
             file_paths.append(self.table.get_file_path_for_row(r))
-            row_values = [self.table.get_cell_text(r, c) for c in range(1, 9)]
+            row_values = self.table.get_row_values(r)  # Get all 13 values including QC
+            print(f"[QC DEBUG] Loading row {r} values for dialog: {row_values}")
             values_list.append(row_values)
             flag_states.append(self.table.is_row_flagged(r))
 
@@ -480,7 +481,8 @@ class InvoiceApp(QWidget):
             return
         rows = []
         for row in range(self.table.rowCount()):
-            values = [self.table.get_cell_text(row, col) for col in range(1, 9)]
+            # Get all 13 values including QC data (not just the first 8 visible columns)
+            values = self.table.get_row_values(row)  
             rows.append({
                 "values": values,
                 "flagged": self.table.is_row_flagged(row),
@@ -539,7 +541,7 @@ class InvoiceApp(QWidget):
         self.table.clear_tracking_data() if hasattr(self.table, "clear_tracking_data") else None
 
         for row in rows:
-            values = row.get("values", [""] * 8)
+            values = row.get("values", [""] * 13)  # Default to 13 values including QC data
             file_path = row.get("file_path", "")
             flagged = row.get("flagged", False)
             self.table.add_row(values, file_path)

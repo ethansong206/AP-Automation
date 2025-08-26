@@ -24,17 +24,18 @@ C_PO = 3
 C_INV_DATE = 4
 C_TERMS = 5
 C_DUE = 6
-C_SHIPPING = 7
-C_TOTAL = 8
-C_ACTIONS = 9
+C_TOTAL = 7
+C_SHIPPING = 8
+C_GRAND_TOTAL = 9
+C_ACTIONS = 10
 
 HEADERS = [
     "", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-    "Discount Terms", "Due Date", "Shipping Cost", "Total Amount",
-    "Actions",
+    "Discount Terms", "Due Date", "Total", "Shipping",
+    "Grand Total", "Actions",
 ]
 
-# Body columns used for export/save (no select/actions)
+# Body columns used for export/save (no select/actions, no grand total)
 BODY_COLS = range(1, 9)
 
 
@@ -43,16 +44,30 @@ BODY_COLS = range(1, 9)
 # =============================================================
 class InvoiceRow:
     __slots__ = ("selected", "flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
-                 "shipping", "total", "file_path", "edited_cells")
+                 "total", "shipping", "grand_total", "file_path", "edited_cells",
+                 "qc_subtotal", "qc_disc_pct", "qc_disc_amt", "qc_shipping", "qc_used")
 
     def __init__(self, values: List[str], file_path: str):
-        # values: [vendor, invoice, po, inv_date, terms, due, shipping, total]
+        # values: [vendor, invoice, po, inv_date, terms, due, total, shipping, qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping, qc_used]
+        extended_values = (values + [""] * 13)[:13]  # Ensure we have all 13 values
         (self.vendor, self.invoice, self.po, self.inv_date, self.terms,
-         self.due, self.shipping, self.total) = (values + [""] * 8)[:8]
+         self.due, self.total, self.shipping, self.qc_subtotal, self.qc_disc_pct,
+         self.qc_disc_amt, self.qc_shipping, self.qc_used) = extended_values
         self.file_path = file_path or ""
         self.selected = False         # NEW: user 'Select' checkbox state
         self.flag = False             # kept: flag is now shown inside Actions
         self.edited_cells: Set[int] = set()
+        # Grand total is calculated, not stored directly from input
+        self._update_grand_total()
+
+    def _update_grand_total(self):
+        """Calculate grand total from total and shipping."""
+        try:
+            total_val = float(str(self.total or "0").replace(",", "").replace("$", "")) if self.total else 0.0
+            shipping_val = float(str(self.shipping or "0").replace(",", "").replace("$", "")) if self.shipping else 0.0
+            self.grand_total = f"{total_val + shipping_val:.2f}"
+        except (ValueError, TypeError):
+            self.grand_total = "0.00"
 
 
 class InvoiceTableModel(QAbstractTableModel):
@@ -91,6 +106,7 @@ class InvoiceTableModel(QAbstractTableModel):
             return base
         if col in BODY_COLS:
             base |= Qt.ItemIsEditable
+        # Grand Total column is not in BODY_COLS and is not editable
         return base
 
     # --- data roles ---
@@ -102,16 +118,16 @@ class InvoiceTableModel(QAbstractTableModel):
 
         # Backgrounds (cell-level)
         if role == Qt.BackgroundRole:
-            if c in BODY_COLS:
+            if c in BODY_COLS or c == C_GRAND_TOTAL:
                 vals = self.row_values(r)
-                # Exclude shipping cost (index 6) from empty cell checks
-                filled = [bool(str(v).strip()) for i, v in enumerate(vals) if i != 6]
+                # Exclude shipping (index 7) from empty cell checks
+                filled = [bool(str(v).strip()) for i, v in enumerate(vals) if i != 7]
                 all_empty = not any(filled)
                 if all_empty:
                     return QColor("#FDE2E2")  # red highlight when entire row is empty
                 value = self._get_cell_value(r, c)
-                # Don't highlight shipping cost column when empty
-                if c != C_SHIPPING and ((value is None) or (str(value).strip() == "")):
+                # Don't highlight shipping column when empty, and grand total is never editable
+                if c not in (C_SHIPPING, C_GRAND_TOTAL) and ((value is None) or (str(value).strip() == "")):
                     return QColor("#FFF1A6")  # brighter yellow for empty cell
                 if c == C_TERMS:
                     terms = str(value or "")
@@ -123,6 +139,9 @@ class InvoiceTableModel(QAbstractTableModel):
                             return QColor("#CCE7FF")  # clearer blue for invalid terms
                 if c in row.edited_cells:
                     return QColor("#DCFCE7")  # soft green for manually edited
+                # Grand total gets a light blue background to show it's calculated
+                if c == C_GRAND_TOTAL:
+                    return QColor("#F0F8FF")  # light blue for calculated field
             return QVariant()
 
         # Checkbox state for the Select column
@@ -151,10 +170,12 @@ class InvoiceTableModel(QAbstractTableModel):
                 return row.terms
             if c == C_DUE:
                 return row.due
-            if c == C_SHIPPING:
-                return row.shipping
             if c == C_TOTAL:
                 return row.total
+            if c == C_SHIPPING:
+                return row.shipping
+            if c == C_GRAND_TOTAL:
+                return row.grand_total
             if c == C_ACTIONS:
                 return " ⚑   ✎ ✖ "
         return QVariant()
@@ -197,20 +218,36 @@ class InvoiceTableModel(QAbstractTableModel):
                 row.terms = val
             elif c == C_DUE:
                 row.due = val
-            elif c == C_SHIPPING:
-                row.shipping = val
             elif c == C_TOTAL:
                 row.total = val
+                # Recalculate grand total when total changes
+                row._update_grand_total()
+            elif c == C_SHIPPING:
+                row.shipping = val
+                # Recalculate grand total when shipping changes
+                row._update_grand_total()
+            elif c == C_GRAND_TOTAL:
+                # Grand total is calculated, not directly editable
+                return False
             else:
                 return
             row.edited_cells.add(c)
 
-        set_and_mark(new_val)
+        result = set_and_mark(new_val)
+        if result is False:
+            return False
 
         if c == C_INVOICE:
             self._rebuild_duplicates()
 
+        # Emit change for the edited cell
         self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole, Qt.BackgroundRole])
+        
+        # If total or shipping changed, also emit change for grand total column
+        if c in (C_TOTAL, C_SHIPPING):
+            grand_total_index = self.index(r, C_GRAND_TOTAL)
+            self.dataChanged.emit(grand_total_index, grand_total_index, [Qt.DisplayRole])
+        
         self.rawEdited.emit(r, c)
         return True
 
@@ -224,8 +261,9 @@ class InvoiceTableModel(QAbstractTableModel):
             C_INV_DATE: r.inv_date,
             C_TERMS: r.terms,
             C_DUE: r.due,
-            C_SHIPPING: r.shipping,
             C_TOTAL: r.total,
+            C_SHIPPING: r.shipping,
+            C_GRAND_TOTAL: r.grand_total,
         }.get(col, "")
 
     def _duplicate_number_for_row(self, r: int) -> int:
@@ -277,7 +315,8 @@ class InvoiceTableModel(QAbstractTableModel):
 
     def row_values(self, src_row: int) -> List[str]:
         r = self._rows[src_row]
-        return [r.vendor, r.invoice, r.po, r.inv_date, r.terms, r.due, r.shipping, r.total]
+        return [r.vendor, r.invoice, r.po, r.inv_date, r.terms, r.due, r.total, r.shipping,
+                r.qc_subtotal, r.qc_disc_pct, r.qc_disc_amt, r.qc_shipping, r.qc_used]
 
     def get_file_path(self, src_row: int) -> str:
         return self._rows[src_row].file_path
@@ -327,8 +366,24 @@ class InvoiceTableModel(QAbstractTableModel):
         abs_target = os.path.abspath(file_path or "")
         for i, r in enumerate(self._rows):
             if os.path.abspath(r.file_path or "") == abs_target:
+                # Update the first 8 visible columns
                 for c, val in zip(BODY_COLS, (row_values + [""] * 8)[:8]):
                     self.setData(self.index(i, c), val, Qt.EditRole)
+                
+                # Update QC values directly on the row object (not visible in table)
+                extended_values = (row_values + [""] * 13)[:13]
+                r.qc_subtotal = extended_values[8] if len(extended_values) > 8 else ""
+                r.qc_disc_pct = extended_values[9] if len(extended_values) > 9 else ""
+                r.qc_disc_amt = extended_values[10] if len(extended_values) > 10 else ""
+                r.qc_shipping = extended_values[11] if len(extended_values) > 11 else ""
+                r.qc_used = extended_values[12] if len(extended_values) > 12 else "false"
+                
+                print(f"[QC DEBUG] update_row_by_source saved QC values: subtotal={r.qc_subtotal}, disc_pct={r.qc_disc_pct}, disc_amt={r.qc_disc_amt}, shipping={r.qc_shipping}, used={r.qc_used}")
+                
+                # Recalculate grand total after updating
+                r._update_grand_total()
+                grand_total_index = self.index(i, C_GRAND_TOTAL)
+                self.dataChanged.emit(grand_total_index, grand_total_index, [Qt.DisplayRole])
                 return i
         return -1
 
@@ -422,7 +477,7 @@ class InvoiceSortProxy(QSortFilterProxyModel):
             rv = src.data(src.index(right.row(), C_VENDOR), Qt.EditRole)
             return self._safe_natural_key(lv) < self._safe_natural_key(rv)
 
-        if c in (C_SHIPPING, C_TOTAL):
+        if c in (C_TOTAL, C_SHIPPING, C_GRAND_TOTAL):
             lf = self._to_float(l)
             rf = self._to_float(r)
             return lf < rf
@@ -444,7 +499,7 @@ class InvoiceSortProxy(QSortFilterProxyModel):
             if not model.get_flag(src_row):
                 return False
 
-        # 2) Incomplete-only (any empty body cell, excluding shipping cost)
+        # 2) Incomplete-only (any empty body cell, excluding shipping)
         vals = model.row_values(src_row)
         if self._incomplete_only:
             # Enumerate starting at C_VENDOR so indexes align with column constants

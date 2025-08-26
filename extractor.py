@@ -57,7 +57,9 @@ def extract_fields(documents):
         extracted_rows.append([
             row["Vendor Name"], row["Invoice Number"], row["PO Number"], row["Invoice Date"],
             row["Discount Terms"], row["Discount Due Date"],
-            row["Shipping Cost"], row["Total Amount"]
+            row["Total Amount"], row["Shipping Cost"],
+            "", "", "", "",  # QC values (Subtotal, Disc%, Disc$, Shipping)
+            "false"  # QC used flag
         ])
 
     return extracted_rows
