@@ -1195,7 +1195,8 @@ class ManualEntryDialog(QDialog):
         was_loading = self._loading
         self._loading = True
         try:
-            vals = list(values) + [""] * (13 - len(values))
+            # Ensure all values are strings, not None
+            vals = [(str(v) if v is not None else "") for v in values] + [""] * (13 - len(values))
 
             self.vendor_combo.setCurrentText(vals[0])
             self.fields["Invoice Number"].setText(vals[1])
@@ -1203,7 +1204,7 @@ class ManualEntryDialog(QDialog):
 
             # Invoice Date
             self.fields["Invoice Date"].setDate(QDate.currentDate())
-            inv = vals[3].strip()
+            inv = vals[3].strip() if vals[3] else ""
             if inv:
                 d = self._parse_mmddyy(inv)
                 if d.isValid():
@@ -1213,7 +1214,7 @@ class ManualEntryDialog(QDialog):
 
             # Due Date
             self.fields["Due Date"].setDate(QDate.currentDate())
-            due = vals[5].strip()
+            due = vals[5].strip() if vals[5] else ""
             if due:
                 d2 = self._parse_mmddyy(due)
                 if d2.isValid():
@@ -1226,9 +1227,9 @@ class ManualEntryDialog(QDialog):
 
             # Highlighting
             self.empty_date_fields = set()
-            if not vals[3].strip():
+            if not (vals[3] and vals[3].strip()):
                 self.empty_date_fields.add("Invoice Date")
-            if not vals[5].strip():
+            if not (vals[5] and vals[5].strip()):
                 self.empty_date_fields.add("Due Date")
             
             # Reset manual edit tracking when loading new data
@@ -1590,8 +1591,8 @@ class ManualEntryDialog(QDialog):
         else:
             use_saved = True
         if use_saved and 0 <= idx < len(self.values_list):
-            v = self.values_list[idx][0].strip()
-            inv = self.values_list[idx][1].strip()
+            v = (self.values_list[idx][0] or "").strip()
+            inv = (self.values_list[idx][1] or "").strip()
             display = f"{v}_{inv}" if v and inv else (v or inv)
             if display:
                 return display
