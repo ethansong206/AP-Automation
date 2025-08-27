@@ -10,18 +10,32 @@ class CurrencyUtils:
     def parse_money(s):
         """Parse a string into a float monetary value.
         
-        Handles formats like: $1,234.56, (1234.56), 1234.56
+        Handles formats like: $1,234.56, (1234.56), 1234.56, $-1,234.56, -$1,234.56
         Returns None if parsing fails.
         """
         if not s:
             return None
         s = s.strip().replace(",", "")
         neg = False
+        
+        # Handle parentheses format: (1234.56)
         if s.startswith("(") and s.endswith(")"):
             neg = True
             s = s[1:-1]
-        if s.startswith("$"):
-            s = s[1:]
+        
+        # Handle negative sign formats: -$1234.56 or $-1234.56
+        if s.startswith("-$"):
+            neg = True
+            s = s[2:]  # Remove -$
+        elif s.startswith("$-"):
+            neg = True
+            s = s[2:]  # Remove $-
+        elif s.startswith("$"):
+            s = s[1:]  # Remove $
+        elif s.startswith("-"):
+            neg = True
+            s = s[1:]  # Remove -
+            
         try:
             val = float(s)
             return -val if neg else val

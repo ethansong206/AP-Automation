@@ -6,10 +6,15 @@ from PyQt5.QtWidgets import (
     QPushButton, QSplitter, QWidget, QFormLayout, QComboBox, QMessageBox,
     QCompleter, QListWidget, QListWidgetItem, QGroupBox,
     QScrollArea, QGridLayout, QFrame, QGraphicsDropShadowEffect, QToolButton,
-    QApplication, QSizePolicy
+    QApplication, QSizePolicy, QAbstractSpinBox
 )
 from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal, QSize, QPoint, QRect
 from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon, QCursor
+
+# Import Quick Calculator Manager (new inline version)
+from .components.quick_calculator_inline import QuickCalculatorManager
+# Import styling system
+from .styles.manual_entry_styles import ManualEntryStyles
 
 # ---------- THEME & ICONS: reuse from app_shell when available ----------
 try:
@@ -39,6 +44,22 @@ ARROW_ICON = _resolve_icon("down_arrow.svg").replace(os.sep, "/")
 
 # Resize margin for edge detection
 RESIZE_MARGIN = 14
+
+DATE_NO_ARROWS_CSS = """
+/* Kill spin buttons completely */
+QAbstractSpinBox::up-button,
+QAbstractSpinBox::down-button { width:0; height:0; border:0; padding:0; margin:0; }
+
+/* Remove any reserved padding/space for those buttons */
+QAbstractSpinBox { padding-right: 0; }
+
+/* Also kill any calendar dropdown chrome even if a global style adds it */
+QDateEdit::drop-down { width:0 !important; border:none !important; }
+QDateEdit::down-arrow { image:none !important; width:0; height:0; }
+
+/* Belt-and-suspenders: make sure QDateEdit itself keeps no extra room */
+QDateEdit { padding-right: 0 !important; }
+"""
 
 # Project components (unchanged)
 from views.components.pdf_viewer import InteractivePDFViewer
@@ -74,7 +95,7 @@ class _DialogTitleBar(QWidget):
         font_size = max(18, int(titlebar_height * 0.4))
         main_title_font = QFont("Inter", font_size, QFont.Bold)
         self.title.setFont(main_title_font)
-        self.title.setStyleSheet(f"color: {THEME['brand_green']}; font-size: {font_size}px; font-weight: bold;")
+        self.title.setStyleSheet(parent.styles.get_title_style(font_size) if hasattr(parent, 'styles') else f"color: {THEME['brand_green']}; font-size: {font_size}px; font-weight: bold;")
 
         # Window control buttons (match main window look)
         self._icon_min = QIcon(_resolve_icon("minimize.svg"))
@@ -94,10 +115,9 @@ class _DialogTitleBar(QWidget):
             b.setCursor(Qt.PointingHandCursor)
             b.setFocusPolicy(Qt.NoFocus)
             border_radius = max(4, int(6 * self.dpi_scale))  # DPI-scaled border radius
-            b.setStyleSheet(
-                "QToolButton#WinBtn { background: transparent; border: none; padding: 0; }"
-                f"QToolButton#WinBtn:hover {{ background: rgba(0,0,0,0.06); border-radius: {border_radius}px; }}"
-            )
+            b.setStyleSheet(parent.styles.get_window_control_button_style() if hasattr(parent, 'styles') else 
+                ("QToolButton#WinBtn { background: transparent; border: none; padding: 0; }"
+                f"QToolButton#WinBtn:hover {{ background: rgba(0,0,0,0.06); border-radius: {border_radius}px; }}"))
             b.setMouseTracking(True)  # Match main window's mouse tracking
             return b
 
@@ -141,6 +161,247 @@ class _DialogTitleBar(QWidget):
             w.showMaximized()
 
 
+class MaskedDateEdit(QDateEdit):
+    """
+    QDateEdit-based date input (MM/dd/yy) with text-like behavior:
+    - First click selects the whole section (MM/DD/YY).
+    - Second separate click in the same section places the caret.
+    - Switching sections with a click selects the new section.
+    - Two-digit typing per section; Tab/Shift+Tab walk sections; Enter or '/' advance.
+    - No spin arrows; wheel & Up/Down don't change the value.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDisplayFormat("MM/dd/yy")
+        self.setCalendarPopup(False)
+        self.setDate(QDate.currentDate())
+        self.setFocusPolicy(Qt.StrongFocus)
+
+        # Track last section clicked to implement "first click selects; second click places caret"
+        self._last_clicked_section = None
+
+        # Hide spin buttons & disable wheel/spin behavior
+        self._hide_spin_buttons_css()
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+
+        QTimer.singleShot(0, self._select_current_section)
+
+    # ---- visuals ----
+    def _hide_spin_buttons_css(self):
+        self.setStyleSheet("""
+            QAbstractSpinBox::up-button   { width:0; height:0; border:0; padding:0; margin:0; }
+            QAbstractSpinBox::down-button { width:0; height:0; border:0; padding:0; margin:0; }
+            QAbstractSpinBox { padding-right: 0; }
+            QDateEdit::drop-down { width:0 !important; border:none !important; }
+            QDateEdit::down-arrow { image:none !important; width:0; height:0; }
+            QDateEdit { padding-right: 0 !important; }
+        """)
+
+    # ---- helpers ----
+    def _select_current_section(self):
+        try:
+            self.setSelectedSection(self.currentSection())
+        except Exception:
+            pass
+
+    def _get_section_from_position(self, pos):
+        """
+        Calculate which section (MM/DD/YY) was clicked based on pixel position.
+        Returns QDateTimeEdit.MonthSection, DaySection, or YearSection.
+        """
+        try:
+            from PyQt5.QtWidgets import QAbstractSpinBox
+            
+            # Get the widget's content rectangle (excluding margins/borders)
+            content_rect = self.contentsRect()
+            widget_width = content_rect.width()
+            click_x = pos.x() - content_rect.left()
+            
+            # Calculate approximate character widths for "MM/dd/yy" format
+            # Using font metrics for more accurate positioning
+            font_metrics = self.fontMetrics()
+            
+            # Measure actual text widths for each section
+            mm_width = font_metrics.horizontalAdvance("MM")
+            slash1_width = font_metrics.horizontalAdvance("/")
+            dd_width = font_metrics.horizontalAdvance("dd")
+            slash2_width = font_metrics.horizontalAdvance("/")
+            yy_width = font_metrics.horizontalAdvance("yy")
+            
+            # Calculate section boundaries
+            mm_start = 0
+            mm_end = mm_width
+            
+            slash1_start = mm_end
+            slash1_end = slash1_start + slash1_width
+            
+            dd_start = slash1_end
+            dd_end = dd_start + dd_width
+            
+            slash2_start = dd_end
+            slash2_end = slash2_start + slash2_width
+            
+            yy_start = slash2_end
+            yy_end = yy_start + yy_width
+            
+            # Determine which section was clicked
+            if mm_start <= click_x < dd_start:
+                return self.MonthSection
+            elif dd_start <= click_x < yy_start:
+                return self.DaySection
+            elif yy_start <= click_x <= yy_end:
+                return self.YearSection
+            else:
+                # Fallback to current section if click is outside bounds
+                return self.currentSection()
+                
+        except Exception as e:
+            print(f"[DEBUG] Section detection error: {e}")
+            # Fallback to Qt's method if our calculation fails
+            try:
+                return self.sectionAt(pos)
+            except:
+                return self.currentSection()
+
+    def _move_section_by(self, step: int):
+        idx = self.currentSectionIndex()
+        count = self.sectionCount()
+        new_idx = max(0, min(count - 1, idx + step))
+        if new_idx != idx:
+            self.setCurrentSectionIndex(new_idx)
+        self._select_current_section()
+        # After keyboard navigation, treat the next click as a "first click"
+        self._last_clicked_section = None
+
+    def _set_month_safe(self, m: int):
+        d0 = self.date()
+        y, d = d0.year(), d0.day()
+        max_d = QDate(y, m, 1).daysInMonth()
+        self.setDate(QDate(y, m, min(d, max_d)))
+
+    def _set_day_safe(self, d: int):
+        d0 = self.date()
+        y, m = d0.year(), d0.month()
+        max_d = QDate(y, m, 1).daysInMonth()
+        self.setDate(QDate(y, m, max(1, min(d, max_d))))
+
+    # ---- events ----
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        self._last_clicked_section = None
+        QTimer.singleShot(0, self._select_current_section)
+
+    def focusOutEvent(self, e):
+        self._last_clicked_section = None
+        super().focusOutEvent(e)
+
+    def mousePressEvent(self, e):
+        if e.button() != Qt.LeftButton:
+            return super().mousePressEvent(e)
+
+        # Use pixel-based section detection instead of unreliable sectionAt()
+        clicked_section = self._get_section_from_position(e.pos())
+        
+        if clicked_section is None:
+            return super().mousePressEvent(e)
+
+        # If it's the first click in this section (or a different section than last time)…
+        if self._last_clicked_section is None or clicked_section != self._last_clicked_section:
+            # DO NOT call the base handler here; we own this click.
+            e.accept()
+            self.setFocus(Qt.MouseFocusReason)
+            self.setCurrentSection(clicked_section)
+            self.setSelectedSection(clicked_section)
+            self._last_clicked_section = clicked_section
+            return
+
+        # Otherwise it's a second click in the same section → let Qt place caret
+        self._last_clicked_section = None
+        return super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        # No special logic needed on release; keep it simple.
+        return super().mouseReleaseEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        # Double-click acts like precise edit (caret), not a reselect
+        super().mouseDoubleClickEvent(e)
+        # Next click should select again
+        self._last_clicked_section = None
+
+    def wheelEvent(self, e):
+        # Don't let mouse wheel change the date; allow parent views to scroll
+        e.ignore()
+
+    def stepBy(self, steps: int):
+        # Disable spin behavior entirely
+        return
+
+    def keyPressEvent(self, e):
+        k = e.key()
+        txt = e.text()
+        is_digit = bool(txt) and txt.isdigit()
+
+        # Block spin-keys so it behaves like text
+        if k in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown):
+            e.ignore()
+            return
+
+        # Smart single-digit: '2'..'9' in MM => 02..09 and jump; '4'..'9' in DD => 04..09 and jump
+        if is_digit:
+            idx = self.currentSectionIndex()  # 0=MM, 1=DD, 2=YY for "MM/dd/yy"
+            dch = txt
+            if idx == 0 and dch in "23456789":
+                self._set_month_safe(int(dch))
+                self._move_section_by(+1)
+                e.accept()
+                return
+            if idx == 1 and dch in "456789":
+                self._set_day_safe(int(dch))
+                self._move_section_by(+1)
+                e.accept()
+                return
+
+        # Enter or '/' => advance to next section
+        if k in (Qt.Key_Return, Qt.Key_Enter) or txt == '/':
+            self.interpretText()
+            if self.currentSectionIndex() < self.sectionCount() - 1:
+                self._move_section_by(+1)
+                e.accept()
+                return
+
+        # Let base class handle digits, backspace, arrows (L/R), etc.
+        super().keyPressEvent(e)
+
+        # After digits, DO NOT reselect (so you can type two digits)
+        if is_digit:
+            return
+
+        # After non-digit keys, reselect the current section for quick overwrite
+        if k not in (Qt.Key_Tab, Qt.Key_Backtab):
+            QTimer.singleShot(0, self._select_current_section)
+
+    def focusNextPrevChild(self, next: bool) -> bool:
+        """
+        Tab / Shift+Tab step MM→DD→YY before leaving the field.
+        """
+        idx = self.currentSectionIndex()
+        last = self.sectionCount() - 1
+        self.interpretText()
+
+        if next:
+            if idx < last:
+                self._move_section_by(+1)
+                return True   # keep focus here
+            return super().focusNextPrevChild(next)
+        else:
+            if idx > 0:
+                self._move_section_by(-1)
+                return True
+            return super().focusNextPrevChild(next)
+
+
 class ManualEntryDialog(QDialog):
     """Manual Entry dialog wrapped in a frameless, rounded-card shell.
 
@@ -176,6 +437,9 @@ class ManualEntryDialog(QDialog):
             self.setMinimumSize(1200, 850)  # Fallback for smaller screens
             self.dpi_scale = 1.0
         self.setObjectName("ManualEntryRoot")
+        
+        # Initialize styling system
+        self.styles = ManualEntryStyles(self.dpi_scale, min_width, min_height)
 
         # Root layout (lets us paint a rounded background in paintEvent)
         root = QVBoxLayout(self)
@@ -205,189 +469,22 @@ class ManualEntryDialog(QDialog):
         root.addLayout(gray_area, 1)  # 1 stretch factor = expands
 
         # ---------- Enhanced dialog UI styling ----------
-        # Calculate responsive font sizes
-        # DPI-aware font sizes
-        base_font_size = max(13, int(15 * self.dpi_scale))  # Scale base font with DPI
-        large_font_size = max(16, int(18 * self.dpi_scale))  # Scale large font with DPI
+        # Calculate responsive font sizes and CSS values
+        large_font_size = max(16, int(18 * self.dpi_scale))
         
-        # Scaled CSS values for consistent proportions
+        # Scaled CSS values for consistent proportions (used in highlighting logic)
         self.css_padding_sm = max(6, int(8 * self.dpi_scale))
         self.css_padding_md = max(9, int(12 * self.dpi_scale))
-        self.css_margin_sm = max(4, int(6 * self.dpi_scale))
         self.css_font_base = max(13, int(15 * self.dpi_scale))
-        self.css_font_large = max(16, int(20 * self.dpi_scale))
         self.css_border_radius = max(4, int(6 * self.dpi_scale))
         
         base_style = load_stylesheet(get_style_path('default.qss'))
-        self.setStyleSheet(base_style + f"""
-            QLabel {{ font-size: {base_font_size}px; }}
-            
-            /* Input fields with white background - using specific selectors and !important */
-            ManualEntryDialog QLineEdit,
-            ManualEntryDialog QComboBox,
-            ManualEntryDialog QDateEdit {{
-                font-size: {base_font_size}px !important; 
-                padding: 8px 12px !important; 
-                background-color: #FFFFFF !important;
-                color: #000000 !important;
-                border: 1px solid {THEME['card_border']} !important;
-                border-radius: 6px !important;
-                min-height: 20px !important;
-                selection-background-color: {THEME['brand_green']} !important;
-                selection-color: white !important;
-            }}
-            
-            /* GLOBAL ComboBox dropdown styling to ensure it always appears */
-            ManualEntryDialog QComboBox {{
-                padding-right: 30px !important;
-            }}
-            ManualEntryDialog QComboBox::drop-down {{
-                subcontrol-origin: padding !important;
-                subcontrol-position: top right !important;
-                width: 28px !important;
-                border-left: 2px solid {THEME['card_border']} !important;
-                border-top-right-radius: 6px !important;
-                border-bottom-right-radius: 6px !important;
-                background-color: #FFFFFF !important;
-                padding-right: 8px !important;
-                margin: 0 !important;
-            }}
-            ManualEntryDialog QComboBox::drop-down:hover {{
-                background-color: #e0e0e0 !important;
-            }}
-            ManualEntryDialog QComboBox::drop-down:pressed {{
-                background-color: #d0d0d0 !important;
-            }}
-            ManualEntryDialog QComboBox::down-arrow {{
-                image: url({ARROW_ICON}) !important;
-                width: {max(10, int(12 * self.dpi_scale))}px !important;
-                height: {max(10, int(12 * self.dpi_scale))}px !important;
-                subcontrol-origin: padding !important;
-                subcontrol-position: center !important;
-            }}
-            
-            /* QDateEdit dropdown styling to match QComboBox */
-            ManualEntryDialog QDateEdit::drop-down {{
-                subcontrol-origin: padding !important;
-                subcontrol-position: top right !important;
-                width: {max(24, int(28 * self.dpi_scale))}px !important;
-                border-left: 2px solid {THEME['card_border']} !important;
-                border-top-right-radius: {self.css_border_radius}px !important;
-                border-bottom-right-radius: {self.css_border_radius}px !important;
-                background-color: #FFFFFF !important;
-                padding-right: {self.css_padding_sm}px !important;
-                margin: 0 !important;
-            }}
-            ManualEntryDialog QDateEdit::drop-down:hover {{
-                background-color: #e0e0e0 !important;
-            }}
-            ManualEntryDialog QDateEdit::drop-down:pressed {{
-                background-color: #d0d0d0 !important;
-            }}
-            ManualEntryDialog QDateEdit::down-arrow {{
-                image: url({ARROW_ICON}) !important;
-                width: {max(10, int(12 * self.dpi_scale))}px !important;
-                height: {max(10, int(12 * self.dpi_scale))}px !important;
-                subcontrol-origin: padding !important;
-                subcontrol-position: center !important;
-            }}
-            
-            /* Additional specific overrides for problematic elements */
-            /* Exclude calendar widgets from global styling */
-            QWidget QLineEdit:not(QCalendarWidget QLineEdit),
-            QWidget QComboBox:not(QCalendarWidget QComboBox), 
-            QWidget QDateEdit:not(QCalendarWidget QDateEdit) {{
-                background-color: #FFFFFF !important;
-                color: #000000 !important;
-            }}
-            
-            /* Ensure calendar widgets are excluded from main styling */
-            QCalendarWidget, QCalendarWidget * {{
-                font-family: default;
-                font-size: 9pt;
-                background-color: white;
-                color: black;
-            }}
-            
-            ManualEntryDialog QLineEdit:focus, 
-            ManualEntryDialog QComboBox:focus, 
-            ManualEntryDialog QDateEdit:focus {{
-                border-color: {THEME['brand_green']} !important;
-                outline: none !important;
-                background-color: #FFFFFF !important;
-            }}
-            
-            ManualEntryDialog QComboBox::drop-down {{
-                border: none !important;
-                padding-right: 8px !important;
-                background-color: #FFFFFF !important;
-            }}
-            
-
-            ManualEntryDialog QComboBox::down-arrow {{
-                image: url({ARROW_ICON}) !important;
-                width: 12px !important;
-                height: 12px !important;
-                subcontrol-origin: padding !important;
-                subcontrol-position: center !important;
-            }}
-            
-            /* Second QDateEdit dropdown styling block */
-            ManualEntryDialog QDateEdit::drop-down {{
-                border: none !important;
-                padding-right: 8px !important;
-                background-color: #FFFFFF !important;
-            }}
-            ManualEntryDialog QDateEdit::down-arrow {{
-                image: url({ARROW_ICON}) !important;
-                width: 12px !important;
-                height: 12px !important;
-                subcontrol-origin: padding !important;
-                subcontrol-position: center !important;
-            }}
-            
-            ManualEntryDialog QComboBox QAbstractItemView {{
-                background-color: #FFFFFF !important;
-                color: #000000 !important;
-                border: 1px solid {THEME['card_border']} !important;
-                border-radius: {max(3, int(4 * self.dpi_scale))}px !important;
-                selection-background-color: {THEME['brand_green']} !important;
-                selection-color: white !important;
-            }}
-            
-            QPushButton {{ 
-                font-size: {base_font_size}px; 
-                padding: {max(7, int(9 * self.dpi_scale))}px {max(12, int(15 * self.dpi_scale))}px; 
-            }}
-            
-            QGroupBox {{ 
-                font-size: {large_font_size}px; 
-                font-weight: bold; 
-                margin-top: {max(12, int(15 * self.dpi_scale))}px; 
-                background-color: transparent;
-                border: 1px solid {THEME['card_border']};
-                border-radius: {self.css_padding_sm}px;
-                padding-top: {max(8, int(10 * self.dpi_scale))}px;
-            }}
-            
-            QGroupBox::title {{
-                color: {THEME['brand_green']};
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 8px 0 8px;
-                background-color: {THEME['outer_bg']};
-            }}
-        """)
+        self.setStyleSheet(base_style + self.styles.get_base_dialog_styles())
 
         # Data/state
         self.pdf_paths = list(pdf_paths or [])
-        # Expand values_list to include QC state: [0-7: form fields, 8-11: QC values, 12: QC used flag]
-        # QC indices: 8=subtotal, 9=disc_pct, 10=disc_amt, 11=shipping, 12=used_flag
-        self.QC_SUBTOTAL = 8
-        self.QC_DISC_PCT = 9
-        self.QC_DISC_AMT = 10
-        self.QC_SHIPPING = 11
-        self.QC_USED_FLAG = 12
+        # Initialize Quick Calculator Manager
+        self.qc_manager = QuickCalculatorManager(self)
         
         self.values_list = values_list or [[""] * 13 for _ in self.pdf_paths]
         # Ensure existing data is expanded to new format
@@ -423,13 +520,7 @@ class ManualEntryDialog(QDialog):
         left_card = QFrame()
         left_card.setObjectName("LeftCard")
         left_card.setMouseTracking(True)
-        left_card.setStyleSheet(f"""
-            QFrame#LeftCard {{
-                background: {THEME['card_bg']};
-                border: 1px solid {THEME['card_border']};
-                border-radius: {THEME['radius']}px;
-            }}
-        """)
+        left_card.setStyleSheet(self.styles.get_card_style())
         # Add subtle shadow to left card
         left_shadow = QGraphicsDropShadowEffect(left_card)
         left_shadow.setBlurRadius(12)
@@ -447,69 +538,48 @@ class ManualEntryDialog(QDialog):
         file_list_title = QLabel("Files")
         title_font = QFont("Inter", large_font_size, QFont.Bold)
         file_list_title.setFont(title_font)
-        file_list_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: {large_font_size}px; font-weight: bold;")
+        file_list_title.setStyleSheet(self.styles.get_title_style(large_font_size) + " margin-bottom: 6px;")
         left_card_layout.addWidget(file_list_title)
         
         self.file_list = QListWidget()
         self.file_list.setObjectName("FileListWidget")
         self.file_list.mousePressEvent = self._file_list_mouse_press
         # Zebra striping and styling
-        self.file_list.setStyleSheet("""
-            QListWidget#FileListWidget {
-                border: none;
-                background: transparent;
-                selection-background-color: rgba(6, 68, 32, 0.1);
-                outline: none;
-            }
-            QListWidget#FileListWidget::item {
-                padding: 8px 12px;
-                border-radius: 6px;
-                margin: 1px 0px;
-            }
-            QListWidget#FileListWidget::item:nth-child(even) {
-                background-color: #F8F9FA;
-            }
-            QListWidget#FileListWidget::item:nth-child(odd) {
-                background-color: transparent;
-            }
-            QListWidget#FileListWidget::item:hover {
-                background-color: rgba(6, 68, 32, 0.05);
-            }
-            QListWidget#FileListWidget::item:selected {
-                background-color: rgba(6, 68, 32, 0.1);
-                border: 1px solid rgba(6, 68, 32, 0.2);
-            }
-        """)
+        self.file_list.setStyleSheet(self.styles.get_file_list_style())
         left_card_layout.addWidget(self.file_list)
         
         for i, (path, flagged) in enumerate(zip(self.pdf_paths, self.flag_states)):
             item = QListWidgetItem()
             text = self._get_display_text(i)
-            self._update_file_item(item, text, flagged)
+            self._update_file_item(item, text, flagged, i)
             self.file_list.addItem(item)
 
         # ===== Center: manual entry fields (directly on gray background) =====
         center_widget = QWidget()
         center_widget.setMouseTracking(True)
         center_layout = QVBoxLayout(center_widget)
-        # Scale center layout margins and spacing
+        # Scale center layout margins and spacing - absolutely minimal for title compactness
         center_margin_h = max(12, int(min_width * 0.01))   # 1% of width, min 12px
-        center_margin_v = max(4, int(min_height * 0.005))  # 0.5% of height, min 4px
-        center_spacing = max(3, int(min_height * 0.003))   # 0.3% of height, min 3px
+        center_margin_v = max(1, int(min_height * 0.001))  # 0.1% of height, min 1px (further reduced)
+        center_spacing = 0  # Zero spacing between title and form to eliminate gap
         center_layout.setContentsMargins(center_margin_h, center_margin_v, center_margin_h, center_margin_h)
         center_layout.setSpacing(center_spacing)
         
-        # Manual entry title with reduced margins - use !important to override global QDialog QLabel styles
+        # Manual entry title with minimal margins - explicit override of all spacing sources
         entry_title = QLabel("Invoice Details")
+        entry_title.setObjectName("InvoiceDetailsTitle")  # Unique name for precise CSS targeting
         title_font = QFont("Inter", large_font_size, QFont.Bold)
         entry_title.setFont(title_font)
-        entry_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: {large_font_size}px; font-weight: bold;")
+        # Set fixed height to prevent excessive vertical space usage
+        entry_title.setFixedHeight(max(20, large_font_size + 4))  # Font size + minimal padding
+        # Apply consolidated title styling (CSS handles all overrides)
+        entry_title.setStyleSheet(self.styles.get_title_style(large_font_size))
         center_layout.addWidget(entry_title)
         
         form_layout = QFormLayout()
-        form_layout.setVerticalSpacing(10)
+        form_layout.setVerticalSpacing(8)  # Reduced from 10px to 8px for tighter spacing
         form_layout.setHorizontalSpacing(10)
-        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setContentsMargins(0, 0, 0, 0)  # No margins to minimize gap after title
 
         self.fields = {}
 
@@ -547,36 +617,8 @@ class ManualEntryDialog(QDialog):
         form_layout.addRow(QLabel("PO Number:"), self.fields["PO Number"])
 
         # Invoice Date
-        self.fields["Invoice Date"] = QDateEdit()
-        self.fields["Invoice Date"].setCalendarPopup(True)
-        self.fields["Invoice Date"].setDisplayFormat("MM/dd/yyyy")
+        self.fields["Invoice Date"] = MaskedDateEdit()
         self.fields["Invoice Date"].setDate(QDate.currentDate())
-        
-        # Configure calendar to be large enough and look default
-        calendar = self.fields["Invoice Date"].calendarWidget()
-        if calendar:
-            # Scale calendar size based on screen dimensions
-            cal_width = max(320, int(min_width * 0.25))   # 25% of min width, min 320px
-            cal_height = max(200, int(min_height * 0.25)) # 25% of min height, min 200px
-            calendar.setMinimumSize(cal_width, cal_height)
-            # Remove any inherited styling to make it look default
-            calendar.setStyleSheet("""
-                QCalendarWidget {
-                    font-family: default !important;
-                    font-size: 9pt !important;
-                    background-color: white !important;
-                    alternate-background-color: #f0f0f0 !important;
-                }
-                QCalendarWidget QTableView {
-                    selection-background-color: #3399ff !important;
-                    selection-color: white !important;
-                    font-size: 9pt !important;
-                }
-                QCalendarWidget QWidget {
-                    color: black !important;
-                    background-color: white !important;
-                }
-            """)
         
         form_layout.addRow(QLabel("Invoice Date:"), self.fields["Invoice Date"])
 
@@ -585,33 +627,8 @@ class ManualEntryDialog(QDialog):
         form_layout.addRow(QLabel("Discount Terms:"), self.fields["Discount Terms"])
 
         # Due Date + Calculate button
-        self.fields["Due Date"] = QDateEdit()
-        self.fields["Due Date"].setCalendarPopup(True)
-        self.fields["Due Date"].setDisplayFormat("MM/dd/yyyy")
+        self.fields["Due Date"] = MaskedDateEdit()
         self.fields["Due Date"].setDate(QDate.currentDate())
-        
-        # Configure Due Date calendar to be large enough and look default
-        due_calendar = self.fields["Due Date"].calendarWidget()
-        if due_calendar:
-            due_calendar.setMinimumSize(cal_width, cal_height)  # Use same responsive size as invoice calendar
-            # Remove any inherited styling to make it look default
-            due_calendar.setStyleSheet("""
-                QCalendarWidget {
-                    font-family: default !important;
-                    font-size: 9pt !important;
-                    background-color: white !important;
-                    alternate-background-color: #f0f0f0 !important;
-                }
-                QCalendarWidget QTableView {
-                    selection-background-color: #3399ff !important;
-                    selection-color: white !important;
-                    font-size: 9pt !important;
-                }
-                QCalendarWidget QWidget {
-                    color: black !important;
-                    background-color: white !important;
-                }
-            """)
         
         due_row = QHBoxLayout()
         due_row.addWidget(self.fields["Due Date"], 1)
@@ -622,116 +639,20 @@ class ManualEntryDialog(QDialog):
         due_row.addWidget(self.due_calc_btn)
         form_layout.addRow(QLabel("Due Date:"), due_row)
 
-        # Currency fields
-        self.fields["Shipping Cost"] = QLineEdit()
-        form_layout.addRow(QLabel("Shipping Cost:"), self.fields["Shipping Cost"])
-        self.fields["Total Amount"] = QLineEdit()
-        form_layout.addRow(QLabel("Total Amount:"), self.fields["Total Amount"])
+        # Currency fields removed - now handled by QC inline editing
 
-        # Quick Calculator with Professional Cost Summary
-        self.quick_calc_group = QGroupBox("Quick Calculator")
-        qc = QVBoxLayout()
-        qc.setContentsMargins(15, 10, 15, 15)
-        qc.setSpacing(12)
-
-        # Input fields section
-        input_form = QFormLayout()
-        input_form.setVerticalSpacing(8)
-        input_form.setHorizontalSpacing(12)
-
-        def new_lineedit():
-            e = QLineEdit()
-            e.textChanged.connect(self._recalc_quick_calc_and_update_fields)
-            return e
-
-        self.qc_subtotal = new_lineedit()
-        self.qc_disc_pct = new_lineedit()   # %
-        self.qc_disc_amt = new_lineedit()   # $
-        self.qc_shipping = new_lineedit()
-
-        input_form.addRow(QLabel("Subtotal:"), self.qc_subtotal)
-        input_form.addRow(QLabel("Discount %:"), self.qc_disc_pct)
-        input_form.addRow(QLabel("Discount $:"), self.qc_disc_amt)
-        input_form.addRow(QLabel("Shipping:"), self.qc_shipping)
-
-        qc.addLayout(input_form)
-        qc.addSpacing(15)
-
-        # Professional cost summary
-        summary_frame = QFrame()
-        summary_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 6px;
-            }
-        """)
-        
-        summary_layout = QVBoxLayout(summary_frame)
-        summary_layout.setContentsMargins(12, 8, 12, 8)
-        summary_layout.setSpacing(3)
-
-        # Subtotal row
-        self.summary_subtotal_row = self._create_summary_row("Subtotal", "$0.00")
-        summary_layout.addLayout(self.summary_subtotal_row)
-
-        # Discount row  
-        self.summary_discount_row = self._create_summary_row("Discount", "$0.00")
-        summary_layout.addLayout(self.summary_discount_row)
-
-        # First separator line (gray)
-        separator1 = self._create_separator_line("#cccccc")
-        summary_layout.addWidget(separator1)
-
-        # Inventory row
-        self.summary_inventory_row = self._create_summary_row("Inventory (140-000)", "$0.00")
-        summary_layout.addLayout(self.summary_inventory_row)
-
-        # Shipping row
-        self.summary_shipping_row = self._create_summary_row("Shipping (520-004)", "$0.00")
-        summary_layout.addLayout(self.summary_shipping_row)
-
-        # Second separator line (gray)
-        separator2 = self._create_separator_line("#cccccc")
-        summary_layout.addWidget(separator2)
-
-        # Grand total row (bold with black line below)
-        self.summary_grand_row = self._create_summary_row("Grand Total", "$0.00", bold=True)
-        summary_layout.addLayout(self.summary_grand_row)
-
-        # Final separator line (black, bold)
-        separator3 = self._create_separator_line("#000000", height=2)
-        summary_layout.addWidget(separator3)
-
-        qc.addWidget(summary_frame)
-        self.quick_calc_group.setLayout(qc)
+        # Quick Calculator - managed by QuickCalculatorManager
+        self.quick_calc_group = self.qc_manager.create_widget()
 
         # Button styles - DPI-aware
-        btn_border_radius = max(3, int(4 * self.dpi_scale))
-        btn_padding_v = max(7, int(9 * self.dpi_scale))
-        btn_padding_h = max(12, int(15 * self.dpi_scale))
-        primary_btn_css = (
-            f"QPushButton {{ background-color: #5E6F5E; color: white; border-radius: {btn_border_radius}px; "
-            f"padding: {btn_padding_v}px {btn_padding_h}px; font-weight: bold; }} "
-            "QPushButton:hover { background-color: #6b7d6b; } "
-            "QPushButton:pressed { background-color: #526052; }"
-        )
+        primary_btn_css = self.styles.get_primary_button_style()
         for b in (self.vendor_list_btn, self.due_calc_btn):
             b.setStyleSheet(primary_btn_css)
 
         # Navigation + delete
         self.prev_button = QPushButton("←")
         self.next_button = QPushButton("→")
-        nav_font_size = max(24, int(28 * self.dpi_scale))  # DPI-scaled navigation font
-        nav_padding = max(8, int(10 * self.dpi_scale))    # DPI-scaled navigation padding
-        nav_css = (
-            f"QPushButton {{ background-color: #5E6F5E; color: #f0f0f0; border: 1px solid #3E4F3E; "
-            f"font-size: {nav_font_size}px; padding: {nav_padding}px; }} "
-            "QPushButton:hover { background-color: #546454; } "
-            "QPushButton:pressed { background-color: #485848; } "
-            "QPushButton:disabled { background-color: #bbbbbb; color: #666666; }"
-        )
+        nav_css = self.styles.get_navigation_button_style()
         # Scale navigation button size based on screen dimensions
         nav_btn_size = max(50, min(70, int(min_width * 0.04)))  # 4% of min width, between 50-70px
         for b in (self.prev_button, self.next_button):
@@ -763,16 +684,7 @@ class ManualEntryDialog(QDialog):
 
         self.delete_btn = QPushButton("Delete This Invoice")
         self.delete_btn.setToolTip("Remove this invoice from the list and table")
-        delete_border_radius = max(3, int(4 * self.dpi_scale))
-        delete_padding_v = max(7, int(9 * self.dpi_scale))
-        delete_padding_h = max(12, int(15 * self.dpi_scale))
-        delete_font_size = max(13, int(15 * self.dpi_scale))
-        self.delete_btn.setStyleSheet(
-            f"QPushButton {{ background-color: #C0392B; color: white; border-radius: {delete_border_radius}px; "
-            f"padding: {delete_padding_v}px {delete_padding_h}px; font-weight: bold; font-size: {delete_font_size}px; }} "
-            "QPushButton:hover { background-color: #D3543C; } "
-            "QPushButton:pressed { background-color: #A93226; }"
-        )
+        self.delete_btn.setStyleSheet(self.styles.get_delete_button_style())
         self.delete_btn.clicked.connect(self._confirm_delete_current)
 
         self.save_btn = QPushButton("Save")
@@ -798,20 +710,14 @@ class ManualEntryDialog(QDialog):
         center_scroll = QScrollArea()
         center_scroll.setWidgetResizable(True)
         center_scroll.setFrameShape(QScrollArea.NoFrame)
-        center_scroll.setStyleSheet("background: transparent;")
+        center_scroll.setStyleSheet(self.styles.get_transparent_background_style())
         center_scroll.setWidget(center_widget)
 
         # ===== Right: PDF viewer card =====
         right_card = QFrame()
         right_card.setObjectName("RightCard")
         right_card.setMouseTracking(True)
-        right_card.setStyleSheet(f"""
-            QFrame#RightCard {{
-                background: {THEME['card_bg']};
-                border: 1px solid {THEME['card_border']};
-                border-radius: {THEME['radius']}px;
-            }}
-        """)
+        right_card.setStyleSheet(self.styles.get_card_style())
         # Add subtle shadow to right card
         right_shadow = QGraphicsDropShadowEffect(right_card)
         right_shadow.setBlurRadius(12)
@@ -826,7 +732,7 @@ class ManualEntryDialog(QDialog):
         pdf_title = QLabel("PDF Preview")
         title_font = QFont("Inter", large_font_size, QFont.Bold)
         pdf_title.setFont(title_font)
-        pdf_title.setStyleSheet(f"color: {THEME['brand_green']}; margin-bottom: 6px; font-size: {large_font_size}px; font-weight: bold;")
+        pdf_title.setStyleSheet(self.styles.get_title_style(large_font_size))
         right_card_layout.addWidget(pdf_title)
         
         # Don't create viewer here - let load_invoice handle it
@@ -838,15 +744,7 @@ class ManualEntryDialog(QDialog):
         # Scale splitter handle width
         handle_width = max(8, int(min_width * 0.008))  # 0.8% of width, min 8px
         self.splitter.setHandleWidth(handle_width)
-        self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                background: transparent;
-                margin: 6px;
-            }
-            QSplitter::handle:horizontal {
-                width: 12px;
-            }
-        """)
+        self.splitter.setStyleSheet(self.styles.get_splitter_style())
         
         # Set responsive minimum widths for sections - reduce center minimum to allow smaller screens
         left_min_width = max(120, int(min_width * 0.12))    # 12% of width, min 120px
@@ -875,17 +773,15 @@ class ManualEntryDialog(QDialog):
         # Put the content directly into gray area
         gray_area.addWidget(self.splitter)
 
-        # Currency fields we pretty/normalize
-        self._currency_labels = {"Total Amount", "Shipping Cost"}
+        # Currency fields we pretty/normalize (now empty - handled by QC)
+        self._currency_labels = set()
         for label in self._currency_labels:
             w = self.fields.get(label)
             if w:
                 w.installEventFilter(self)
 
         # Quick calc fields that use pretty/plain toggling (no tax fields now)
-        self._calc_currency_fields = [
-            self.qc_subtotal, self.qc_disc_amt, self.qc_shipping
-        ]
+        self._calc_currency_fields = self.qc_manager.get_currency_fields()
         for w in self._calc_currency_fields:
             w.installEventFilter(self)
 
@@ -898,7 +794,7 @@ class ManualEntryDialog(QDialog):
                 widget.textChanged.connect(lambda _, l=label: self._on_field_changed(l))
             elif isinstance(widget, QComboBox):
                 widget.currentTextChanged.connect(lambda _, l=label: self._on_field_changed(l))
-            elif isinstance(widget, QDateEdit):
+            elif isinstance(widget, (QDateEdit, MaskedDateEdit)):
                 widget.dateChanged.connect(lambda _, l=label: self._on_date_changed(l))
 
         # Apply direct styling to input fields (to override any global styles)
@@ -908,15 +804,7 @@ class ManualEntryDialog(QDialog):
         border_radius = max(4, int(min_width * 0.004))     # 0.4% of width, min 4px
         min_input_height = max(16, int(min_height * 0.02)) # 2% of height, min 16px
         
-        input_field_style = f"""
-            background-color: #FFFFFF;
-            color: #000000;
-            border: 1px solid {THEME['card_border']};
-            border-radius: {self.css_border_radius}px;
-            padding: {self.css_padding_sm}px {self.css_padding_md}px;
-            font-size: {self.css_font_base}px;
-            min-height: {max(16, int(20 * self.dpi_scale))}px;
-        """
+        input_field_style = self.styles.get_input_field_styles()
         
         focus_style = f"""
             background-color: #FFFFFF;
@@ -932,86 +820,20 @@ class ManualEntryDialog(QDialog):
         for field_name, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
                 widget.setStyleSheet(input_field_style)
-            elif isinstance(widget, QDateEdit):
-                # QDateEdit now uses global ManualEntryDialog styles with SVG arrow
-                # Just apply basic field styling - dropdown handled by global styles
-                widget.setStyleSheet(input_field_style)
+            elif isinstance(widget, (QDateEdit, MaskedDateEdit)):
+                # Apply base field styling AND force-hide any arrows/dropdowns
+                widget.setStyleSheet(input_field_style + DATE_NO_ARROWS_CSS)
             elif isinstance(widget, QComboBox):
-                # Special handling for vendor dropdown with enhanced visibility
-                enhanced_combo_style = input_field_style + f"""
-                    QComboBox {{
-                        padding-right: {max(25, int(30 * self.dpi_scale))}px;
-                    }}
-                    QComboBox::drop-down {{
-                        subcontrol-origin: padding;
-                        subcontrol-position: top right;
-                        width: {max(24, int(28 * self.dpi_scale))}px;
-                        border-left: 2px solid {THEME['card_border']};
-                        border-top-right-radius: {self.css_border_radius}px;
-                        border-bottom-right-radius: {self.css_border_radius}px;
-                        background-color: #f0f0f0;
-                        margin-top: 1px;
-                        margin-bottom: 1px;
-                        margin-right: 1px;
-                    }}
-                    QComboBox::drop-down:hover {{
-                        background-color: #e0e0e0;
-                    }}
-                    QComboBox::drop-down:pressed {{
-                        background-color: #d0d0d0;
-                    }}
-                    QComboBox::down-arrow {{
-                        image: none;
-                        background-color: transparent;
-                        width: {max(13, int(16 * self.dpi_scale))}px;
-                        height: {max(13, int(16 * self.dpi_scale))}px;
-                        border: 2px solid #333333;
-                        border-left: transparent;
-                        border-right: transparent;
-                        border-bottom: transparent;
-                        border-top: {max(6, int(8 * self.dpi_scale))}px solid #333333;
-                        margin-top: {max(3, int(4 * self.dpi_scale))}px;
-                    }}"
-                    QComboBox QAbstractItemView {{
-                        background-color: #FFFFFF;
-                        color: #000000;
-                        border: 2px solid {THEME['card_border']};
-                        border-radius: 4px;
-                        selection-background-color: {THEME['brand_green']};
-                        selection-color: white;
-                        outline: none;
-                        show-decoration-selected: 1;
-                        min-height: 20px;
-                    }}
-                    QComboBox QAbstractItemView::item {{
-                        min-height: 25px;
-                        padding: 4px;
-                    }}
-                    QComboBox QAbstractItemView QScrollBar:vertical {{
-                        background-color: #f0f0f0;
-                        width: 16px;
-                        border: 1px solid {THEME['card_border']};
-                        border-radius: 8px;
-                    }}
-                    QComboBox QAbstractItemView QScrollBar::handle:vertical {{
-                        background-color: #c0c0c0;
-                        border-radius: 6px;
-                        min-height: 20px;
-                    }}
-                    QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {{
-                        background-color: #a0a0a0;
-                    }}
-                """
-                widget.setStyleSheet(enhanced_combo_style)
+                # ComboBox styling handled by global CSS - just apply base style
+                widget.setStyleSheet(input_field_style)
         
         # Apply to quick calculator fields as well
-        for qc_field in [self.qc_subtotal, self.qc_disc_pct, self.qc_disc_amt, self.qc_shipping]:
-            qc_field.setStyleSheet(input_field_style)
+        self.qc_manager.apply_styles(input_field_style)
 
         # Wire dirty tracking AFTER fields exist
         self._wire_dirty_tracking()
         
-        # Note: Auto-population only happens during initial load in _load_or_populate_quick_calculator
+        # Note: Auto-population only happens during initial load via qc_manager
         # No permanent wiring to avoid feedback loops during user input
 
         # Initial load
@@ -1076,7 +898,7 @@ class ManualEntryDialog(QDialog):
 
     def _entry_field_has_focus(self):
         w = self.focusWidget()
-        return isinstance(w, (QLineEdit, QComboBox, QDateEdit))
+        return isinstance(w, (QLineEdit, QComboBox, QDateEdit, MaskedDateEdit))
 
     def _handle_enter_navigation(self):
         """Handle Enter key to navigate to next field or next file."""
@@ -1089,14 +911,10 @@ class ManualEntryDialog(QDialog):
             self.fields["PO Number"], 
             self.fields["Invoice Date"],
             self.fields["Discount Terms"],
-            self.fields["Due Date"],
-            self.fields["Shipping Cost"],
-            self.fields["Total Amount"],
-            self.qc_subtotal,
-            self.qc_disc_pct,
-            self.qc_disc_amt,
-            self.qc_shipping
+            self.fields["Due Date"]
         ]
+        # Add QC fields to navigation order
+        field_order = self.qc_manager.add_to_field_order(field_order)
         
         try:
             current_index = field_order.index(current_widget)
@@ -1220,10 +1038,13 @@ class ManualEntryDialog(QDialog):
                 if d2.isValid():
                     self.fields["Due Date"].setDate(d2)
 
-            # Currency fields
-            self.fields["Shipping Cost"].setText(vals[7])
-            self.fields["Total Amount"].setText(vals[6])
-            self._apply_pretty_currency_display()
+            # Currency fields now handled by QC manager
+            # Store original values for QC auto-population
+            print(f"[QC DEBUG] Loading invoice values: vals length={len(vals)}")
+            print(f"[QC DEBUG] vals[6] (total): '{vals[6] if len(vals) > 6 else 'N/A'}'")
+            print(f"[QC DEBUG] vals[7] (shipping): '{vals[7] if len(vals) > 7 else 'N/A'}'")
+            self._original_total_amount = vals[6] if len(vals) > 6 else ""    # r.total is at index 6
+            self._original_shipping_cost = vals[7] if len(vals) > 7 else ""   # r.shipping is at index 7
 
             # Highlighting
             self.empty_date_fields = set()
@@ -1258,124 +1079,9 @@ class ManualEntryDialog(QDialog):
                 return QDate()
         return QDate.fromString(s, "MM/dd/yy")
 
-    def _create_summary_row(self, label_text, value_text, bold=False):
-        """Create a professional summary row with label and right-aligned value."""
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        
-        label = QLabel(label_text)
-        value = QLabel(value_text)
-        value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        
-        # Clean styling - no boxes, black text
-        base_style = "background: transparent; border: none; color: black; padding: 0px; margin: 0px;"
-        if bold:
-            label.setStyleSheet(base_style + " font-weight: bold;")
-            value.setStyleSheet(base_style + " font-weight: bold;")
-        else:
-            label.setStyleSheet(base_style)
-            value.setStyleSheet(base_style)
-        
-        row_layout.addWidget(label)
-        row_layout.addWidget(value)
-        
-        # Store reference to value label for updates
-        if "Subtotal" in label_text:
-            self.summary_subtotal_value = value
-        elif "Discount" in label_text:
-            self.summary_discount_value = value
-        elif "Inventory" in label_text:
-            self.summary_inventory_value = value
-        elif "Shipping" in label_text:
-            self.summary_shipping_value = value
-        elif "Grand Total" in label_text:
-            self.summary_grand_value = value
-        
-        return row_layout
 
-    def _create_separator_line(self, color="#cccccc", height=1):
-        """Create a horizontal separator line."""
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Plain)
-        line.setStyleSheet(f"color: {color}; background-color: {color}; height: {height}px; border: none; margin: 2px 0px;")
-        line.setFixedHeight(height + 4)  # Add a bit of space around the line
-        return line
 
-    def _clear_quick_calculator(self):
-        """Clear all Quick Calculator fields when navigating to another file."""
-        self.qc_subtotal.clear()
-        self.qc_disc_pct.clear()
-        self.qc_disc_amt.clear()
-        self.qc_shipping.clear()
-        # Clear the summary display
-        self.summary_subtotal_value.setText("$0.00")
-        self.summary_discount_value.setText("$0.00")
-        self.summary_inventory_value.setText("$0.00")
-        self.summary_shipping_value.setText("$0.00")
-        self.summary_grand_value.setText("$0.00")
 
-    def _load_or_populate_quick_calculator(self):
-        """Load saved QC state OR auto-populate from form data (never both).
-        Returns True if auto-population occurred and recalculation is needed."""
-        # Note: This now runs during loading to prevent dirty state issues
-        print(f"[QC DEBUG] _load_or_populate_quick_calculator running, loading={self._loading}")
-            
-        if self.current_index < 0 or self.current_index >= len(self.values_list):
-            print(f"[QC DEBUG] _load_or_populate_quick_calculator skipped - invalid index {self.current_index}")
-            return False
-            
-        vals = self.values_list[self.current_index]
-        print(f"[QC DEBUG] vals length: {len(vals)}, vals: {vals}")
-        
-        if len(vals) <= self.QC_USED_FLAG:
-            print(f"[QC DEBUG] QC_USED_FLAG index {self.QC_USED_FLAG} not available, vals length is {len(vals)}")
-            return False
-            
-        qc_used = vals[self.QC_USED_FLAG].lower() == "true"
-        print(f"[QC DEBUG] QC used flag: '{vals[self.QC_USED_FLAG]}' -> {qc_used}")
-        
-        if qc_used:
-            # Restore saved Quick Calculator state
-            print(f"[QC DEBUG] Restoring saved QC values: subtotal={vals[self.QC_SUBTOTAL]}, disc_pct={vals[self.QC_DISC_PCT]}, disc_amt={vals[self.QC_DISC_AMT]}, shipping={vals[self.QC_SHIPPING]}")
-            self.qc_subtotal.setText(vals[self.QC_SUBTOTAL])
-            self.qc_disc_pct.setText(vals[self.QC_DISC_PCT])
-            self.qc_disc_amt.setText(vals[self.QC_DISC_AMT])
-            self.qc_shipping.setText(vals[self.QC_SHIPPING])
-            return False  # No auto-population, just restoration
-        else:
-            # Auto-populate from form fields (first time)
-            print(f"[QC DEBUG] Auto-populating QC from form fields")
-            total_amount = self.fields.get("Total Amount")
-            shipping_cost = self.fields.get("Shipping Cost")
-            discount_terms = self.fields.get("Discount Terms")
-            
-            auto_populated = False
-            
-            # Auto-populate Subtotal from Total Amount
-            if total_amount and total_amount.text().strip():
-                print(f"[QC DEBUG] Setting subtotal from Total Amount: {total_amount.text().strip()}")
-                self.qc_subtotal.setText(total_amount.text().strip())
-                auto_populated = True
-            
-            # Auto-populate Shipping from Shipping Cost
-            if shipping_cost and shipping_cost.text().strip():
-                print(f"[QC DEBUG] Setting shipping from Shipping Cost: {shipping_cost.text().strip()}")
-                self.qc_shipping.setText(shipping_cost.text().strip())
-                auto_populated = True
-            
-            # Auto-populate Discount % from Discount Terms
-            if discount_terms and discount_terms.text().strip():
-                terms = discount_terms.text().strip().lower()
-                import re
-                pct_match = re.search(r'(\d+(?:\.\d+)?)%', terms)
-                if pct_match:
-                    print(f"[QC DEBUG] Setting discount % from Discount Terms: {pct_match.group(1)}")
-                    self.qc_disc_pct.setText(pct_match.group(1))
-                    auto_populated = True
-            
-            # Return whether we need recalculation
-            return auto_populated
 
     def load_invoice(self, index):
         if not self.pdf_paths:
@@ -1389,7 +1095,7 @@ class ManualEntryDialog(QDialog):
         self.file_tracker_label.setText(f"{index + 1}/{len(self.pdf_paths)}")
 
         # Clear Quick Calculator fields when navigating to another file
-        self._clear_quick_calculator()
+        self.qc_manager.clear_fields()
 
         # Load widgets AND QC state (both guarded to prevent dirty)
         self._loading = True
@@ -1397,7 +1103,7 @@ class ManualEntryDialog(QDialog):
         try:
             self._load_values_into_widgets(self.values_list[index])
             # Load saved QC state OR auto-populate from form data
-            needs_auto_calc = self._load_or_populate_quick_calculator()
+            needs_auto_calc = self.qc_manager.load_or_populate_from_form(self.values_list, self.current_index, self.fields)
         finally:
             print(f"[DIRTY DEBUG] Setting dirty=False and loading=False from load_invoice")
             self._dirty = False
@@ -1406,7 +1112,7 @@ class ManualEntryDialog(QDialog):
         # Trigger recalculation AFTER loading is complete if auto-populated
         if needs_auto_calc:
             print(f"[QC DEBUG] Triggering recalculation after loading complete")
-            self._recalc_quick_calc_and_update_fields(during_auto_population=True)
+            self.qc_manager.recalculate_and_update_fields(during_auto_population=True)
 
         # Enable/disable nav
         self.prev_button.setDisabled(index == 0)
@@ -1503,6 +1209,9 @@ class ManualEntryDialog(QDialog):
 
         # Persist into working list
         self.save_current_invoice()
+        
+        # Set QC save state (mark as clean)
+        self.qc_manager.set_save_state()
 
         # Snapshot as saved, emit outward, clear dirty
         if self.pdf_paths:
@@ -1550,21 +1259,7 @@ class ManualEntryDialog(QDialog):
     # ---------- Tiny saved toast ----------
     def _flash_saved(self):
         note = QLabel("Saved", self)
-        toast_border_radius = max(3, int(4 * self.dpi_scale))
-        toast_padding_v = max(2, int(3 * self.dpi_scale))
-        toast_padding_h = max(6, int(8 * self.dpi_scale))
-        note.setStyleSheet(
-            f"""
-            QLabel {{
-                background-color: #e7f5e7;
-                color: #2f7a2f;
-                border: 1px solid #b9e0b9;
-                border-radius: {toast_border_radius}px;
-                padding: {toast_padding_v}px {toast_padding_h}px;
-                font-weight: bold;
-            }}
-            """
-        )
+        note.setStyleSheet(self.styles.get_success_toast_style())
         note.adjustSize()
         note.move(self.width() - note.width() - 60, self.height() - 60)
         note.show()
@@ -1576,7 +1271,8 @@ class ManualEntryDialog(QDialog):
         self.viewed_files.add(index)
         item = self.file_list.item(index)
         if item is not None:
-            item.setForeground(QBrush(Qt.gray))
+            text = self._get_display_text(index)
+            self._update_file_item(item, text, self.flag_states[index], index)
 
     def _get_display_text(self, idx):
         """Return "Vendor_Invoice" for index if available; otherwise use filename."""
@@ -1605,16 +1301,22 @@ class ManualEntryDialog(QDialog):
         if not item:
             return
         display = self._get_display_text(idx)
-        self._update_file_item(item, display, self.flag_states[idx])
+        self._update_file_item(item, display, self.flag_states[idx], idx)
 
     # ---------- Flag helpers ----------
-    def _update_file_item(self, item, text, flagged):
+    def _update_file_item(self, item, text, flagged, item_index=None):
         icon = "🚩" if flagged else "⚑"
         item.setText(f"{icon} {text}")
         if flagged:
             item.setBackground(QColor(COLORS['LIGHT_RED']))
         else:
             item.setBackground(QBrush())
+        
+        # Apply viewed state styling (gray text for viewed files)
+        if item_index is not None and item_index in self.viewed_files:
+            item.setForeground(QBrush(Qt.gray))
+        else:
+            item.setForeground(QBrush())  # Reset to default color
 
     def _update_flag_button(self):
         if not self.flag_states:
@@ -1629,7 +1331,7 @@ class ManualEntryDialog(QDialog):
         item = self.file_list.item(idx)
         text = self._get_display_text(idx)
         if item:
-            self._update_file_item(item, text, self.flag_states[idx])
+            self._update_file_item(item, text, self.flag_states[idx], idx)
         if idx == self.current_index:
             self._update_flag_button()
         print(f"[DIRTY DEBUG] Setting dirty=True from flag toggle, loading={self._loading}")
@@ -1794,50 +1496,21 @@ class ManualEntryDialog(QDialog):
         min_input_height = max(16, int(20 * self.dpi_scale))
         
         # Define base style for input fields
-        base_input_style = f"""
-            background-color: #FFFFFF;
-            color: #000000;
-            border: 1px solid {THEME['card_border']};
-            border-radius: {border_radius}px;
-            padding: {input_padding_v}px {input_padding_h}px;
-            font-size: {base_font_size}px;
-            min-height: {min_input_height}px;
-        """
+        base_input_style = self.styles.get_input_field_styles()
         
         # Use the same yellow as invoice table for empty fields
-        empty_input_style = f"""
-            background-color: #FFF1A6;
-            color: #000000;
-            border: 1px solid {THEME['card_border']};
-            border-radius: {border_radius}px;
-            padding: {input_padding_v}px {input_padding_h}px;
-            font-size: {base_font_size}px;
-            min-height: {min_input_height}px;
-        """
+        empty_input_style = self.styles.get_empty_field_style()
         
         # Use the same green as invoice table for manually edited fields
-        manual_edit_style = f"""
-            background-color: #DCFCE7;
-            color: #000000;
-            border: 1px solid {THEME['card_border']};
-            border-radius: {border_radius}px;
-            padding: {input_padding_v}px {input_padding_h}px;
-            font-size: {base_font_size}px;
-            min-height: {min_input_height}px;
-        """
+        manual_edit_style = self.styles.get_manual_edit_style()
         
         for label, widget in self.fields.items():
-            # Skip highlighting for Shipping Cost field entirely
-            if label == "Shipping Cost":
-                # Apply base style for shipping cost field
-                widget.setStyleSheet(base_input_style)
-                continue
                 
             if isinstance(widget, QLineEdit):
                 empty = not widget.text().strip()
             elif isinstance(widget, QComboBox):
                 empty = not widget.currentText().strip()
-            elif isinstance(widget, QDateEdit):
+            elif isinstance(widget, (QDateEdit, MaskedDateEdit)):
                 empty = label in getattr(self, "empty_date_fields", set())
             else:
                 empty = False
@@ -1846,90 +1519,25 @@ class ManualEntryDialog(QDialog):
             manually_edited = label in getattr(self, "manually_edited_fields", set())
             
             if isinstance(widget, QComboBox):
-                # ComboBox needs special handling
+                # ComboBox styling - keep main field white, only dropdown gets colored background
                 if manually_edited:
                     base_style = manual_edit_style
-                    dropdown_bg = "#dcfce7"
                 elif empty:
                     base_style = empty_input_style
-                    dropdown_bg = "#FFF1A6"
                 else:
                     base_style = base_input_style
-                    dropdown_bg = "#f0f0f0"
                     
-                widget.setStyleSheet(base_style + f"""
-                    QComboBox {{
-                        padding-right: {max(25, int(30 * self.dpi_scale))}px;
-                    }}
-                    QComboBox::drop-down {{
-                        subcontrol-origin: padding;
-                        subcontrol-position: top right;
-                        width: {max(24, int(28 * self.dpi_scale))}px;
-                        border-left: 2px solid {THEME['card_border']};
-                        border-top-right-radius: {border_radius}px;
-                        border-bottom-right-radius: {border_radius}px;
-                        background-color: {dropdown_bg};
-                        margin-top: 1px;
-                        margin-bottom: 1px;
-                        margin-right: 1px;
-                    }}"
-                    QComboBox::drop-down:hover {{
-                        background-color: #e0e0e0;
-                    }}
-                    QComboBox::drop-down:pressed {{
-                        background-color: #d0d0d0;
-                    }}
-                    QComboBox::down-arrow {{
-                        image: none;
-                        background-color: transparent;
-                        width: {max(13, int(16 * self.dpi_scale))}px;
-                        height: {max(13, int(16 * self.dpi_scale))}px;
-                        border: 2px solid #333333;
-                        border-left: transparent;
-                        border-right: transparent;
-                        border-bottom: transparent;
-                        border-top: {max(6, int(8 * self.dpi_scale))}px solid #333333;
-                        margin-top: {max(3, int(4 * self.dpi_scale))}px;
-                    }}
-                    QComboBox QAbstractItemView {{
-                        background-color: #FFFFFF;
-                        color: #000000;
-                        border: 2px solid {THEME['card_border']};
-                        border-radius: {max(3, int(4 * self.dpi_scale))}px;
-                        selection-background-color: {THEME['brand_green']};
-                        selection-color: white;
-                        outline: none;
-                        show-decoration-selected: 1;
-                        min-height: {min_input_height}px;
-                    }}
-                    QComboBox QAbstractItemView::item {{
-                        min-height: {max(20, int(25 * self.dpi_scale))}px;
-                        padding: {max(3, int(4 * self.dpi_scale))}px;
-                    }}
-                    QComboBox QAbstractItemView QScrollBar:vertical {{
-                        background-color: #f0f0f0;
-                        width: 16px;
-                        border: 1px solid {THEME['card_border']};
-                        border-radius: 8px;
-                    }}
-                    QComboBox QAbstractItemView QScrollBar::handle:vertical {{
-                        background-color: #c0c0c0;
-                        border-radius: 6px;
-                        min-height: 20px;
-                    }}
-                    QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {{
-                        background-color: #a0a0a0;
-                    }}
-                """)
-            elif isinstance(widget, QDateEdit):
-                # QDateEdit uses global ManualEntryDialog styles for dropdown arrow
-                # Only apply field background highlighting - dropdown handled globally
+                # Apply base style - global CSS handles dropdown background
+                widget.setStyleSheet(base_style)
+            elif isinstance(widget, (QDateEdit, MaskedDateEdit)):
+                # Always apply arrow-hiding CSS for date widgets
                 if manually_edited:
-                    widget.setStyleSheet(manual_edit_style)
+                    widget.setStyleSheet(manual_edit_style + DATE_NO_ARROWS_CSS)
                 elif empty:
-                    widget.setStyleSheet(empty_input_style)
+                    widget.setStyleSheet(empty_input_style + DATE_NO_ARROWS_CSS)
                 else:
-                    widget.setStyleSheet(base_input_style)
+                    widget.setStyleSheet(base_input_style + DATE_NO_ARROWS_CSS)
+
             else:
                 # QLineEdit
                 if manually_edited:
@@ -1943,10 +1551,10 @@ class ManualEntryDialog(QDialog):
         data = []
         for label in [
             "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-            "Discount Terms", "Due Date", "Total Amount", "Shipping Cost",
+            "Discount Terms", "Due Date",
         ]:
             w = self.fields[label]
-            if isinstance(w, QDateEdit):
+            if isinstance(w, (QDateEdit, MaskedDateEdit)):
                 value = w.date().toString("MM/dd/yy")
             elif isinstance(w, QComboBox):
                 value = w.currentText().strip()
@@ -1955,18 +1563,15 @@ class ManualEntryDialog(QDialog):
                 value = self._money_plain(txt) if label in getattr(self, "_currency_labels", set()) else txt
             data.append(value)
         
-        # Add QC values (indices 8-11)
-        qc_subtotal = self._money_plain(self.qc_subtotal.text().strip()) if self.qc_subtotal.text().strip() else ""
-        qc_disc_pct = self.qc_disc_pct.text().strip()
-        qc_disc_amt = self._money_plain(self.qc_disc_amt.text().strip()) if self.qc_disc_amt.text().strip() else ""
-        qc_shipping = self._money_plain(self.qc_shipping.text().strip()) if self.qc_shipping.text().strip() else ""
+        # Get financial data from QC manager (Total Amount, Shipping Cost at indices 6,7)
+        qc_financial_data = self.qc_manager.get_financial_data_for_form()
+        data.extend(qc_financial_data)  # Adds Total Amount, Shipping Cost
         
-        data.extend([qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping])
+        # Add QC values (indices 8-11) and flag (index 12) 
+        qc_data = self.qc_manager.get_data_for_persistence()
+        data.extend(qc_data)
         
-        # Add QC used flag (index 12)
-        data.append("true")  # Set to true when saving
-        
-        print(f"[QC DEBUG] get_data() returning QC values: subtotal={qc_subtotal}, disc_pct={qc_disc_pct}, disc_amt={qc_disc_amt}, shipping={qc_shipping}, flag=true")
+        print(f"[QC DEBUG] get_data() returning QC values: {qc_data}")
         return data
 
     def get_all_data(self):
@@ -1976,63 +1581,6 @@ class ManualEntryDialog(QDialog):
     def get_deleted_files(self):
         return list(self._deleted_files)
 
-    # ---------- Quick Calculator with Dynamic Field Updates ----------
-    def _recalc_quick_calc_and_update_fields(self, during_auto_population=False):
-        """Calculate totals, update professional summary, and push values to form fields."""
-        sub = self._money(self.qc_subtotal.text())
-        ship = self._money(self.qc_shipping.text())
-
-        disc_pct = self._percent(self.qc_disc_pct.text())
-        disc_amt_input = self._money(self.qc_disc_amt.text())
-
-        # Calculate discount amount
-        disc_amt = abs(disc_amt_input) if disc_amt_input is not None else (
-            (sub * disc_pct) if (sub is not None and disc_pct is not None) else 0.0
-        )
-        if disc_amt is None:
-            disc_amt = 0.0
-
-        # Calculate totals
-        subtotal_val = sub or 0.0
-        discount_val = disc_amt
-        inventory_val = subtotal_val - discount_val  # Subtotal - Discount
-        shipping_val = ship or 0.0
-        grand_total_val = inventory_val + shipping_val
-
-        # Update professional summary display
-        self.summary_subtotal_value.setText(self._fmt_money(subtotal_val))
-        self.summary_discount_value.setText(self._fmt_money(discount_val))
-        self.summary_inventory_value.setText(self._fmt_money(inventory_val))
-        self.summary_shipping_value.setText(self._fmt_money(shipping_val))
-        self.summary_grand_value.setText(self._fmt_money(grand_total_val))
-
-        # Automatically update form fields (this is the key new feature!)
-        if not self._loading:  # Don't update during initial loading
-            changes_made = False
-            
-            # Check if shipping field would change
-            shipping_field = self.fields.get("Shipping Cost")
-            if shipping_field and shipping_val > 0:
-                current_shipping = self._money(shipping_field.text()) or 0
-                if abs(current_shipping - shipping_val) > 0.01:  # Changed
-                    shipping_field.setText(self._fmt_money(shipping_val))
-                    changes_made = True
-            
-            # Check if total field would change
-            total_field = self.fields.get("Total Amount") 
-            if total_field and inventory_val > 0:
-                current_total = self._money(total_field.text()) or 0
-                if abs(current_total - inventory_val) > 0.01:  # Changed
-                    total_field.setText(self._fmt_money(inventory_val))
-                    changes_made = True
-            
-            # Only mark dirty if we actually changed something
-            if changes_made:
-                if during_auto_population:
-                    print(f"[DIRTY DEBUG] Auto-population changed form fields - marking dirty, loading={self._loading}")
-                else:
-                    print(f"[DIRTY DEBUG] Setting dirty=True from QC calculation, loading={self._loading}")
-                self._dirty = True
 
 
     # ---------- Currency utils ----------
@@ -2113,11 +1661,24 @@ class ManualEntryDialog(QDialog):
                 w.textChanged.connect(mark_dirty)
             elif isinstance(w, QComboBox):
                 w.currentTextChanged.connect(mark_dirty)
-            elif isinstance(w, QDateEdit):
+            elif isinstance(w, (QDateEdit, MaskedDateEdit)):
                 w.dateChanged.connect(mark_dirty)
+                
+        # Wire QC dirty tracking
+        def mark_dirty_from_qc(*_):
+            if not self._loading:
+                print(f"[DIRTY DEBUG] Setting dirty=True from QC changes, loading={self._loading}")
+                self._dirty = True
+                
+        # Connect to all QC field changes
+        qc_fields = self.qc_manager.get_currency_fields() + [
+            self.qc_manager.discount_pct_field
+        ]
+        for field in qc_fields:
+            if field:  # Safety check
+                field.textChanged.connect(mark_dirty_from_qc)
 
-    # Removed _wire_auto_population method to prevent feedback loops.
-    # Auto-population now only happens during initial load via _load_or_populate_quick_calculator
+    # Auto-population handled by QuickCalculatorManager
 
     def _confirm_unsaved_then(self, proceed_fn):
         if not self._dirty:
