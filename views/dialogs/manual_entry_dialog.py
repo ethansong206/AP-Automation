@@ -349,15 +349,18 @@ class MaskedDateEdit(QDateEdit):
             return
 
         # Smart single-digit: '2'..'9' in MM => 02..09 and jump; '4'..'9' in DD => 04..09 and jump
+        # BUT only if the current field is empty to avoid interfering with two-digit entry
         if is_digit:
             idx = self.currentSectionIndex()  # 0=MM, 1=DD, 2=YY for "MM/dd/yy"
             dch = txt
-            if idx == 0 and dch in "23456789":
+            current_text = self.sectionText(self.currentSection()).strip()
+            
+            if idx == 0 and dch in "23456789" and not current_text:
                 self._set_month_safe(int(dch))
                 self._move_section_by(+1)
                 e.accept()
                 return
-            if idx == 1 and dch in "456789":
+            if idx == 1 and dch in "456789" and not current_text:
                 self._set_day_safe(int(dch))
                 self._move_section_by(+1)
                 e.accept()

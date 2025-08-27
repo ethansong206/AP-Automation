@@ -31,6 +31,23 @@ class QuickCalculatorInline(QGroupBox):
         # Store direct reference to dialog (in case parent gets changed by Qt layouts)
         self.dialog_ref = dialog_ref or parent
         
+        # Calculate responsive sizes based on screen DPI
+        from PyQt5.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            dpi = screen.logicalDotsPerInch()
+            self.dpi_scale = dpi / 96.0  # 96 DPI is standard Windows DPI
+        else:
+            self.dpi_scale = 1.0
+            
+        # Calculate responsive field widths
+        self.label_width = max(140, int(140 * self.dpi_scale))
+        self.currency_field_width = max(100, int(100 * self.dpi_scale))
+        self.pct_field_width = max(75, int(75 * self.dpi_scale))
+        self.display_width = max(100, int(100 * self.dpi_scale))
+        self.indicator_width = max(20, int(20 * self.dpi_scale))
+        self.pct_label_width = max(15, int(15 * self.dpi_scale))
+        
         # Priority queue for tracking field changes
         self.recently_changed = []  # Most recent at index 0
 
@@ -106,11 +123,11 @@ class QuickCalculatorInline(QGroupBox):
         
         # Label with consistent width
         label = QLabel(label_text)
-        label.setFixedWidth(140)
+        label.setFixedWidth(self.label_width)
         
         # Input field sized for $99,999.99
         input_field = QLineEdit()
-        input_field.setFixedWidth(100)  # Wider for larger amounts
+        input_field.setFixedWidth(self.currency_field_width)
         input_field.setPlaceholderText("0.00")
         input_field.setStyleSheet("""
             QLineEdit {
@@ -131,7 +148,7 @@ class QuickCalculatorInline(QGroupBox):
         
         # Visual indicator
         indicator = QLabel("●")
-        indicator.setFixedWidth(20)
+        indicator.setFixedWidth(self.indicator_width)
         indicator.setVisible(False)
         indicator.setStyleSheet("color: #22C55E; font-weight: bold; font-size: 12px;")
         self.field_indicators[field_name] = indicator
@@ -150,7 +167,7 @@ class QuickCalculatorInline(QGroupBox):
         
         # Display value - locked to right with consistent width
         display = QLabel("$0.00")
-        display.setFixedWidth(100)  # Consistent width for alignment
+        display.setFixedWidth(self.display_width)
         display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         display.setStyleSheet("font-weight: bold; font-size: 13px;")
         
@@ -174,11 +191,11 @@ class QuickCalculatorInline(QGroupBox):
         
         # Label with consistent width
         label = QLabel("Discount")
-        label.setFixedWidth(140)
+        label.setFixedWidth(self.label_width)
         
         # Percentage field (3 digits: 0-100)
         self.discount_pct_field = QLineEdit()
-        self.discount_pct_field.setFixedWidth(75)  # Wider for 3 digits + decimals
+        self.discount_pct_field.setFixedWidth(self.pct_field_width)
         self.discount_pct_field.setPlaceholderText("0")
         self.discount_pct_field.setStyleSheet("""
             QLineEdit {
@@ -198,11 +215,11 @@ class QuickCalculatorInline(QGroupBox):
         self._add_select_all_on_click(self.discount_pct_field)
         
         pct_label = QLabel("%")
-        pct_label.setFixedWidth(15)
+        pct_label.setFixedWidth(self.pct_label_width)
         
         # Dollar field (for $99,999.99)
         self.discount_amt_field = QLineEdit()
-        self.discount_amt_field.setFixedWidth(100)  # Match other currency fields
+        self.discount_amt_field.setFixedWidth(self.currency_field_width)
         self.discount_amt_field.setPlaceholderText("0.00")
         self.discount_amt_field.setStyleSheet("""
             QLineEdit {
@@ -223,7 +240,7 @@ class QuickCalculatorInline(QGroupBox):
         
         # Visual indicator
         indicator = QLabel("●")
-        indicator.setFixedWidth(20)
+        indicator.setFixedWidth(self.indicator_width)
         indicator.setVisible(False)
         indicator.setStyleSheet("color: #22C55E; font-weight: bold; font-size: 12px;")
         self.field_indicators["discount"] = indicator
@@ -242,7 +259,7 @@ class QuickCalculatorInline(QGroupBox):
         
         # Display value - locked to right with consistent width
         self.discount_display = QLabel("$0.00")
-        self.discount_display.setFixedWidth(100)  # Consistent width for alignment
+        self.discount_display.setFixedWidth(self.display_width)
         self.discount_display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.discount_display.setStyleSheet("font-weight: bold; font-size: 13px;")
         
@@ -264,11 +281,11 @@ class QuickCalculatorInline(QGroupBox):
         
         # Label with consistent width
         label = QLabel(label_text)
-        label.setFixedWidth(140)
+        label.setFixedWidth(self.label_width)
         
         # Empty space to align with input fields (no input field here)
         spacer_widget = QWidget()
-        spacer_widget.setFixedWidth(140)  # Match total width of input fields + indicator
+        spacer_widget.setFixedWidth(self.currency_field_width + self.indicator_width)  # Match total width of input fields + indicator
         
         # Flexible space with dots
         dots_container = QWidget()
@@ -284,7 +301,7 @@ class QuickCalculatorInline(QGroupBox):
         
         # Display value - locked to right with consistent width
         display = QLabel("$0.00")
-        display.setFixedWidth(100)  # Consistent width for alignment
+        display.setFixedWidth(self.display_width)
         display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         display.setStyleSheet("font-weight: bold; color: #064420; font-size: 13px;")  # Brand green
         
