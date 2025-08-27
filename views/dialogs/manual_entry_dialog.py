@@ -846,6 +846,14 @@ class ManualEntryDialog(QDialog):
         # Guarded file list navigation
         self.file_list.currentRowChanged.connect(self._on_file_list_row_changed)
 
+    def _check_auto_calc_confirmation(self):
+        """Check if Quick Calculator has pending auto-calculation confirmation."""
+        if hasattr(self, 'qc_manager') and self.qc_manager:
+            try:
+                self.qc_manager.check_and_show_pending_confirmation()
+            except Exception as e:
+                print(f"[QC DEBUG] Error showing auto-calc confirmation: {e}")
+
     # ---------- Frameless outer background (rounded gray) ----------
     def paintEvent(self, _):
         p = QPainter(self)
@@ -1113,6 +1121,9 @@ class ManualEntryDialog(QDialog):
         if needs_auto_calc:
             print(f"[QC DEBUG] Triggering recalculation after loading complete")
             self.qc_manager.recalculate_and_update_fields(during_auto_population=True)
+
+        # Check for pending auto-calculation confirmation after file is loaded
+        QTimer.singleShot(50, self._check_auto_calc_confirmation)
 
         # Enable/disable nav
         self.prev_button.setDisabled(index == 0)

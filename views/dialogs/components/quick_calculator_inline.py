@@ -3,8 +3,9 @@ Redesigned Quick Calculator with inline editing for manual entry dialog.
 Provides professional financial summary with editable fields and smart calculation logic.
 """
 
+from copy import deepcopy
 from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout, QLineEdit, 
-                             QLabel, QFrame, QWidget)
+                             QLabel, QFrame, QWidget, QMessageBox)
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QFont, QColor, QPalette
 from ..utils.currency_utils import CurrencyUtils
@@ -32,6 +33,15 @@ class QuickCalculatorInline(QGroupBox):
         
         # Priority queue for tracking field changes
         self.recently_changed = []  # Most recent at index 0
+
+        # Track which discount input (pct or amt) was last edited
+        self._last_discount_source = None
+        
+        # Track when auto-calculation was accepted by user
+        self._auto_calc_accepted = False
+        
+        # Store pending confirmation data
+        self._pending_confirmation = None
         
         # Field references
         self.subtotal_field = None
@@ -319,6 +329,164 @@ class QuickCalculatorInline(QGroupBox):
         # Override the mousePressEvent
         line_edit.mousePressEvent = mousePressEvent
     
+    def _show_auto_calculation_confirmation(self, original_total, calculated_inventory, subtotal, discount_pct):
+        """Show confirmation dialog when auto-calculation results in different inventory amount."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Auto-Calculation Found")
+        msg.setIcon(QMessageBox.Question)
+        
+        # Fix styling - set proper background and text colors
+        msg.setStyleSheet("""
+            QMessageBox {
+                background-color: white;
+                color: black;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+            }
+            QMessageBox QLabel {
+                background-color: transparent;
+                color: black;
+                padding: 10px;
+            }
+            QMessageBox QPushButton {
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px 16px;
+                color: black;
+                min-width: 80px;
+            }
+            QMessageBox QPushButton:hover {
+                background-color: #e0e0e0;
+                border-color: #999;
+            }
+            QMessageBox QPushButton:pressed {
+                background-color: #d0d0d0;
+            }
+            QMessageBox QPushButton:default {
+                background-color: #0078d4;
+                color: white;
+                border-color: #005a9e;
+            }
+            QMessageBox QPushButton:default:hover {
+                background-color: #106ebe;
+            }
+        """)
+        
+        # Format the message
+        original_formatted = self.currency.format_money(original_total)
+        inventory_formatted = self.currency.format_money(calculated_inventory)
+        discount_text = f"{discount_pct}%" if discount_pct else "0%"
+        
+        msg.setText("Quick Calculator found a discount and calculated a new inventory amount.")
+        msg.setInformativeText(
+            f"Original Total Amount: {original_formatted}\n"
+            f"Calculated Inventory (after {discount_text} discount): {inventory_formatted}\n\n"
+            f"Would you like to apply this auto-calculation?"
+        )
+        
+        # Custom buttons
+        accept_btn = msg.addButton("Apply Calculation", QMessageBox.AcceptRole)
+        deny_btn = msg.addButton("Keep Original (Clear Discount)", QMessageBox.RejectRole)
+        msg.setDefaultButton(accept_btn)
+        
+        # Show dialog
+        msg.exec_()
+        clicked_btn = msg.clickedButton()
+        
+        return clicked_btn == accept_btn
+    
+    def check_and_show_pending_confirmation(self):
+        """Check for pending auto-calculation confirmation and show dialog if needed."""
+        if not self._pending_confirmation or not self._pending_confirmation.get('needs_confirmation'):
+            return False
+            
+        pending = self._pending_confirmation
+        print(f"[QC DEBUG] Showing pending confirmation dialog")
+        
+        # Show confirmation dialog
+        user_accepted = self._show_auto_calculation_confirmation(
+            pending['original_total'], 
+            pending['calculated_inventory'], 
+            pending['subtotal'], 
+            pending['discount_pct']
+        )
+        
+        # Block signals during processing
+        self._block_all_signals(True)
+        
+        if user_accepted:
+            # User accepted: mark QC as used and set accepted flag
+            self._auto_calc_accepted = True
+            print(f"[QC DEBUG] User accepted auto-calculation")
+            
+            # Force recalculation and display update
+            self._recalculate()
+            
+            # Clear pending confirmation and restore signals
+            self._pending_confirmation = None
+            self._block_all_signals(False)
+            
+            # Trigger save to persist the changes to the invoice table
+            self._trigger_auto_save()
+            
+        else:
+            # User denied: clear discount and reset to original
+            print(f"[QC DEBUG] User denied auto-calculation, clearing discount")
+            self.discount_pct_field.clear()
+            self.discount_amt_field.clear()
+            # Keep subtotal as original total
+            self.subtotal_field.setText(f"{pending['original_total']:.2f}")
+            self._auto_calc_accepted = False
+            
+            # Force recalculation and display update
+            self._recalculate()
+            
+            # Clear pending confirmation and restore signals
+            self._pending_confirmation = None
+            self._block_all_signals(False)
+        
+        return True
+    
+    def _trigger_auto_save(self):
+        """Trigger save to persist auto-calculation changes to the invoice table."""
+        if self.dialog_ref and hasattr(self.dialog_ref, 'save_current_invoice'):
+            try:
+                print(f"[QC DEBUG] Triggering auto-save after auto-calculation acceptance")
+                
+                # Call the dialog's save methods directly
+                self.dialog_ref.save_current_invoice()  # Updates internal values_list
+                self.set_save_state()  # Mark QC as clean
+                
+                # Emit the signal to update the main invoice table
+                if (hasattr(self.dialog_ref, 'pdf_paths') and 
+                    hasattr(self.dialog_ref, 'values_list') and 
+                    hasattr(self.dialog_ref, 'flag_states') and
+                    hasattr(self.dialog_ref, 'current_index') and
+                    hasattr(self.dialog_ref, 'row_saved')):
+                    
+                    idx = self.dialog_ref.current_index
+                    if (0 <= idx < len(self.dialog_ref.pdf_paths) and
+                        0 <= idx < len(self.dialog_ref.values_list) and
+                        0 <= idx < len(self.dialog_ref.flag_states)):
+                        
+                        # Update saved snapshots  
+                        if hasattr(self.dialog_ref, 'saved_values_list'):
+                            self.dialog_ref.saved_values_list[idx] = deepcopy(self.dialog_ref.values_list[idx])
+                        if hasattr(self.dialog_ref, 'saved_flag_states'):
+                            self.dialog_ref.saved_flag_states[idx] = self.dialog_ref.flag_states[idx]
+                        
+                        # Emit signal to update main invoice table
+                        self.dialog_ref.row_saved.emit(
+                            self.dialog_ref.pdf_paths[idx], 
+                            self.dialog_ref.values_list[idx], 
+                            self.dialog_ref.flag_states[idx]
+                        )
+                        print(f"[QC DEBUG] Auto-save completed and invoice table updated")
+                
+            except Exception as e:
+                print(f"[QC DEBUG] Error during auto-save: {e}")
+    
     def _block_all_signals(self, block):
         """Block or unblock signals on all QC input fields."""
         print(f"[SYNC DEBUG] _block_all_signals called with block={block}")
@@ -332,55 +500,63 @@ class QuickCalculatorInline(QGroupBox):
                 print(f"[SYNC DEBUG] {field.objectName() or 'unnamed_field'} signals blocked: {field.signalsBlocked()}")
         
     def _connect_signals(self):
-        """Connect field change signals to calculation logic."""
-        # Connect all input fields
-        self.subtotal_field.textChanged.connect(lambda: self._on_field_changed('inventory'))  # subtotal affects inventory
+        # Subtotal should tell us it changed, so we can resync discounts
+        self.subtotal_field.textChanged.connect(lambda: self._on_field_changed('subtotal'))
+
         self.discount_pct_field.textChanged.connect(lambda: self._on_field_changed('discount_pct'))
         self.discount_amt_field.textChanged.connect(lambda: self._on_field_changed('discount_amt'))
         self.shipping_field.textChanged.connect(lambda: self._on_field_changed('shipping'))
         self.grand_total_field.textChanged.connect(lambda: self._on_field_changed('grand_total'))
         
     def _on_field_changed(self, field_name):
-        """Handle field changes and trigger recalculations."""
         print(f"[SYNC DEBUG] _on_field_changed called with: '{field_name}'")
-        
-        # Check signal blocking status
+
+        # Debug signal blocking status for discount fields
         if field_name == 'discount_pct':
             print(f"[SYNC DEBUG] discount_pct_field signals blocked: {self.discount_pct_field.signalsBlocked()}")
         elif field_name == 'discount_amt':
             print(f"[SYNC DEBUG] discount_amt_field signals blocked: {self.discount_amt_field.signalsBlocked()}")
-        
-        # Handle discount field synchronization with debounce
+
+        # Record the last discount source to decide which value stays 'authoritative'
         if field_name in ['discount_pct', 'discount_amt']:
-            print(f"[SYNC DEBUG] Discount field detected: {field_name}")
-            # Cancel any pending sync timer
+            self._last_discount_source = field_name
+            print(f"[SYNC DEBUG] _last_discount_source set to: {self._last_discount_source}")
+
+            # Debounced sync for discount fields themselves
             if hasattr(self, '_sync_timer') and self._sync_timer.isActive():
-                print(f"[SYNC DEBUG] Canceling existing sync timer")
                 self._sync_timer.stop()
-            
-            # Capture the original field name before it changes
             original_field_name = field_name
-            
-            # Set up delayed sync to avoid interfering with typing
             self._sync_timer = QTimer()
             self._sync_timer.setSingleShot(True)
             self._sync_timer.timeout.connect(lambda: self._sync_discount_fields(original_field_name))
-            self._sync_timer.start(500)  # 500ms delay
-            print(f"[SYNC DEBUG] Started sync timer for: {original_field_name}")
-            
-            # Treat both discount fields as single "inventory" component
-            field_name = 'inventory'
-        
+            self._sync_timer.start(500)
+
+            # For priority queue, both discount inputs map to 'inventory'
+            mapped_for_priority = 'inventory'
+
+        elif field_name == 'subtotal':
+            # When subtotal changes, re-sync discount based on last_discount_source
+            if hasattr(self, '_sync_timer') and self._sync_timer.isActive():
+                self._sync_timer.stop()
+            original_field_name = field_name
+            self._sync_timer = QTimer()
+            self._sync_timer.setSingleShot(True)
+            self._sync_timer.timeout.connect(lambda: self._sync_discount_fields(original_field_name))
+            self._sync_timer.start(500)
+
+            # For priority logic, subtotal affects inventory
+            mapped_for_priority = 'inventory'
+        else:
+            mapped_for_priority = field_name
+
         # Update priority queue with the final mapped field name
-        self._mark_field_changed(field_name)
-        
-        # Set dirty flag for save tracking
+        self._mark_field_changed(mapped_for_priority)
+
+        # Dirty + indicator
         self.is_dirty = True
-        
-        # Show visual indicator
-        self._show_field_indicator(field_name)
-        
-        # Trigger calculation after short delay (for smoother UX)
+        self._show_field_indicator(mapped_for_priority)
+
+        # Debounced recalculation for smoother UX
         if hasattr(self, '_calc_timer') and self._calc_timer.isActive():
             self._calc_timer.stop()
         self._calc_timer = QTimer()
@@ -452,6 +628,39 @@ class QuickCalculatorInline(QGroupBox):
                     print(f"[SYNC DEBUG] % field now shows: '{self.discount_pct_field.text()}'")
                 else:
                     print(f"[SYNC DEBUG] Cannot sync %, subtotal is 0")
+
+            elif changed_field == 'subtotal':
+                # Decide which discount input is authoritative
+                last = getattr(self, '_last_discount_source', None)
+                print(f"[SYNC DEBUG] Subtotal changed; _last_discount_source={last}")
+
+                if last == 'discount_amt':
+                    # Keep $ fixed, recompute % from $
+                    amt_text = self.discount_amt_field.text().strip()
+                    if amt_text:
+                        amt_value = self.currency.parse_money(amt_text) or 0
+                        amt_value = abs(amt_value)
+                        if subtotal_value > 0:
+                            pct_value = (amt_value / subtotal_value) * 100.0
+                            print(f"[SYNC DEBUG] Subtotal changed; keeping $, setting % to {pct_value:.1f}")
+                            self.discount_pct_field.setText(f"{pct_value:.1f}")
+                        else:
+                            # If subtotal is 0, percent is undefined—clear it
+                            print(f"[SYNC DEBUG] Subtotal is 0; clearing %")
+                            self.discount_pct_field.clear()
+                    # If $ is blank, do nothing
+                else:
+                    # Default: keep % fixed, recompute $ from %
+                    pct_text = self.discount_pct_field.text().strip()
+                    if pct_text:
+                        try:
+                            pct_value = float(pct_text) / 100.0
+                            amt_value = subtotal_value * pct_value
+                            print(f"[SYNC DEBUG] Subtotal changed; keeping %, setting $ to {amt_value:.2f}")
+                            self.discount_amt_field.setText(f"{amt_value:.2f}")
+                        except ValueError as e:
+                            print(f"[SYNC DEBUG] Error parsing % on subtotal change: {e}")
+                    # If % is blank, do nothing
                     
         except (ValueError, ZeroDivisionError) as e:
             print(f"[SYNC DEBUG] Exception during sync: {e}")
@@ -461,6 +670,11 @@ class QuickCalculatorInline(QGroupBox):
             print(f"[SYNC DEBUG] Restoring signals on discount fields")
             self.discount_pct_field.blockSignals(False)
             self.discount_amt_field.blockSignals(False)
+            
+            # Update displays immediately after sync to reflect changes
+            values = self._get_current_values()
+            calculated_values = self._calculate_based_on_priority(values)
+            self._update_displays(calculated_values)
             
     def _recalculate(self):
         """Recalculate values based on priority queue logic."""
@@ -568,12 +782,15 @@ class QuickCalculatorInline(QGroupBox):
         import json
         save_state_json = json.dumps(self.get_save_state())
         
+        # Determine if QC was actually used (either manually or via auto-calc acceptance)
+        qc_was_used = self._auto_calc_accepted or self.is_dirty
+        
         return [
             self.currency.format_money(values['subtotal']),
             disc_pct,
             self.currency.format_money(values['discount']),
             self.currency.format_money(values['shipping']),
-            "true",  # QC used flag
+            "true" if qc_was_used else "false",  # QC used flag
             save_state_json  # New save state field
         ]
         
@@ -660,7 +877,30 @@ class QuickCalculatorInline(QGroupBox):
                                 self.discount_amt_field.setText(f"{discount_amt:.2f}")
                                 auto_populated = True
             
-            # Set as clean state after auto-population
+            # Store auto-population info for later confirmation check
+            if auto_populated:
+                # Get current values after auto-population
+                current_values = self._get_current_values()
+                calculated_inventory = current_values['subtotal'] - current_values['discount']
+                
+                # Get original total amount for comparison
+                original_total = 0
+                if hasattr(dialog, '_original_total_amount') and dialog._original_total_amount:
+                    original_total = self.currency.parse_money(dialog._original_total_amount) or 0
+                
+                # Store for later confirmation check
+                self._pending_confirmation = {
+                    'original_total': original_total,
+                    'calculated_inventory': calculated_inventory,
+                    'subtotal': current_values['subtotal'],
+                    'discount_pct': self.discount_pct_field.text().strip(),
+                    'needs_confirmation': abs(calculated_inventory - original_total) > 0.01
+                }
+                print(f"[QC DEBUG] Auto-calc pending confirmation. Original: {original_total}, Calculated: {calculated_inventory}")
+            else:
+                self._pending_confirmation = None
+            
+            # Set as clean state after auto-population (and possible confirmation)
             self.set_save_state()
             needs_recalc = True
             
@@ -691,6 +931,10 @@ class QuickCalculatorInline(QGroupBox):
             
         # Clear priority queue
         self.recently_changed.clear()
+        
+        # Reset auto-calc accepted flag and pending confirmation
+        self._auto_calc_accepted = False
+        self._pending_confirmation = None
         
         # Reset displays
         self._update_displays({
@@ -733,9 +977,10 @@ class QuickCalculatorInline(QGroupBox):
             'discount_amt': self.discount_amt_field.text(),
             'shipping': self.shipping_field.text(),
             'grand_total': self.grand_total_field.text(),
-            'recently_changed': self.recently_changed.copy()
+            'recently_changed': self.recently_changed.copy(),
+            'auto_calc_accepted': self._auto_calc_accepted
         }
-        print(f"[QC DEBUG] Saving state with deque: {state['recently_changed']}")
+        print(f"[QC DEBUG] Saving state with deque: {state['recently_changed']}, auto_calc: {state['auto_calc_accepted']}")
         return state
     
     def set_save_state(self, state=None):
@@ -758,7 +1003,7 @@ class QuickCalculatorInline(QGroupBox):
         if not state:
             return
             
-        print(f"[QC DEBUG] Loading state with deque: {state.get('recently_changed', [])}")
+        print(f"[QC DEBUG] Loading state with deque: {state.get('recently_changed', [])}, auto_calc: {state.get('auto_calc_accepted', False)}")
         
         # Load field values
         self.subtotal_field.setText(state.get('subtotal', ''))
@@ -767,8 +1012,9 @@ class QuickCalculatorInline(QGroupBox):
         self.shipping_field.setText(state.get('shipping', ''))
         self.grand_total_field.setText(state.get('grand_total', ''))
         
-        # Restore priority queue
+        # Restore priority queue and auto-calc flag
         self.recently_changed = state.get('recently_changed', []).copy()
+        self._auto_calc_accepted = state.get('auto_calc_accepted', False)
         
         # Update displays with current values
         values = self._get_current_values()
