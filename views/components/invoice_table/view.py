@@ -446,10 +446,10 @@ class InvoiceTable(QWidget):
         return ""
     
     def get_row_values(self, view_row: int) -> List[str]:
-        """Get all 13 values for a row (including QC values)."""
+        """Get all 16 values for a row (8 main + 8 QC values including new tracking data)."""
         src = self._view_to_source_row(view_row)
         if src < 0:
-            return [""] * 13
+            return [""] * 16
         return self._model.row_values(src)
     
     def update_calculated_field(self, view_row: int, col: int, value: str, emit_change: bool = True):

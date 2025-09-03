@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QApplication, QSizePolicy, QAbstractSpinBox
 )
 from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal, QSize, QPoint, QRect
-from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon, QCursor
+from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon, QCursor, QPen
 
 # Import Quick Calculator Manager (new inline version)
 from .components.quick_calculator_inline import QuickCalculatorManager
@@ -483,6 +483,13 @@ class ManualEntryDialog(QDialog):
         
         base_style = load_stylesheet(get_style_path('default.qss'))
         self.setStyleSheet(base_style + self.styles.get_base_dialog_styles())
+        
+        # Add enhanced drop shadow to the main dialog for better visual separation
+        main_shadow = QGraphicsDropShadowEffect(self)
+        main_shadow.setBlurRadius(35)  # Even stronger blur (was 25)
+        main_shadow.setOffset(0, 12)   # More dramatic offset (was 8)
+        main_shadow.setColor(QColor(0, 0, 0, 60))  # Darker shadow (was 40)
+        self.setGraphicsEffect(main_shadow)
 
         # Data/state
         self.pdf_paths = list(pdf_paths or [])
@@ -857,14 +864,26 @@ class ManualEntryDialog(QDialog):
             except Exception as e:
                 print(f"[QC DEBUG] Error showing auto-calc confirmation: {e}")
 
-    # ---------- Frameless outer background (rounded gray) ----------
+    # ---------- Frameless outer background (rounded gray with border) ----------
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         r = self.rect()
+        
+        # Fill background
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(THEME["outer_bg"]))
         p.drawRoundedRect(r, THEME["radius"], THEME["radius"])
+        
+        # Add stronger border for better visual separation
+        border_color = QColor(THEME["brand_green"])  # Brand green border (#064420)
+        border_pen = QPen(border_color, 2)  # 2px border width
+        border_pen.setJoinStyle(Qt.RoundJoin)  # Smooth corners
+        p.setPen(border_pen)
+        p.setBrush(Qt.NoBrush)
+        # Draw border slightly inset to avoid clipping
+        border_rect = r.adjusted(1, 1, -1, -1)
+        p.drawRoundedRect(border_rect, THEME["radius"], THEME["radius"])
 
     # ---------- Layout helpers ----------
     def _apply_splitter_proportions(self):
@@ -1111,13 +1130,17 @@ class ManualEntryDialog(QDialog):
         # Load widgets AND QC state (both guarded to prevent dirty)
         self._loading = True
         needs_auto_calc = False
+        qc_became_dirty = False
         try:
             self._load_values_into_widgets(self.values_list[index])
             # Load saved QC state OR auto-populate from form data
             needs_auto_calc = self.qc_manager.load_or_populate_from_form(self.values_list, self.current_index, self.fields)
+            # Check if QC became dirty during auto-population
+            qc_became_dirty = getattr(self.qc_manager, 'is_dirty', False)
         finally:
-            print(f"[DIRTY DEBUG] Setting dirty=False and loading=False from load_invoice")
-            self._dirty = False
+            print(f"[DIRTY DEBUG] QC became dirty during auto-population: {qc_became_dirty}")
+            print(f"[DIRTY DEBUG] Setting dirty={qc_became_dirty} and loading=False from load_invoice")
+            self._dirty = qc_became_dirty  # Preserve QC dirty state instead of always clearing
             self._loading = False
             
         # Trigger recalculation AFTER loading is complete if auto-populated
@@ -1167,7 +1190,6 @@ class ManualEntryDialog(QDialog):
 
     def _navigate_to_index(self, index):
         if 0 <= index < len(self.pdf_paths):
-            self.save_current_invoice()
             self.load_invoice(index)
 
     def _on_file_list_row_changed(self, index):

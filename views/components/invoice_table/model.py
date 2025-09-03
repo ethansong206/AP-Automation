@@ -45,14 +45,16 @@ BODY_COLS = range(1, 9)
 class InvoiceRow:
     __slots__ = ("selected", "flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
                  "total", "shipping", "grand_total", "file_path", "edited_cells",
-                 "qc_subtotal", "qc_disc_pct", "qc_disc_amt", "qc_shipping", "qc_used")
+                 "qc_subtotal", "qc_disc_pct", "qc_disc_amt", "qc_shipping", "qc_used",
+                 "qc_save_state", "qc_original_subtotal", "qc_inventory")
 
     def __init__(self, values: List[str], file_path: str):
-        # values: [vendor, invoice, po, inv_date, terms, due, total, shipping, qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping, qc_used]
-        extended_values = (values + [""] * 13)[:13]  # Ensure we have all 13 values
+        # values: [vendor, invoice, po, inv_date, terms, due, total, shipping, qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping, qc_used, qc_save_state, qc_original_subtotal, qc_inventory]
+        extended_values = (values + [""] * 16)[:16]  # Ensure we have all 16 values
         (self.vendor, self.invoice, self.po, self.inv_date, self.terms,
          self.due, self.total, self.shipping, self.qc_subtotal, self.qc_disc_pct,
-         self.qc_disc_amt, self.qc_shipping, self.qc_used) = extended_values
+         self.qc_disc_amt, self.qc_shipping, self.qc_used, self.qc_save_state, 
+         self.qc_original_subtotal, self.qc_inventory) = extended_values
         self.file_path = file_path or ""
         self.selected = False         # NEW: user 'Select' checkbox state
         self.flag = False             # kept: flag is now shown inside Actions
@@ -80,6 +82,20 @@ class InvoiceTableModel(QAbstractTableModel):
         # normalized invoice number -> list of source row indexes (duplicates only)
         self._dup_map: Dict[str, List[int]] = {}
 
+    # --- Data access methods ---
+    def row_values(self, row: int) -> List[str]:
+        """Return all 16 values for a row (8 main + 8 QC values) for session persistence."""
+        if row < 0 or row >= len(self._rows):
+            return [""] * 16
+        
+        r = self._rows[row]
+        return [
+            r.vendor, r.invoice, r.po, r.inv_date, r.terms,
+            r.due, r.total, r.shipping, r.qc_subtotal, r.qc_disc_pct,
+            r.qc_disc_amt, r.qc_shipping, r.qc_used, r.qc_save_state,
+            r.qc_original_subtotal, r.qc_inventory
+        ]
+    
     # --- Qt plumbing ---
     def rowCount(self, parent=QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._rows)

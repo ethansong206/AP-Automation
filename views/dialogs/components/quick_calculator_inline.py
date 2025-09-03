@@ -31,6 +31,10 @@ class QuickCalculatorInline(QGroupBox):
         # Store direct reference to dialog (in case parent gets changed by Qt layouts)
         self.dialog_ref = dialog_ref or parent
         
+        # Track original subtotal and saved inventory for highlighting logic
+        self._original_subtotal = 0  # The initial auto-populated subtotal value
+        self._saved_inventory = 0    # The last saved inventory value for comparison
+        
         # Calculate responsive sizes based on screen DPI
         from PyQt5.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
@@ -414,56 +418,8 @@ class QuickCalculatorInline(QGroupBox):
         return clicked_btn == accept_btn
     
     def check_and_show_pending_confirmation(self):
-        """Check for pending auto-calculation confirmation and show dialog if needed."""
-        if not self._pending_confirmation or not self._pending_confirmation.get('needs_confirmation'):
-            return False
-            
-        pending = self._pending_confirmation
-        print(f"[QC DEBUG] Showing pending confirmation dialog")
-        
-        # Show confirmation dialog
-        user_accepted = self._show_auto_calculation_confirmation(
-            pending['original_total'], 
-            pending['calculated_inventory'], 
-            pending['subtotal'], 
-            pending['discount_pct']
-        )
-        
-        # Block signals during processing
-        self._block_all_signals(True)
-        
-        if user_accepted:
-            # User accepted: mark QC as used and set accepted flag
-            self._auto_calc_accepted = True
-            print(f"[QC DEBUG] User accepted auto-calculation")
-            
-            # Force recalculation and display update
-            self._recalculate()
-            
-            # Clear pending confirmation and restore signals
-            self._pending_confirmation = None
-            self._block_all_signals(False)
-            
-            # Trigger save to persist the changes to the invoice table
-            self._trigger_auto_save()
-            
-        else:
-            # User denied: clear discount and reset to original
-            print(f"[QC DEBUG] User denied auto-calculation, clearing discount")
-            self.discount_pct_field.clear()
-            self.discount_amt_field.clear()
-            # Keep subtotal as original total
-            self.subtotal_field.setText(f"{pending['original_total']:.2f}")
-            self._auto_calc_accepted = False
-            
-            # Force recalculation and display update
-            self._recalculate()
-            
-            # Clear pending confirmation and restore signals
-            self._pending_confirmation = None
-            self._block_all_signals(False)
-        
-        return True
+        """Legacy method - auto-calculations now apply immediately without confirmation."""
+        return False  # No confirmation dialogs needed
     
     def _trigger_auto_save(self):
         """Trigger save to persist auto-calculation changes to the invoice table."""
@@ -764,10 +720,12 @@ class QuickCalculatorInline(QGroupBox):
                 self.grand_total_field.blockSignals(False)
         else:
             # Default behavior: calculate grand_total
-            values['grand_total'] = values['inventory'] + values['shipping']
-            self.grand_total_field.blockSignals(True)
-            self.grand_total_field.setText(f"{values['grand_total']:.2f}")
-            self.grand_total_field.blockSignals(False)
+            # BUT: Don't override if user just manually set grand_total
+            if 'grand_total' not in self.recently_changed or len(self.recently_changed) > 1:
+                values['grand_total'] = values['inventory'] + values['shipping']
+                self.grand_total_field.blockSignals(True)
+                self.grand_total_field.setText(f"{values['grand_total']:.2f}")
+                self.grand_total_field.blockSignals(False)
         
         return values
         
@@ -779,6 +737,26 @@ class QuickCalculatorInline(QGroupBox):
         self.shipping_display.setText(self.currency.format_money(values['shipping']))
         self.grand_total_display.setText(self.currency.format_money(values['grand_total']))
         
+        # Apply inventory highlighting based on comparison with saved value
+        current_inventory = values['inventory']
+        should_highlight = abs(current_inventory - self._saved_inventory) > 0.01
+        
+        if should_highlight:
+            # More visible green background to indicate changed inventory
+            self.inventory_display.setStyleSheet("""
+                font-weight: bold; 
+                font-size: 13px; 
+                background-color: #D4F4D4; 
+                padding: 2px 4px; 
+                border-radius: 3px;
+                border: 1px solid #A8D8A8;
+            """)
+            self.inventory_display.setToolTip(f"Inventory changed from saved value (${self._saved_inventory:.2f})")
+        else:
+            # Reset to default styling
+            self.inventory_display.setStyleSheet("font-weight: bold; font-size: 13px;")
+            self.inventory_display.setToolTip("")
+        
     def get_financial_data_for_form(self):
         """Return [Total Amount, Shipping Cost] for form data compatibility."""
         values = self._get_current_values()
@@ -788,9 +766,16 @@ class QuickCalculatorInline(QGroupBox):
             self.currency.format_money(calculated_values['shipping'])    # Shipping Cost
         ]
         
+    def get_inventory_for_invoice_table(self):
+        """Return current inventory value for updating the invoice table Total column."""
+        values = self._get_current_values()
+        calculated_values = self._calculate_based_on_priority(values)
+        return calculated_values['inventory']
+        
     def get_data_for_persistence(self):
         """Return QC data for session persistence [subtotal, disc_pct, disc_amt, shipping, flag, save_state]."""
         values = self._get_current_values()
+        calculated_values = self._calculate_based_on_priority(values)
         
         # Get discount percentage
         disc_pct = self.discount_pct_field.text().strip()
@@ -803,12 +788,14 @@ class QuickCalculatorInline(QGroupBox):
         qc_was_used = self._auto_calc_accepted or self.is_dirty
         
         return [
-            self.currency.format_money(values['subtotal']),
+            self.currency.format_money(calculated_values['subtotal']),
             disc_pct,
-            self.currency.format_money(values['discount']),
-            self.currency.format_money(values['shipping']),
+            self.currency.format_money(calculated_values['discount']),
+            self.currency.format_money(calculated_values['shipping']),
             "true" if qc_was_used else "false",  # QC used flag
-            save_state_json  # New save state field
+            save_state_json,  # Save state field
+            self.currency.format_money(self._original_subtotal),  # Original subtotal
+            self.currency.format_money(calculated_values['inventory'])  # Current inventory (for invoice table Total)
         ]
         
     def load_or_populate_from_form(self, values_list, current_index, form_fields):
@@ -821,6 +808,12 @@ class QuickCalculatorInline(QGroupBox):
             return False
             
         qc_used = vals[12].lower() == "true" if len(vals) > 12 else False
+        
+        # Load original subtotal and saved inventory if available (new format)
+        if len(vals) > 14:  # New format with original subtotal
+            self._original_subtotal = self.currency.parse_money(vals[14]) or 0
+        if len(vals) > 15:  # New format with saved inventory
+            self._saved_inventory = self.currency.parse_money(vals[15]) or 0
         
         # Block signals during auto-population to prevent interference
         self._block_all_signals(True)
@@ -863,6 +856,10 @@ class QuickCalculatorInline(QGroupBox):
                     total_value = self.currency.parse_money(total_text)
                     if total_value is not None and total_value > 0:
                         self.subtotal_field.setText(f"{total_value:.2f}")
+                        # Store this as the original subtotal for highlighting comparison
+                        self._original_subtotal = total_value
+                        # Initial inventory equals subtotal (no discount yet)
+                        self._saved_inventory = total_value
                         auto_populated = True
             
             # 2. Auto-populate Shipping from original shipping cost
@@ -894,31 +891,21 @@ class QuickCalculatorInline(QGroupBox):
                                 self.discount_amt_field.setText(f"{discount_amt:.2f}")
                                 auto_populated = True
             
-            # Store auto-population info for later confirmation check
+            # Apply auto-calculations immediately (no popup needed)
             if auto_populated:
-                # Get current values after auto-population
+                # Check if discount was auto-calculated
                 current_values = self._get_current_values()
-                calculated_inventory = current_values['subtotal'] - current_values['discount']
+                if current_values['discount'] > 0:
+                    # Auto-calculation occurred, mark as accepted and trigger dirty state
+                    self._auto_calc_accepted = True
+                    self.is_dirty = True
+                    print(f"[QC DEBUG] Auto-calculation applied - discount found and calculated")
+                else:
+                    # Only auto-population occurred (no calculations), can set clean state
+                    self.set_save_state()
                 
-                # Get original total amount for comparison
-                original_total = 0
-                if hasattr(dialog, '_original_total_amount') and dialog._original_total_amount:
-                    original_total = self.currency.parse_money(dialog._original_total_amount) or 0
-                
-                # Store for later confirmation check
-                self._pending_confirmation = {
-                    'original_total': original_total,
-                    'calculated_inventory': calculated_inventory,
-                    'subtotal': current_values['subtotal'],
-                    'discount_pct': self.discount_pct_field.text().strip(),
-                    'needs_confirmation': abs(calculated_inventory - original_total) > 0.01
-                }
-                print(f"[QC DEBUG] Auto-calc pending confirmation. Original: {original_total}, Calculated: {calculated_inventory}")
-            else:
-                self._pending_confirmation = None
-            
-            # Set as clean state after auto-population (and possible confirmation)
-            self.set_save_state()
+            # No confirmation popup needed
+            self._pending_confirmation = None
             needs_recalc = True
             
         # Always restore signals at the end
@@ -930,6 +917,12 @@ class QuickCalculatorInline(QGroupBox):
         
         return needs_recalc
             
+    def _recalculate(self):
+        """Perform recalculation and update displays."""
+        values = self._get_current_values()
+        calculated_values = self._calculate_based_on_priority(values)
+        self._update_displays(calculated_values)
+        
     def recalculate_and_update_fields(self, during_auto_population=False):
         """Trigger recalculation."""
         self._recalculate()
@@ -952,6 +945,10 @@ class QuickCalculatorInline(QGroupBox):
         # Reset auto-calc accepted flag and pending confirmation
         self._auto_calc_accepted = False
         self._pending_confirmation = None
+        
+        # Reset tracking values
+        self._original_subtotal = 0
+        self._saved_inventory = 0
         
         # Reset displays
         self._update_displays({
@@ -1006,6 +1003,11 @@ class QuickCalculatorInline(QGroupBox):
             state = self.get_save_state()
         self.saved_state = state
         self.is_dirty = False
+        
+        # Update saved inventory to current value (highlighting will disappear)
+        current_values = self._get_current_values()
+        calculated_values = self._calculate_based_on_priority(current_values)
+        self._saved_inventory = calculated_values['inventory']
     
     def check_if_dirty(self):
         """Check if current state differs from saved state."""
