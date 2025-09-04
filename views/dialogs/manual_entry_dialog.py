@@ -484,12 +484,7 @@ class ManualEntryDialog(QDialog):
         base_style = load_stylesheet(get_style_path('default.qss'))
         self.setStyleSheet(base_style + self.styles.get_base_dialog_styles())
         
-        # Add enhanced drop shadow to the main dialog for better visual separation
-        main_shadow = QGraphicsDropShadowEffect(self)
-        main_shadow.setBlurRadius(35)  # Even stronger blur (was 25)
-        main_shadow.setOffset(0, 12)   # More dramatic offset (was 8)
-        main_shadow.setColor(QColor(0, 0, 0, 60))  # Darker shadow (was 40)
-        self.setGraphicsEffect(main_shadow)
+        # Removed heavy drop shadow effects that were causing performance issues
 
         # Data/state
         self.pdf_paths = list(pdf_paths or [])
@@ -531,12 +526,7 @@ class ManualEntryDialog(QDialog):
         left_card.setObjectName("LeftCard")
         left_card.setMouseTracking(True)
         left_card.setStyleSheet(self.styles.get_card_style())
-        # Add subtle shadow to left card
-        left_shadow = QGraphicsDropShadowEffect(left_card)
-        left_shadow.setBlurRadius(12)
-        left_shadow.setOffset(0, 2)
-        left_shadow.setColor(QColor(0, 0, 0, 15))
-        left_card.setGraphicsEffect(left_shadow)
+        # Removed card shadows for better performance
         left_card_layout = QVBoxLayout(left_card)
         # Scale card margins and spacing
         card_margin = max(8, int(min_width * 0.008))  # 0.8% of width, min 8px
@@ -728,12 +718,7 @@ class ManualEntryDialog(QDialog):
         right_card.setObjectName("RightCard")
         right_card.setMouseTracking(True)
         right_card.setStyleSheet(self.styles.get_card_style())
-        # Add subtle shadow to right card
-        right_shadow = QGraphicsDropShadowEffect(right_card)
-        right_shadow.setBlurRadius(12)
-        right_shadow.setOffset(0, 2)
-        right_shadow.setColor(QColor(0, 0, 0, 15))
-        right_card.setGraphicsEffect(right_shadow)
+        # Removed card shadows for better performance
         right_card_layout = QVBoxLayout(right_card)
         right_card_layout.setContentsMargins(card_margin, card_margin, card_margin, card_margin)
         right_card_layout.setSpacing(card_spacing)
