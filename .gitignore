@@ -3,3 +3,8 @@ dist/
 __pycache__/
 *.pyc
 CPSQL-AP copy.csv
+
+# Testing files
+test_results_*.json
+test_expectations_backup.csv
+*_backup.csv

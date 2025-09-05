@@ -145,16 +145,19 @@ class InvoiceTestFramework:
         except Exception as e:
             return {"error": f"Extraction failed: {str(e)}"}
     
-    def compare_results(self, expected, actual):
+    def compare_results(self, expected, actual, fields_to_test=None):
         """Compare expected vs actual results, handling formatting differences."""
         comparison = {
             "passed": True,
             "field_results": {}
         }
         
-        fields_to_check = ['vendor_name', 'invoice_number', 'po_number', 
-                          'invoice_date', 'discount_terms', 'discount_due_date',
-                          'total_amount', 'shipping_cost', 'grand_total']
+        all_fields = ['vendor_name', 'invoice_number', 'po_number', 
+                     'invoice_date', 'discount_terms', 'discount_due_date',
+                     'total_amount', 'shipping_cost', 'grand_total']
+        
+        # Use specific fields if provided, otherwise test all fields
+        fields_to_check = fields_to_test if fields_to_test else all_fields
         
         for field in fields_to_check:
             expected_val = expected.get(field, '').strip()
@@ -255,6 +258,206 @@ class InvoiceTestFramework:
         self._print_test_summary(results)
         print(f"\nDetailed results saved to: {results_file}")
         
+        return results
+    
+    def test_single_extractor(self, extractor_field, limit=None):
+        """Test a single extractor across all files with expectations."""
+        if not self.load_test_expectations():
+            return
+            
+        # Define extractor field mapping
+        extractor_fields = {
+            'vendor_name': 'vendor_name',
+            'invoice_number': 'invoice_number', 
+            'po_number': 'po_number',
+            'invoice_date': 'invoice_date',
+            'discount_terms': 'discount_terms',
+            'discount_due_date': 'discount_due_date',
+            'total_amount': 'total_amount',
+            'shipping_cost': 'shipping_cost',
+            'grand_total': 'grand_total'
+        }
+        
+        if extractor_field not in extractor_fields:
+            print(f"Invalid extractor field: {extractor_field}")
+            print(f"Available fields: {', '.join(extractor_fields.keys())}")
+            return
+            
+        field_to_test = [extractor_fields[extractor_field]]
+        test_files = list(self.test_expectations.items())
+        
+        # Limit number of files if specified
+        if limit:
+            test_files = test_files[:limit]
+        
+        print(f"\nTesting {extractor_field.upper()} extractor on {len(test_files)} files...")
+        
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "extractor_field": extractor_field,
+            "total_tests": len(test_files),
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0,
+            "test_results": []
+        }
+        
+        for i, (file_key, expected) in enumerate(test_files, 1):
+            vendor_folder, filename = file_key.split('/', 1)
+            print(f"  [{i}/{len(test_files)}] Testing {extractor_field} on {file_key}...")
+            
+            # Run extraction
+            actual = self.run_extraction_test(vendor_folder, filename)
+            
+            if "error" in actual:
+                results["errors"] += 1
+                test_result = {
+                    "file": file_key,
+                    "status": "error", 
+                    "error": actual["error"]
+                }
+            else:
+                # Compare results for this specific field only
+                comparison = self.compare_results(expected, actual, field_to_test)
+                
+                field_result = comparison["field_results"][field_to_test[0]]
+                
+                if field_result["status"] == "pass":
+                    results["passed"] += 1
+                    status = "pass"
+                elif field_result["status"] == "skipped":
+                    results["skipped"] += 1
+                    status = "skipped"
+                else:
+                    results["failed"] += 1
+                    status = "fail"
+                    
+                test_result = {
+                    "file": file_key,
+                    "status": status,
+                    "field_result": field_result,
+                    "extracted_value": actual.get(field_to_test[0], ''),
+                    "expected_value": expected.get(field_to_test[0], '')
+                }
+                
+            results["test_results"].append(test_result)
+        
+        # Save detailed results
+        results_file = f"test_results_{extractor_field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(results_file, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2)
+            
+        # Print summary
+        self._print_extractor_summary(results, extractor_field)
+        print(f"\nDetailed results saved to: {results_file}")
+        
+        return results
+    
+    def test_extractor_performance_summary(self):
+        """Test all extractors and show a performance summary."""
+        if not self.load_test_expectations():
+            return
+            
+        extractors = ['vendor_name', 'invoice_number', 'po_number', 'invoice_date', 
+                     'discount_terms', 'discount_due_date', 'total_amount']
+        
+        print("\nTesting all extractors for performance summary...")
+        summary_results = {}
+        
+        for extractor in extractors:
+            print(f"\n--- Testing {extractor.upper()} ---")
+            results = self.test_single_extractor(extractor, limit=50)  # Test first 50 for quick overview
+            if results:
+                summary_results[extractor] = {
+                    'total': results['total_tests'],
+                    'passed': results['passed'],
+                    'failed': results['failed'],
+                    'errors': results['errors'],
+                    'skipped': results['skipped'],
+                    'accuracy': results['passed'] / (results['total_tests'] - results['skipped']) * 100 if (results['total_tests'] - results['skipped']) > 0 else 0
+                }
+        
+        # Print overall summary
+        print(f"\n{'='*80}")
+        print("EXTRACTOR PERFORMANCE SUMMARY (First 50 files)")
+        print(f"{'='*80}")
+        print(f"{'Extractor':<20} {'Total':<8} {'Pass':<6} {'Fail':<6} {'Skip':<6} {'Error':<6} {'Accuracy':<8}")
+        print("-" * 80)
+        
+        for extractor, stats in summary_results.items():
+            accuracy = f"{stats['accuracy']:.1f}%"
+            print(f"{extractor:<20} {stats['total']:<8} {stats['passed']:<6} {stats['failed']:<6} {stats['skipped']:<6} {stats['errors']:<6} {accuracy:<8}")
+        
+        return summary_results
+        
+    def _print_extractor_summary(self, results, extractor_field):
+        """Print a summary for single extractor test results."""
+        print(f"\n{'='*80}")
+        print(f"{extractor_field.upper()} EXTRACTOR TEST RESULTS")
+        print(f"{'='*80}")
+        
+        # Summary stats
+        print(f"Total Tests: {results['total_tests']} | ", end="")
+        print(f"Passed: {results['passed']} | ", end="")
+        print(f"Failed: {results['failed']} | ", end="")
+        print(f"Skipped: {results['skipped']} | ", end="")
+        print(f"Errors: {results['errors']}")
+        
+        # Calculate accuracy excluding skipped tests
+        testable = results['total_tests'] - results['skipped']
+        if testable > 0:
+            accuracy = results['passed'] / testable * 100
+            print(f"Accuracy: {accuracy:.1f}% ({results['passed']}/{testable} testable files)")
+        
+        # Side-by-side results display
+        print(f"\n{'='*120}")
+        print(f"{'File':<45} {'Expected':<25} {'Actual':<25} {'Status':<10}")
+        print('-' * 120)
+        
+        for test in results['test_results']:
+            filename = test['file'].split('/')[-1] if '/' in test['file'] else test['file']
+            # Truncate long filenames
+            if len(filename) > 42:
+                filename = filename[:39] + "..."
+                
+            expected = test.get('expected_value', '')[:22]
+            actual = test.get('extracted_value', '')[:22]
+            
+            # Add ellipsis if truncated
+            if len(test.get('expected_value', '')) > 22:
+                expected += "..."
+            if len(test.get('extracted_value', '')) > 22:
+                actual += "..."
+            
+            # Status with emoji
+            status_map = {
+                'pass': '✅ PASS',
+                'fail': '❌ FAIL',
+                'skipped': '⚠️ SKIP',
+                'error': '💥 ERROR'
+            }
+            status = status_map.get(test['status'], test['status'])
+            
+            print(f"{filename:<45} {expected:<25} {actual:<25} {status:<10}")
+        
+        # Show detailed failures if there are any but not too many
+        failed_tests = [t for t in results['test_results'] if t['status'] == 'fail']
+        if failed_tests and len(failed_tests) <= 5:
+            print(f"\n{'='*80}")
+            print(f"DETAILED FAILURE ANALYSIS ({len(failed_tests)} failures)")
+            print(f"{'='*80}")
+            
+            for i, test in enumerate(failed_tests, 1):
+                print(f"\n{i}. ❌ {test['file']}")
+                print(f"   Expected: '{test['expected_value']}'")
+                print(f"   Actual:   '{test['extracted_value']}'")
+        elif len(failed_tests) > 5:
+            print(f"\n{'='*80}")
+            print(f"TOO MANY FAILURES TO SHOW DETAILS ({len(failed_tests)} total)")
+            print(f"Check the JSON file for complete failure analysis")
+            print(f"{'='*80}")
+
         return results
         
     def _print_test_summary(self, results):

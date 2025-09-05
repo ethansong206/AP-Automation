@@ -83,7 +83,7 @@ def extract_discount_terms(words, vendor_name):
         return "NET 30"  # Special case for Badfish
     
     if vendor_name == "Patagonia":
-        return "NET 90"  # Special case for Patagonia
+        return "NET 60"  # Special case for Patagonia
     
     if vendor_name == "Dapper Ink LLC":
         return "DUE TODAY"
