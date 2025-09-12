@@ -370,110 +370,53 @@ class InvoiceApp(QWidget):
         self.save_session()
 
     # ---------------- Export ----------------
-    def _check_empty_cells_and_warn(self):
-        """Check for empty cells and warn user. Returns True if user wants to continue."""
-        empty_cells = self._find_empty_cells()
-        if not empty_cells:
-            return True
-        
-        # Create warning message
-        msg = f"Found {len(empty_cells)} empty cells in the following locations:\n\n"
-        
-        # Group by row and show column names
-        column_names = ["Select", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
-                       "Discount Terms", "Due Date", "Total", "Shipping", "Grand Total", "Actions"]
-        
-        rows_with_empty = {}
-        for row, col in empty_cells:
-            if row not in rows_with_empty:
-                rows_with_empty[row] = []
-            if col < len(column_names):
-                rows_with_empty[row].append(column_names[col])
-        
-        for row, cols in sorted(rows_with_empty.items()):
-            vendor = self.table.get_cell_text(row, 1) or "Unknown Vendor"
-            msg += f"Row {row + 1} ({vendor}): {', '.join(cols)}\n"
-        
-        msg += "\nDo you want to continue with the export anyway?"
-        
-        reply = QMessageBox.question(self, "Empty Cells Found", msg,
-                                   QMessageBox.Yes | QMessageBox.No,
-                                   QMessageBox.No)
-        
-        return reply == QMessageBox.Yes
-    
-    def _find_empty_cells(self):
-        """Find all empty cells in any column. Returns list of (row, col) tuples."""
-        empty_cells = []
-        # Check all data columns except Select (0), Actions (10), and Grand Total (9) since it's calculated
-        data_columns = [1, 2, 3, 4, 5, 6, 7, 8]  # All data columns from Vendor to Shipping
-        
-        # Use the underlying model to check all rows (including filtered ones)
+    def _check_zero_or_empty_total_amount_and_warn(self):
+        """Warn if any row has a total amount of 0.00. Returns True to continue."""
+        problem_rows = []
         model = getattr(self.table, "_model", None)
         total_rows = model.rowCount() if model else self.table.rowCount()
         
-        print(f"[DEBUG] Checking {total_rows} rows for empty cells in columns {data_columns}")
-        
         for row in range(total_rows):
-            for col in data_columns:
-                cell_value = None
-                if model:
-                    # Get value from the source model
-                    vals = model.row_values(row)
-                    # Column mapping: 1=vendor(0), 2=invoice(1), 3=po(2), 4=date(3), 5=terms(4), 6=due(5), 7=total(6), 8=shipping(7)
-                    col_idx = col - 1
-                    if col_idx < len(vals):
-                        cell_value = vals[col_idx]
-                    else:
-                        cell_value = ""
-                else:
-                    # Fallback to table view access
-                    cell_value = self.table.get_cell_text(row, col)
-                
-                print(f"[DEBUG] Row {row}, Col {col}: '{cell_value}'")
-                
-                # Check for empty or placeholder values
-                is_empty = False
-                if not cell_value or not str(cell_value).strip():
-                    is_empty = True
-                else:
-                    # Check for placeholder patterns
-                    cell_str = str(cell_value).strip()
-                    # Date placeholders
-                    if col in [4, 6] and (cell_str == "__/__/__" or cell_str == "mm/dd/yy" or 
-                                         cell_str == "MM/DD/YY" or cell_str == "mm/dd/yyyy" or
-                                         cell_str == "MM/DD/YYYY" or "_" in cell_str):
-                        is_empty = True
-                    # Generic placeholders
-                    elif cell_str.lower() in ["n/a", "na", "none", "null", "unknown", "tbd", "pending"]:
-                        is_empty = True
-                    # All underscores or dashes
-                    elif re.match(r'^[_\-\s]+$', cell_str):
-                        is_empty = True
-                    # Zero amounts - be more specific about when they indicate failed extraction
-                    elif col == 7 and cell_str in ["0", "0.00", "$0", "$0.00"]:  # Total amount
-                        # A total of exactly 0.00 is suspicious - likely extraction failure
-                        is_empty = True
-                    elif col == 8 and cell_str in ["0", "0.00", "$0", "$0.00"]:  # Shipping
-                        # For shipping, 0.00 can be legitimate (no shipping charge)
-                        # But now that we return empty string on extraction failure,
-                        # 0.00 should be valid. Only consider truly empty as empty.
-                        is_empty = False
-                
-                if is_empty:
-                    print(f"[DEBUG] Found empty cell at row {row}, col {col}: '{cell_value}'")
-                    empty_cells.append((row, col))
-        
-        print(f"[DEBUG] Found {len(empty_cells)} empty cells total")
-        return empty_cells
+            if model:
+                vals = model.row_values(row)
+                total_val = vals[6] if len(vals) > 6 else ""
+                vendor = vals[0] if len(vals) > 0 else ""
+                invoice = vals[1] if len(vals) > 1 else ""
+            else:
+                total_val = self.table.get_cell_text(row, 7)
+                vendor = self.table.get_cell_text(row, 1)
+                invoice = self.table.get_cell_text(row, 2)
+
+            cell_str = str(total_val).strip() if total_val is not None else ""
+            if cell_str in ["0", "0.00", "$0", "$0.00"]:
+                problem_rows.append((row, vendor, invoice))
+
+        if not problem_rows:
+            return True
+
+        msg = "Found invoices with a total amount of 0.00:\n\n"
+        for row, vendor, invoice in problem_rows:
+            vendor_name = vendor or "Unknown Vendor"
+            invoice_num = invoice or "No Invoice #"
+            msg += f"Row {row + 1} ({vendor_name}, {invoice_num})\n"
+
+        msg += "\nDo you want to continue with the export anyway?"
+        reply = QMessageBox.question(
+            self,
+            "Zero Total Amount",
+            msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return reply == QMessageBox.Yes
 
     def export_to_csv(self):
         if self.table.total_row_count() == 0:
             QMessageBox.warning(self, "No Data", "There is no data to export.")
             return
         
-        # Check for empty cells and get user confirmation
-        if not self._check_empty_cells_and_warn():
+        # Warn about rows with a zero or empty total amount
+        if not self._check_zero_or_empty_total_amount_and_warn():
             return
         
         options = QFileDialog.Options() | QFileDialog.DontConfirmOverwrite
@@ -498,8 +441,8 @@ class InvoiceApp(QWidget):
             QMessageBox.warning(self, "No Files", "There are no files to export.")
             return
         
-        # Check for empty cells and get user confirmation
-        if not self._check_empty_cells_and_warn():
+        # Warn about rows with a zero or empty total amount
+        if not self._check_zero_or_empty_total_amount_and_warn():
             return
         
         target_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")

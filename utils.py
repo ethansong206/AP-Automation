@@ -615,6 +615,13 @@ def format_and_write_csv(filename, invoice_data_list):
             rows_skipped_dup = 0
 
             for invoice in invoice_data_list:
+                total_amount = clean_amount(invoice["total_amount"])
+                shipping_cost = clean_amount(invoice.get("shipping_cost", "0"))
+
+                # Skip invoices where both amounts are zero
+                if float(total_amount) == 0.0 and float(shipping_cost) == 0.0:
+                    continue
+
                 vendor_id = invoice["vendor_number"]
                 invoice_no = invoice["invoice_number"]
                 invoice_date = invoice["invoice_date"]
@@ -624,8 +631,6 @@ def format_and_write_csv(filename, invoice_data_list):
                 if comment_po:
                     comment_po = f"PO# {comment_po}"
                 vendor_name = invoice["vendor_name"]
-                total_amount = clean_amount(invoice["total_amount"])
-                shipping_cost = clean_amount(invoice.get("shipping_cost", "0"))
 
                 # Voucher row
                 vchr_row = [
@@ -637,11 +642,12 @@ def format_and_write_csv(filename, invoice_data_list):
                     continue
                 writer.writerow(vchr_row)
 
-                # Distribution row for total amount
-                dist_row_total = [
-                    "2-AI_VCHR_DIST", "140-000", total_amount
-                ]
-                writer.writerow(dist_row_total)
+                # Distribution row for total amount (if not zero)
+                if float(total_amount) != 0.0:
+                    dist_row_total = [
+                        "2-AI_VCHR_DIST", "140-000", total_amount
+                    ]
+                    writer.writerow(dist_row_total)
 
                 # Distribution row for shipping cost (only if not 0)
                 if float(shipping_cost) != 0.0:

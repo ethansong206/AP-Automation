@@ -81,6 +81,8 @@ class InvoiceTableModel(QAbstractTableModel):
         self._rows: List[InvoiceRow] = []
         # normalized invoice number -> list of source row indexes (duplicates only)
         self._dup_map: Dict[str, List[int]] = {}
+        # normalized invoice number -> group number for superscripts
+        self._dup_groups: Dict[str, int] = {}
 
     # --- Data access methods ---
     def row_values(self, row: int) -> List[str]:
@@ -145,6 +147,9 @@ class InvoiceTableModel(QAbstractTableModel):
                 # Don't highlight shipping column when empty, and grand total is never editable
                 if c not in (C_SHIPPING, C_GRAND_TOTAL) and ((value is None) or (str(value).strip() == "")):
                     return QColor("#FFF1A6")  # brighter yellow for empty cell
+                # Highlight duplicate invoice numbers
+                if c == C_INVOICE and self._duplicate_number_for_row(r):
+                    return QColor("#FDE2E2")  # light red for duplicates
                 if c == C_TERMS:
                     terms = str(value or "")
                     t = terms.strip().lower()
@@ -286,13 +291,7 @@ class InvoiceTableModel(QAbstractTableModel):
         inv = _normalize_invoice_number(self._rows[r].invoice)
         if not inv:
             return 0
-        group = self._dup_map.get(inv, [])
-        if len(group) <= 1:
-            return 0
-        try:
-            return group.index(r) + 1  # 1-based within dup group
-        except ValueError:
-            return 0
+        return self._dup_groups.get(inv, 0)
 
     def _rebuild_duplicates(self):
         d: Dict[str, List[int]] = {}
@@ -301,11 +300,16 @@ class InvoiceTableModel(QAbstractTableModel):
             if not key:
                 continue
             d.setdefault(key, []).append(i)
-        self._dup_map = {k: v for k, v in d.items() if len(v) > 1}
+        dup_keys = [k for k, v in d.items() if len(v) > 1]
+        self._dup_map = {k: d[k] for k in dup_keys}
+        # Assign group numbers based on first appearance
+        self._dup_groups = {}
+        for idx, k in enumerate(sorted(self._dup_map, key=lambda k: self._dup_map[k][0])):
+            self._dup_groups[k] = idx + 1
         if self._rows:
             top = self.index(0, C_INVOICE)
             bottom = self.index(self.rowCount() - 1, C_INVOICE)
-            self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
+            self.dataChanged.emit(top, bottom, [Qt.DisplayRole, Qt.BackgroundRole])
 
     # --- mutations used by view wrapper ---
     def add_row(self, values: List[str], file_path: str):
@@ -328,6 +332,7 @@ class InvoiceTableModel(QAbstractTableModel):
         self._rows.clear()
         self.endRemoveRows()
         self._dup_map.clear()
+        self._dup_groups.clear()
 
     def row_values(self, src_row: int) -> List[str]:
         r = self._rows[src_row]
