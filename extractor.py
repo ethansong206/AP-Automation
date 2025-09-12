@@ -4,7 +4,8 @@ from extractors import (
     extract_total_amount,
     extract_vendor_name,
     extract_discount_terms,
-    extract_po_number
+    extract_po_number,
+    extract_shipping_cost
 )
 from extractors.utils import calculate_discount_due_date, calculate_discounted_total, check_negative_total
 
@@ -24,7 +25,7 @@ def extract_fields(documents):
             "Invoice Date": extract_invoice_date(words, vendor_name),
             "Discount Terms": extract_discount_terms(words, vendor_name),
             "Discount Due Date": "",
-            "Shipping Cost": "",
+            "Shipping Cost": extract_shipping_cost(words, vendor_name),
             "Total Amount": extract_total_amount(words, vendor_name)
         }
 

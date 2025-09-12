@@ -12,25 +12,16 @@ def main():
     
     while True:
         print("\nOptions:")
-        print("1. Generate test template (scan all invoice PDFs)")
-        print("2. Test a single file") 
-        print("3. Run all tests")
-        print("4. Test single extractor")
-        print("5. Test extractor performance summary (quick overview)")
+        print("1. Test a single file") 
+        print("2. Run all tests")
+        print("3. Test single extractor")
+        print("4. Test extractor performance summary (quick overview)")
+        print("5. Calculate shipping cost confidence scores")
         print("6. Exit")
         
         choice = input("\nEnter choice (1-6): ").strip()
         
         if choice == "1":
-            print("\nGenerating test template...")
-            tester.generate_test_template()
-            print("\nNext steps:")
-            print("1. Open 'test_expectations_template.csv'")
-            print("2. Fill in the expected values for each file")
-            print("3. Save as 'test_expectations.csv'")
-            print("4. Run option 3 to test all files")
-            
-        elif choice == "2":
             vendor = input("Enter vendor folder name: ").strip()
             filename = input("Enter PDF filename: ").strip()
             
@@ -45,17 +36,17 @@ def main():
                 for field, value in result.items():
                     print(f"{field}: {value}")
                     
-        elif choice == "3":
+        elif choice == "2":
             print("\nRunning all tests...")
             results = tester.run_all_tests()
             
             if results:
                 print(f"\nTest complete! Check the generated JSON file for detailed results.")
             
-        elif choice == "4":
+        elif choice == "3":
             print("\nAvailable extractors:")
             extractors = ['vendor_name', 'invoice_number', 'po_number', 'invoice_date', 
-                         'discount_terms', 'discount_due_date', 'total_amount']
+                         'discount_terms', 'discount_due_date', 'total_amount', 'shipping_cost']
             for i, ext in enumerate(extractors, 1):
                 print(f"  {i}. {ext}")
                 
@@ -79,12 +70,16 @@ def main():
             if results:
                 print(f"\nExtractor test complete! Check the generated JSON file for detailed results.")
                 
-        elif choice == "5":
+        elif choice == "4":
             print("\nRunning performance summary on first 50 files for each extractor...")
             results = tester.test_extractor_performance_summary()
             
             if results:
                 print(f"\nPerformance summary complete!")
+            
+        elif choice == "5":
+            print("\nCalculating shipping cost confidence scores...")
+            tester.calculate_shipping_confidence_scores()
             
         elif choice == "6":
             print("Goodbye!")

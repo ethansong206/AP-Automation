@@ -370,10 +370,112 @@ class InvoiceApp(QWidget):
         self.save_session()
 
     # ---------------- Export ----------------
+    def _check_empty_cells_and_warn(self):
+        """Check for empty cells and warn user. Returns True if user wants to continue."""
+        empty_cells = self._find_empty_cells()
+        if not empty_cells:
+            return True
+        
+        # Create warning message
+        msg = f"Found {len(empty_cells)} empty cells in the following locations:\n\n"
+        
+        # Group by row and show column names
+        column_names = ["Select", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
+                       "Discount Terms", "Due Date", "Total", "Shipping", "Grand Total", "Actions"]
+        
+        rows_with_empty = {}
+        for row, col in empty_cells:
+            if row not in rows_with_empty:
+                rows_with_empty[row] = []
+            if col < len(column_names):
+                rows_with_empty[row].append(column_names[col])
+        
+        for row, cols in sorted(rows_with_empty.items()):
+            vendor = self.table.get_cell_text(row, 1) or "Unknown Vendor"
+            msg += f"Row {row + 1} ({vendor}): {', '.join(cols)}\n"
+        
+        msg += "\nDo you want to continue with the export anyway?"
+        
+        reply = QMessageBox.question(self, "Empty Cells Found", msg,
+                                   QMessageBox.Yes | QMessageBox.No,
+                                   QMessageBox.No)
+        
+        return reply == QMessageBox.Yes
+    
+    def _find_empty_cells(self):
+        """Find all empty cells in any column. Returns list of (row, col) tuples."""
+        empty_cells = []
+        # Check all data columns except Select (0), Actions (10), and Grand Total (9) since it's calculated
+        data_columns = [1, 2, 3, 4, 5, 6, 7, 8]  # All data columns from Vendor to Shipping
+        
+        # Use the underlying model to check all rows (including filtered ones)
+        model = getattr(self.table, "_model", None)
+        total_rows = model.rowCount() if model else self.table.rowCount()
+        
+        print(f"[DEBUG] Checking {total_rows} rows for empty cells in columns {data_columns}")
+        
+        for row in range(total_rows):
+            for col in data_columns:
+                cell_value = None
+                if model:
+                    # Get value from the source model
+                    vals = model.row_values(row)
+                    # Column mapping: 1=vendor(0), 2=invoice(1), 3=po(2), 4=date(3), 5=terms(4), 6=due(5), 7=total(6), 8=shipping(7)
+                    col_idx = col - 1
+                    if col_idx < len(vals):
+                        cell_value = vals[col_idx]
+                    else:
+                        cell_value = ""
+                else:
+                    # Fallback to table view access
+                    cell_value = self.table.get_cell_text(row, col)
+                
+                print(f"[DEBUG] Row {row}, Col {col}: '{cell_value}'")
+                
+                # Check for empty or placeholder values
+                is_empty = False
+                if not cell_value or not str(cell_value).strip():
+                    is_empty = True
+                else:
+                    # Check for placeholder patterns
+                    cell_str = str(cell_value).strip()
+                    # Date placeholders
+                    if col in [4, 6] and (cell_str == "__/__/__" or cell_str == "mm/dd/yy" or 
+                                         cell_str == "MM/DD/YY" or cell_str == "mm/dd/yyyy" or
+                                         cell_str == "MM/DD/YYYY" or "_" in cell_str):
+                        is_empty = True
+                    # Generic placeholders
+                    elif cell_str.lower() in ["n/a", "na", "none", "null", "unknown", "tbd", "pending"]:
+                        is_empty = True
+                    # All underscores or dashes
+                    elif re.match(r'^[_\-\s]+$', cell_str):
+                        is_empty = True
+                    # Zero amounts - be more specific about when they indicate failed extraction
+                    elif col == 7 and cell_str in ["0", "0.00", "$0", "$0.00"]:  # Total amount
+                        # A total of exactly 0.00 is suspicious - likely extraction failure
+                        is_empty = True
+                    elif col == 8 and cell_str in ["0", "0.00", "$0", "$0.00"]:  # Shipping
+                        # For shipping, 0.00 can be legitimate (no shipping charge)
+                        # But now that we return empty string on extraction failure,
+                        # 0.00 should be valid. Only consider truly empty as empty.
+                        is_empty = False
+                
+                if is_empty:
+                    print(f"[DEBUG] Found empty cell at row {row}, col {col}: '{cell_value}'")
+                    empty_cells.append((row, col))
+        
+        print(f"[DEBUG] Found {len(empty_cells)} empty cells total")
+        return empty_cells
+
     def export_to_csv(self):
         if self.table.total_row_count() == 0:
             QMessageBox.warning(self, "No Data", "There is no data to export.")
             return
+        
+        # Check for empty cells and get user confirmation
+        if not self._check_empty_cells_and_warn():
+            return
+        
         options = QFileDialog.Options() | QFileDialog.DontConfirmOverwrite
         default_name = "accounting_import.csv"
         filename, _ = QFileDialog.getSaveFileName(
@@ -395,6 +497,11 @@ class InvoiceApp(QWidget):
         if self.table.total_row_count() == 0:
             QMessageBox.warning(self, "No Files", "There are no files to export.")
             return
+        
+        # Check for empty cells and get user confirmation
+        if not self._check_empty_cells_and_warn():
+            return
+        
         target_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")
         if not target_dir:
             return
@@ -426,28 +533,51 @@ class InvoiceApp(QWidget):
             date_obj = self._parse_invoice_date(date_str)
             dest_dir = month_dirs[date_obj.month - 1] if date_obj else target_dir
             dest_path = os.path.join(dest_dir, new_name)
-            if os.path.exists(dest_path):
-                continue
+            
+            # Handle destination filename conflicts with incremental naming
+            final_dest_path = dest_path
+            counter = 1
+            while os.path.exists(final_dest_path):
+                name_part, ext = os.path.splitext(new_name)
+                incremented_name = f"{name_part}_{counter}{ext}"
+                final_dest_path = os.path.join(dest_dir, incremented_name)
+                counter += 1
+            
             try:
-                shutil.copy2(file_path, dest_path)
+                # Copy to destination folder with incremental naming
+                shutil.copy2(file_path, final_dest_path)
+                
+                # Rename original file with same incremental naming logic
                 src_dir = os.path.dirname(file_path)
                 new_src_path = os.path.join(src_dir, new_name)
-                if (
-                    os.path.normpath(file_path) != os.path.normpath(new_src_path)
-                    and not os.path.exists(new_src_path)
-                ):
-                    os.rename(file_path, new_src_path)
+                
+                # Only rename if the new path would be different
+                if os.path.normpath(file_path) != os.path.normpath(new_src_path):
+                    # Handle filename conflicts with incremental naming
+                    final_src_path = new_src_path
+                    src_counter = 1
+                    while os.path.exists(final_src_path):
+                        # Split filename and extension
+                        name_part, ext = os.path.splitext(new_name)
+                        incremented_name = f"{name_part}_{src_counter}{ext}"
+                        final_src_path = os.path.join(src_dir, incremented_name)
+                        src_counter += 1
+                    
+                    # Rename the original file
+                    os.rename(file_path, final_src_path)
+                    
+                    # Update file path tracking
                     if model:
-                        model.set_file_path(src_row, new_src_path)
+                        model.set_file_path(src_row, final_src_path)
                     else:
-                        self.table.set_file_path_for_row(src_row, new_src_path)
+                        self.table.set_file_path_for_row(src_row, final_src_path)
                     old_norm = os.path.normpath(file_path)
-                    new_norm = os.path.normpath(new_src_path)
+                    new_norm = os.path.normpath(final_src_path)
                     if old_norm in self.file_controller.loaded_files:
                         self.file_controller.loaded_files.remove(old_norm)
                         self.file_controller.loaded_files.add(new_norm)
             except Exception as e:
-                print(f"[ERROR] Failed to copy '{file_path}' to '{dest_path}': {e}")
+                print(f"[ERROR] Failed to copy '{file_path}' to '{final_dest_path}': {e}")
         QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")
 
     # ---------------- Search / Filter helpers ----------------

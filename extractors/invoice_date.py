@@ -89,18 +89,22 @@ def extract_invoice_date(words, vendor_name):
 
     #print("\n[DEBUG] Regex date matches found:")
     #for dc in date_candidates:
-        #print(f" - {dc['text']} at position ({dc['x']}, {dc['y']})")
+    #    print(f" - {dc['text']} at position ({dc['x']}, {dc['y']})")
 
     # Parse and validate dates (allowing 8 months in the past)
     today = datetime.today().date()
-    MIN_VALID_DATE = (today - timedelta(days=240)).replace(day=1)
+    MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
     valid_dates = []
     
     for candidate in date_candidates:
         raw_text = candidate["text"].strip().replace(",", "")
+        # Only convert dashes to slashes for numeric dates, not month-name dates
+        if re.match(r'^\d{1,2}-\d{1,2}-\d{2,4}$', raw_text):
+            raw_text = raw_text.replace("-", "/")
         parsed_date = try_parse_date(raw_text)
         
         if parsed_date:
+            #print(f"   Parsed date: {parsed_date}, Range check: {MIN_VALID_DATE} <= {parsed_date} <= {today}")
             if MIN_VALID_DATE <= parsed_date <= today:
                 valid_dates.append({
                     "date": parsed_date,
@@ -108,11 +112,11 @@ def extract_invoice_date(words, vendor_name):
                     "y": candidate["y"],
                     "word": candidate["word"]
                 })
-                #print(f"   ✓ Accepted valid date: {parsed_date} at position ({candidate['x']}, {candidate['y']})")
+                #print(f"   OK Accepted valid date: {parsed_date} at position ({candidate['x']}, {candidate['y']})")
             #else:
-                #print(f"   ✗ Skipped date {parsed_date}, out of range")
+                #print(f"   X Skipped date {parsed_date}, out of range")
         #else:
-            #print(f"   ✗ Could not parse: {raw_text}")
+            #print(f"   X Could not parse: {raw_text}")
     
     if not valid_dates:
         #print("[DEBUG] No valid dates found.")
@@ -122,12 +126,12 @@ def extract_invoice_date(words, vendor_name):
     labels = []
     excluded_terms = ["DUE", "SHIPPING", "ORDERED", "SHIP", "ORDER", "PAYMENT", "DISCOUNT"]
     
-    # FIRST PRIORITY: Look for exact "INVOICE DATE" phrases
+    # FIRST PRIORITY: Look for exact "INVOICE DATE" or "CREDIT MEMO DATE" phrases
     for i, w in enumerate(words):
         text = w["text"].upper().replace(":", "").strip()
-        if "INVOICE DATE" in text or "INV DATE" in text or "INV. DATE" in text:
+        if "INVOICE DATE" in text or "INV DATE" in text or "INV. DATE" in text or "CREDIT MEMO DATE" in text or "MEMO DATE" in text:
             # Found an explicit invoice date label - this gets highest priority
-            #print(f"[DEBUG] Found explicit 'INVOICE DATE' label at ({w['x0']}, {w['top']})")
+            #print(f"[DEBUG] Found explicit 'INVOICE DATE' or 'CREDIT MEMO DATE' label at ({w['x0']}, {w['top']})")
             
             # Find closest date to this label
             best_date = find_closest_date(valid_dates, w["x0"], w["top"])
@@ -140,8 +144,9 @@ def extract_invoice_date(words, vendor_name):
     # SECOND PRIORITY: Collect ALL standalone "DATE" labels and use the top-most one
     date_labels = []
     for i, w in enumerate(words):
-        text = w["text"].upper().replace(":", "").strip()
-        if text == "DATE" or text == "DT":
+        text = w["text"].upper().strip()
+        clean_text = text.replace(":", "").strip()
+        if clean_text == "DATE" or clean_text == "DT":
             #print(f"[DEBUG] Found potential 'DATE' label at ({w['x0']}, {w['top']})")
             # Check if any excluded terms are nearby - ONLY CHECK BEFORE, not after
             is_excluded = False
