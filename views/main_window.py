@@ -153,16 +153,11 @@ class InvoiceApp(QWidget):
 
         button_row.addStretch()
 
-        # Right group: Export Files and Export CSV
+        # Right group: Unified Export button
         right_button_group = QHBoxLayout()
-        self.export_files_button = QPushButton("Export Files to Folder")
-        self.export_files_button.setObjectName("exportFilesButton")
-        self.export_files_button.clicked.connect(self.export_files_to_folder)
-        right_button_group.addWidget(self.export_files_button)
-
-        self.export_button = QPushButton("Export to CSV")
+        self.export_button = QPushButton("Export")
         self.export_button.setObjectName("exportButton")
-        self.export_button.clicked.connect(self.export_to_csv)
+        self.export_button.clicked.connect(self.unified_export)
         right_button_group.addWidget(self.export_button)
         button_row.addLayout(right_button_group)
 
@@ -371,7 +366,7 @@ class InvoiceApp(QWidget):
 
     # ---------------- Export ----------------
     def _check_zero_or_empty_total_amount_and_warn(self):
-        """Warn if any row has a total amount of 0.00. Returns True to continue."""
+        """Warn if any row has a total amount of 0.00 or empty. Returns True to continue."""
         problem_rows = []
         model = getattr(self.table, "_model", None)
         total_rows = model.rowCount() if model else self.table.rowCount()
@@ -388,13 +383,13 @@ class InvoiceApp(QWidget):
                 invoice = self.table.get_cell_text(row, 2)
 
             cell_str = str(total_val).strip() if total_val is not None else ""
-            if cell_str in ["0", "0.00", "$0", "$0.00"]:
+            if not cell_str or cell_str in ["0", "0.00", "$0", "$0.00"]:
                 problem_rows.append((row, vendor, invoice))
 
         if not problem_rows:
             return True
 
-        msg = "Found invoices with a total amount of 0.00:\n\n"
+        msg = "Found invoices with a zero or empty total amount:\n\n"
         for row, vendor, invoice in problem_rows:
             vendor_name = vendor or "Unknown Vendor"
             invoice_num = invoice or "No Invoice #"
@@ -420,7 +415,7 @@ class InvoiceApp(QWidget):
             return
         
         options = QFileDialog.Options() | QFileDialog.DontConfirmOverwrite
-        default_name = "accounting_import.csv"
+        default_name = "AP-Import.csv"
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export to CSV", default_name,
             "CSV Files (*.csv);;All Files (*)", options=options
@@ -522,6 +517,275 @@ class InvoiceApp(QWidget):
             except Exception as e:
                 print(f"[ERROR] Failed to copy '{file_path}' to '{final_dest_path}': {e}")
         QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")
+
+    def unified_export(self):
+        """Unified export flow for both files and CSV."""
+        if self.table.total_row_count() == 0:
+            QMessageBox.warning(self, "No Data", "There is no data to export.")
+            return
+        
+        # Pre-export validation - warn about zero/empty totals upfront
+        if not self._check_zero_or_empty_total_amount_and_warn():
+            return
+        
+        # Results tracking
+        files_exported = 0
+        files_skipped = 0
+        files_failed = []
+        csv_records = 0
+        csv_skipped = 0
+        csv_failed = False
+        
+        # Step 1: Ask about file export
+        file_reply = QMessageBox.question(
+            self, "Export Files", 
+            "Export files to folder (with renamed filenames)?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if file_reply == QMessageBox.Yes:
+            # Step 2: Get folder selection
+            target_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")
+            if not target_dir:
+                return  # User cancelled folder selection
+            
+            # Step 3: Perform file export with progress tracking
+            files_exported, files_skipped, files_failed = self._perform_file_export(target_dir)
+        
+        # Step 4: Ask about CSV export  
+        csv_reply = QMessageBox.question(
+            self, "Export CSV",
+            "Export invoice data to CSV?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if csv_reply == QMessageBox.Yes:
+            # Step 5: Get CSV filename with overwrite protection
+            csv_filename = self._get_csv_filename_with_protection()
+            if not csv_filename:
+                # User cancelled or couldn't resolve filename
+                if file_reply == QMessageBox.Yes:
+                    # Show file results only
+                    self._show_file_export_results(files_exported, files_skipped, files_failed, target_dir)
+                return
+            
+            # Step 6: Perform CSV export
+            csv_records, csv_skipped, csv_failed = self._perform_csv_export(csv_filename)
+        
+        # Step 7: Show final summary
+        self._show_unified_export_summary(
+            file_reply == QMessageBox.Yes, files_exported, files_skipped, files_failed,
+            csv_reply == QMessageBox.Yes, csv_records, csv_skipped, csv_failed
+        )
+        
+    def _get_csv_filename_with_protection(self):
+        """Get CSV filename with overwrite protection."""
+        while True:
+            options = QFileDialog.Options() | QFileDialog.DontConfirmOverwrite
+            default_name = "AP-Import.csv"
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Export to CSV", default_name,
+                "CSV Files (*.csv);;All Files (*)", options=options
+            )
+            
+            if not filename:
+                return None  # User cancelled
+            
+            if not filename.lower().endswith('.csv'):
+                filename += '.csv'
+            
+            # Check if file exists
+            if os.path.exists(filename):
+                # Show overwrite protection dialog
+                reply = QMessageBox.question(
+                    self, "File Already Exists",
+                    f"The file '{os.path.basename(filename)}' already exists.",
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                    QMessageBox.Cancel
+                )
+                
+                # Custom button texts
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("File Already Exists")
+                msg_box.setText(f"The file '{os.path.basename(filename)}' already exists.")
+                msg_box.setIcon(QMessageBox.Question)
+                
+                overwrite_btn = msg_box.addButton("Overwrite", QMessageBox.AcceptRole)
+                append_date_btn = msg_box.addButton("Append Date", QMessageBox.AcceptRole)
+                cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+                msg_box.setDefaultButton(cancel_btn)
+                
+                msg_box.exec_()
+                clicked_btn = msg_box.clickedButton()
+                
+                if clicked_btn == overwrite_btn:
+                    return filename
+                elif clicked_btn == append_date_btn:
+                    # Append date in _MM_DD_YY format
+                    from datetime import datetime
+                    now = datetime.now()
+                    date_suffix = f"_{now.month:02d}_{now.day:02d}_{now.year % 100:02d}"
+                    
+                    # Insert date before .csv extension
+                    name_part, ext = os.path.splitext(filename)
+                    dated_filename = f"{name_part}{date_suffix}{ext}"
+                    return dated_filename
+                else:
+                    # Cancel - go back to file dialog
+                    continue
+            else:
+                # File doesn't exist, use this filename
+                return filename
+    
+    def _perform_file_export(self, target_dir):
+        """Perform the actual file export and return results."""
+        files_exported = 0
+        files_skipped = 0
+        files_failed = []
+        
+        # Create month directories (same as original logic)
+        month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        month_dirs = []
+        for i, name in enumerate(month_names, 1):
+            p = os.path.join(target_dir, f"{i:02d} - {name}")
+            os.makedirs(p, exist_ok=True)
+            month_dirs.append(p)
+
+        model = getattr(self.table, "_model", None)
+        total_rows = model.rowCount() if model else self.table.rowCount()
+        
+        for src_row in range(total_rows):
+            try:
+                file_path = model.get_file_path(src_row) if model else self.table.get_file_path_for_row(src_row)
+                if not file_path or not os.path.isfile(file_path):
+                    files_skipped += 1
+                    continue
+                    
+                # Get row data for filename generation (same as original logic)
+                if model:
+                    vals = model.row_values(src_row)
+                    vendor = self._sanitize_filename(vals[0]) or "UNKNOWN"
+                    po_number = self._sanitize_filename(vals[2]) or "PO"
+                    invoice_number = self._sanitize_filename(vals[1]) or "INV"
+                    date_str = vals[3]
+                else:
+                    vendor = self._sanitize_filename(self.table.get_cell_text(src_row, 1)) or "UNKNOWN"
+                    po_number = self._sanitize_filename(self.table.get_cell_text(src_row, 3)) or "PO"
+                    invoice_number = self._sanitize_filename(self.table.get_cell_text(src_row, 2)) or "INV"
+                    date_str = self.table.get_cell_text(src_row, 4)
+                    
+                new_name = f"{vendor}_{po_number}_{invoice_number}.pdf"
+                date_obj = self._parse_invoice_date(date_str)
+                dest_dir = month_dirs[date_obj.month - 1] if date_obj else target_dir
+                dest_path = os.path.join(dest_dir, new_name)
+                
+                # Handle destination filename conflicts (same as original logic)
+                final_dest_path = dest_path
+                counter = 1
+                while os.path.exists(final_dest_path):
+                    name_part, ext = os.path.splitext(new_name)
+                    incremented_name = f"{name_part}_{counter}{ext}"
+                    final_dest_path = os.path.join(dest_dir, incremented_name)
+                    counter += 1
+                
+                # Copy and rename (same as original logic)
+                shutil.copy2(file_path, final_dest_path)
+                
+                # Rename original file with same incremental naming logic
+                src_dir = os.path.dirname(file_path)
+                new_src_path = os.path.join(src_dir, new_name)
+                
+                if os.path.normpath(file_path) != os.path.normpath(new_src_path):
+                    final_src_path = new_src_path
+                    src_counter = 1
+                    while os.path.exists(final_src_path):
+                        name_part, ext = os.path.splitext(new_name)
+                        incremented_name = f"{name_part}_{src_counter}{ext}"
+                        final_src_path = os.path.join(src_dir, incremented_name)
+                        src_counter += 1
+                    
+                    os.rename(file_path, final_src_path)
+                    if model:
+                        model.set_file_path(src_row, final_src_path)
+                    else:
+                        self.table.set_file_path_for_row(src_row, final_src_path)
+                    
+                    # Update file controller tracking
+                    old_norm = os.path.normpath(file_path)
+                    new_norm = os.path.normpath(final_src_path)
+                    if old_norm in self.file_controller.loaded_files:
+                        self.file_controller.loaded_files.remove(old_norm)
+                        self.file_controller.loaded_files.add(new_norm)
+                        
+                files_exported += 1
+                
+            except Exception as e:
+                files_failed.append(f"{os.path.basename(file_path) if 'file_path' in locals() else f'Row {src_row}'}: {str(e)}")
+        
+        return files_exported, files_skipped, files_failed
+    
+    def _perform_csv_export(self, filename):
+        """Perform the actual CSV export and return results."""
+        try:
+            success, message = self.invoice_controller.export_to_csv(filename)
+            if success:
+                # Parse success message to get record count (if available)
+                # The message typically contains info about exported records
+                csv_records = self.table.total_row_count()  # Fallback count
+                csv_skipped = 0
+                csv_failed = False
+                self.remove_session_file()
+                return csv_records, csv_skipped, csv_failed
+            else:
+                return 0, 0, True
+        except Exception:
+            return 0, 0, True
+    
+    def _show_file_export_results(self, exported, skipped, failed, target_dir):
+        """Show file export results dialog."""
+        msg = f"📁 **File Export Results**\n\n"
+        msg += f"✅ {exported} files exported successfully\n"
+        if skipped > 0:
+            msg += f"⚠️ {skipped} files skipped\n"
+        if failed:
+            msg += f"❌ {len(failed)} files failed:\n"
+            for failure in failed[:5]:  # Show first 5 failures
+                msg += f"   • {failure}\n"
+            if len(failed) > 5:
+                msg += f"   • ... and {len(failed) - 5} more\n"
+        
+        msg += f"\nFiles exported to: {target_dir}"
+        QMessageBox.information(self, "File Export Results", msg)
+    
+    def _show_unified_export_summary(self, files_exported_flag, files_count, files_skipped, files_failed,
+                                   csv_exported_flag, csv_count, csv_skipped, csv_failed):
+        """Show final unified export summary."""
+        msg = "🎉 **Export Summary**\n\n"
+        
+        if files_exported_flag:
+            msg += f"📁 **Files**: {files_count} exported"
+            if files_skipped > 0:
+                msg += f", {files_skipped} skipped"
+            if files_failed:
+                msg += f", {len(files_failed)} failed"
+            msg += "\n"
+        
+        if csv_exported_flag:
+            msg += f"📊 **CSV**: {csv_count} records written"
+            if csv_skipped > 0:
+                msg += f", {csv_skipped} skipped"
+            if csv_failed:
+                msg += f", export failed"
+            msg += "\n"
+        
+        if not files_exported_flag and not csv_exported_flag:
+            msg = "No exports were performed."
+        else:
+            msg += "\n✅ Export completed successfully!"
+        
+        QMessageBox.information(self, "Export Summary", msg)
 
     # ---------------- Search / Filter helpers ----------------
     def _on_search_text(self, text: str):

@@ -7,12 +7,25 @@ from .common_extraction import (
     search_for_pattern
 )
 
+initials = [
+    "REC",
+    "JCS",
+    "ACQ",
+    "LGC",
+    "SMW",
+]
+
 def is_potential_po_number(text, vendor_name=None):
     """
     Validates if a string is potentially a PO number
     """
     #print(f"[DEBUG] Testing PO candidate: '{text}' for vendor '{vendor_name}'")
-    
+
+    # Check for buyers' initials at end of PO Number
+    for initial in initials:
+        if text.strip().upper().endswith(initial):
+            return True
+
     # Check for "TBD" (To Be Determined)
     if text.strip().upper() == "TBD":
         #print(f"[DEBUG] ✓ '{text}' matched TBD special case")

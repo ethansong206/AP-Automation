@@ -3,6 +3,213 @@ from datetime import datetime, timedelta
 from .utils import try_parse_date
 
 def extract_invoice_date(words, vendor_name):
+    # Carve Designs-specific logic: for email format, skip dates with timestamps
+    if vendor_name == "Carve Designs":
+        from .email_detection import is_email_format
+        
+        if is_email_format(words):
+            # Filter out dates that are followed by timestamps (email dates)
+            text_blob = " ".join([w["text"] for w in words])
+            
+            # Create a list to store dates with timestamps to exclude
+            timestamp_dates = []
+            
+            # Look for dates followed by time patterns
+            timestamp_patterns = [
+                r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?',  # MM/DD/YY HH:MM or HH:MM AM/PM
+                r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+at\s+\d{1,2}:\d{2}',  # MM/DD/YY at HH:MM
+                r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s+\d{1,2}:\d{2}'  # Day MM/DD/YY HH:MM
+            ]
+            
+            for pattern in timestamp_patterns:
+                matches = re.finditer(pattern, text_blob, flags=re.IGNORECASE)
+                for match in matches:
+                    # Extract just the date portion from the timestamp match
+                    date_match = re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', match.group(0))
+                    if date_match:
+                        timestamp_dates.append(date_match.group(0))
+            
+            # Filter out words that are part of timestamp contexts, not just contain timestamp dates
+            if timestamp_dates:
+                filtered_words = []
+                for i, word in enumerate(words):
+                    word_text = word["text"]
+                    
+                    # Check if this word contains a date that was part of a timestamp
+                    contains_timestamp_date = any(date in word_text for date in timestamp_dates)
+                    
+                    if contains_timestamp_date:
+                        # Check surrounding context to see if this is really part of a timestamp
+                        is_timestamp_context = False
+                        
+                        # Look at nearby words for time indicators
+                        for j in range(max(0, i-3), min(len(words), i+4)):
+                            if j == i:
+                                continue
+                            nearby_text = words[j]["text"].upper()
+                            
+                            # Check if nearby words indicate this is a timestamp
+                            time_indicators = ["AM", "PM", ":", "AT", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+                            if any(indicator in nearby_text for indicator in time_indicators):
+                                # Additional check: make sure it's not just ":" from "Invoice Date:"
+                                if ":" in nearby_text and ("DATE" in nearby_text or "INVOICE" in nearby_text):
+                                    continue  # This is likely "Invoice Date:", not a timestamp
+                                is_timestamp_context = True
+                                break
+                        
+                        # Only exclude if it's truly in a timestamp context
+                        if not is_timestamp_context:
+                            filtered_words.append(word)
+                    else:
+                        filtered_words.append(word)
+                
+                # Use filtered words for date extraction
+                words = filtered_words
+    
+    # Arc'teryx-specific logic: handle incomplete "September 10, 202" dates  
+    if vendor_name == "Arc'teryx":
+        text_blob = " ".join([w["text"] for w in words])
+        
+        # Look for incomplete September dates that need reconstruction
+        sep_pattern = r'September\s+(\d{1,2}),?\s+(?:202|20)(?:\d)?'
+        sep_match = re.search(sep_pattern, text_blob, re.IGNORECASE)
+        
+        if sep_match:
+            # Extract the day number
+            day = sep_match.group(1)
+            
+            # Get current year to construct proper date
+            current_year = datetime.now().year
+            
+            # Construct the complete date - Arc'teryx invoices are typically current year
+            reconstructed_date = f"09/{day.zfill(2)}/{str(current_year)[-2:]}"
+            
+            # Validate this reconstructed date is reasonable (within our 480-day range)
+            parsed_date = try_parse_date(reconstructed_date)
+            
+            if parsed_date:
+                today = datetime.today().date()
+                MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
+                
+                if MIN_VALID_DATE <= parsed_date <= today:
+                    #print(f"[DEBUG] Arc'teryx: Reconstructed '{sep_match.group(0)}' as {reconstructed_date}")
+                    return reconstructed_date
+    
+    # Lifestraw-specific logic: use top-most date (consistent format)
+    if vendor_name == "Lifestraw":
+        # Find all valid dates and use the top-most one
+        text_blob = " ".join([w["text"] for w in words])
+        
+        # Find all dates in the document
+        date_candidates = []
+        date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
+        
+        for word in words:
+            date_match = re.search(date_pattern, word["text"])
+            if date_match:
+                date_text = date_match.group(0)
+                parsed_date = try_parse_date(date_text)
+                if parsed_date:
+                    today = datetime.today().date()
+                    MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
+                    if MIN_VALID_DATE <= parsed_date <= today:
+                        date_candidates.append({
+                            "date": parsed_date,
+                            "y": word["top"],
+                            "text": date_text
+                        })
+        
+        if date_candidates:
+            # Sort by Y coordinate (top to bottom) and use the top-most
+            date_candidates.sort(key=lambda x: x["y"])
+            top_date = date_candidates[0]
+            #print(f"[DEBUG] Lifestraw: Using top-most date '{top_date['text']}'")
+            return top_date["date"].strftime("%m/%d/%y")
+    
+    # Nite Ize Inc-specific logic: use top-most date (consistent format)
+    if vendor_name == "Nite Ize Inc":
+        # Find all valid dates and use the top-most one
+        date_candidates = []
+        date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
+        
+        for word in words:
+            date_match = re.search(date_pattern, word["text"])
+            if date_match:
+                date_text = date_match.group(0)
+                parsed_date = try_parse_date(date_text)
+                if parsed_date:
+                    today = datetime.today().date()
+                    MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
+                    if MIN_VALID_DATE <= parsed_date <= today:
+                        date_candidates.append({
+                            "date": parsed_date,
+                            "y": word["top"],
+                            "text": date_text
+                        })
+        
+        if date_candidates:
+            # Sort by Y coordinate (top to bottom) and use the top-most
+            date_candidates.sort(key=lambda x: x["y"])
+            top_date = date_candidates[0]
+            #print(f"[DEBUG] Nite Ize Inc: Using top-most date '{top_date['text']}'")
+            return top_date["date"].strftime("%m/%d/%y")
+    
+    # Salomon-specific logic: use left-most date (consistent format)
+    if vendor_name == "Salomon":
+        # Find all valid dates and use the left-most one
+        date_candidates = []
+        date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
+        
+        for word in words:
+            date_match = re.search(date_pattern, word["text"])
+            if date_match:
+                date_text = date_match.group(0)
+                parsed_date = try_parse_date(date_text)
+                if parsed_date:
+                    today = datetime.today().date()
+                    MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
+                    if MIN_VALID_DATE <= parsed_date <= today:
+                        date_candidates.append({
+                            "date": parsed_date,
+                            "x": word["x0"],
+                            "text": date_text
+                        })
+        
+        if date_candidates:
+            # Sort by X coordinate (left to right) and use the left-most
+            date_candidates.sort(key=lambda x: x["x"])
+            left_date = date_candidates[0]
+            #print(f"[DEBUG] Salomon: Using left-most date '{left_date['text']}'")
+            return left_date["date"].strftime("%m/%d/%y")
+    
+    # Saxx Underwear-specific logic: handle YYYY-MM-DD format
+    if vendor_name == "Saxx Underwear":
+        # Look for YYYY-MM-DD format and convert to standard format for normal processing
+        text_blob = " ".join([w["text"] for w in words])
+        
+        # Find YYYY-MM-DD dates and add them as converted words
+        yyyy_mm_dd_pattern = r'\b(\d{4})-(\d{1,2})-(\d{1,2})\b'
+        converted_words = []
+        
+        for word in words:
+            # Check if this word or nearby text contains YYYY-MM-DD format
+            word_context = word["text"]
+            match = re.search(yyyy_mm_dd_pattern, word_context)
+            if match:
+                year, month, day = match.groups()
+                # Convert to MM/DD/YY format
+                converted_date = f"{month.zfill(2)}/{day.zfill(2)}/{year[-2:]}"
+                
+                # Create a new word with the converted date
+                converted_word = word.copy()
+                converted_word["text"] = converted_date
+                converted_words.append(converted_word)
+            else:
+                converted_words.append(word)
+        
+        # Replace words with converted versions for normal processing
+        words = converted_words
+    
     text_blob = " ".join([w["text"] for w in words])
 
     MONTH_NAMES = [

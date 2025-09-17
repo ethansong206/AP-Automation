@@ -19,7 +19,8 @@ def normalize_words(words, first_page_only=True):
             "x0": w["x0"],
             "x1": w["x1"],
             "top": w["top"],
-            "bottom": w["bottom"]
+            "bottom": w["bottom"],
+            "page_num": w.get("page_num", 0)
         }
         for i, w in enumerate(filtered_words)
     ]

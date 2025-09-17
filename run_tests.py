@@ -15,11 +15,10 @@ def main():
         print("1. Test a single file") 
         print("2. Run all tests")
         print("3. Test single extractor")
-        print("4. Test extractor performance summary (quick overview)")
-        print("5. Calculate shipping cost confidence scores")
-        print("6. Exit")
+        print("4. Calculate shipping cost confidence scores")
+        print("5. Exit")
         
-        choice = input("\nEnter choice (1-6): ").strip()
+        choice = input("\nEnter choice (1-5): ").strip()
         
         if choice == "1":
             vendor = input("Enter vendor folder name: ").strip()
@@ -41,7 +40,7 @@ def main():
             results = tester.run_all_tests()
             
             if results:
-                print(f"\nTest complete! Check the generated JSON file for detailed results.")
+                print(f"\nTest complete!")
             
         elif choice == "3":
             print("\nAvailable extractors:")
@@ -61,27 +60,34 @@ def main():
                     print("Invalid number choice.")
                     continue
             
-            # Ask for limit
-            limit_input = input("Enter number of files to test (press Enter for all): ").strip()
-            limit = int(limit_input) if limit_input.isdigit() else None
+            # Ask for selection method
+            print("\nSelection options:")
+            print("1. Index/range (e.g., 1-10, 50-75, or single number)")
+            print("2. Vendor name (e.g., Arc'teryx, Patagonia)")
+            print("3. All files")
             
-            results = tester.test_single_extractor(extractor_choice, limit)
+            selection_type = input("Choose selection method (1/2/3): ").strip()
+            
+            if selection_type == "1":
+                range_input = input("Enter range (e.g., 1-10, 50-75), single number (e.g., 10): ").strip()
+                vendor_filter = None
+            elif selection_type == "2":
+                vendor_filter = input("Enter vendor name: ").strip()
+                range_input = ""
+            else:
+                range_input = ""
+                vendor_filter = None
+            
+            results = tester.test_single_extractor_with_index(extractor_choice, range_input, vendor_filter)
             
             if results:
-                print(f"\nExtractor test complete! Check the generated JSON file for detailed results.")
+                print(f"\nExtractor test complete!")
                 
         elif choice == "4":
-            print("\nRunning performance summary on first 50 files for each extractor...")
-            results = tester.test_extractor_performance_summary()
-            
-            if results:
-                print(f"\nPerformance summary complete!")
-            
-        elif choice == "5":
             print("\nCalculating shipping cost confidence scores...")
             tester.calculate_shipping_confidence_scores()
             
-        elif choice == "6":
+        elif choice == "5":
             print("Goodbye!")
             break
             

@@ -16,7 +16,7 @@ from extractors.total_amount import extract_bottom_most_currency, extract_bottom
 
 
 class InvoiceTestFramework:
-    def __init__(self, test_data_file="test_expectations.csv", invoices_folder=r"C:\Users\ethan\Desktop\Invoices"):
+    def __init__(self, test_data_file="test_expectations_sorted.csv", invoices_folder=r"C:\Users\ethan\Desktop\Invoices"):
         self.test_data_file = test_data_file
         self.invoices_folder = Path(invoices_folder)
         self.test_expectations = {}
@@ -94,6 +94,7 @@ class InvoiceTestFramework:
         except Exception as e:
             return {"error": f"Extraction failed: {str(e)}"}
     
+    
     def compare_results(self, expected, actual, fields_to_test=None):
         """Compare expected vs actual results, handling formatting differences."""
         comparison = {
@@ -133,6 +134,86 @@ class InvoiceTestFramework:
                 
         return comparison
     
+    def _parse_index_selection(self, all_files, range_input):
+        """Parse user input to select files by index. Returns list of (file_key, expected, original_index) tuples."""
+        if not range_input.strip():
+            # Return all files with their 1-based indexes
+            return [(file_key, expected, i) for i, (file_key, expected) in enumerate(all_files, 1)]
+        
+        range_input = range_input.strip()
+        selected_files = []
+        
+        try:
+            if '-' in range_input:
+                # Handle range input (e.g., "1-10", "50-75")
+                start_str, end_str = range_input.split('-', 1)
+                start_idx = int(start_str.strip())
+                end_idx = int(end_str.strip())
+                
+                # Validate range
+                if start_idx < 1 or end_idx > len(all_files) or start_idx > end_idx:
+                    print(f"Invalid range: {range_input}. Must be between 1 and {len(all_files)}")
+                    return []
+                
+                # Select files in range (inclusive, 1-based to 0-based conversion)
+                for i in range(start_idx - 1, end_idx):
+                    file_key, expected = all_files[i]
+                    selected_files.append((file_key, expected, i + 1))  # Keep 1-based index for display
+                    
+            else:
+                # Handle single number input (e.g., "10")
+                single_idx = int(range_input)
+                
+                # Validate index
+                if single_idx < 1 or single_idx > len(all_files):
+                    print(f"Invalid index: {single_idx}. Must be between 1 and {len(all_files)}")
+                    return []
+                
+                # Select single file (1-based to 0-based conversion)
+                file_key, expected = all_files[single_idx - 1]
+                selected_files.append((file_key, expected, single_idx))
+                
+        except ValueError:
+            print(f"Invalid input format: {range_input}. Use format like '10' or '1-50'")
+            return []
+        
+        return selected_files
+
+    def _parse_vendor_selection(self, all_files, vendor_filter):
+        """Filter files by vendor name. Returns list of (file_key, expected, original_index) tuples."""
+        if not vendor_filter.strip():
+            return [(file_key, expected, i) for i, (file_key, expected) in enumerate(all_files, 1)]
+        
+        vendor_filter = vendor_filter.strip().lower()
+        selected_files = []
+        
+        print(f"Filtering for vendor: '{vendor_filter}'")
+        
+        for i, (file_key, expected) in enumerate(all_files, 1):
+            # Extract vendor from filename (first part before underscore)
+            if '/' in file_key:
+                filename = file_key.split('/')[-1]
+                # Get vendor name from filename - everything before first underscore
+                if '_' in filename:
+                    file_vendor = filename.split('_')[0].lower()
+                    # Also try the vendor name from the expected data
+                    expected_vendor = expected.get('vendor_name', '').lower()
+                    
+                    # Check if filter matches either the filename vendor or expected vendor
+                    if (vendor_filter in file_vendor or 
+                        vendor_filter in expected_vendor or
+                        file_vendor.startswith(vendor_filter) or
+                        expected_vendor.startswith(vendor_filter)):
+                        selected_files.append((file_key, expected, i))
+                        
+        print(f"Found {len(selected_files)} files matching vendor '{vendor_filter}'")
+        
+        if not selected_files:
+            print(f"No files found for vendor '{vendor_filter}'. Check spelling or try a partial match.")
+            return []
+            
+        return selected_files
+
     def _normalize_value(self, value):
         """Normalize values for comparison (handle formatting differences)."""
         if not value:
@@ -245,6 +326,7 @@ class InvoiceTestFramework:
                 results["errors"] += 1
                 test_result = {
                     "file": file_key,
+                    "original_index": original_index,
                     "status": "error", 
                     "error": actual["error"]
                 }
@@ -268,19 +350,15 @@ class InvoiceTestFramework:
                 
             results["test_results"].append(test_result)
         
-        # Save detailed results
-        results_file = f"test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2)
-            
         # Print summary
         self._print_test_summary(results)
-        print(f"\nDetailed results saved to: {results_file}")
+        # JSON file creation disabled to avoid clutter
+        # print(f"\nDetailed results saved to: {results_file}")
         
         return results
     
-    def test_single_extractor(self, extractor_field, limit=None):
-        """Test a single extractor across all files with expectations."""
+    def test_single_extractor_with_index(self, extractor_field, range_input="", vendor_filter=None, silent=False):
+        """Test a single extractor across selected files using index-based selection."""
         if not self.load_test_expectations():
             return
             
@@ -303,11 +381,13 @@ class InvoiceTestFramework:
             return
             
         field_to_test = [extractor_fields[extractor_field]]
-        test_files = list(self.test_expectations.items())
+        all_test_files = list(self.test_expectations.items())
         
-        # Limit number of files if specified
-        if limit:
-            test_files = test_files[:limit]
+        # Parse range input or vendor filter to determine which files to test
+        if vendor_filter:
+            test_files = self._parse_vendor_selection(all_test_files, vendor_filter)
+        else:
+            test_files = self._parse_index_selection(all_test_files, range_input)
         
         print(f"\nTesting {extractor_field.upper()} extractor on {len(test_files)} files...")
         
@@ -322,7 +402,7 @@ class InvoiceTestFramework:
             "test_results": []
         }
         
-        for i, (file_key, expected) in enumerate(test_files, 1):
+        for i, (file_key, expected, original_index) in enumerate(test_files, 1):
             vendor_folder, filename = file_key.split('/', 1)
             print(f"  [{i}/{len(test_files)}] Testing {extractor_field} on {file_key}...")
             
@@ -333,6 +413,7 @@ class InvoiceTestFramework:
                 results["errors"] += 1
                 test_result = {
                     "file": file_key,
+                    "original_index": original_index,
                     "status": "error", 
                     "error": actual["error"]
                 }
@@ -355,11 +436,12 @@ class InvoiceTestFramework:
                     else:
                         results["failed"] += 1
                     
-                    # Display the cleaner format in terminal
-                    print(f"    Vendor: {vendor_name[:25]} | Approach: {approach_used} | Expected: {expected_amount} | Actual: {actual_amount} | Status: {status}")
+                    # Display the cleaner format in terminal with index
+                    print(f"    [{original_index}] Vendor: {vendor_name[:25]} | Approach: {approach_used} | Expected: {expected_amount} | Actual: {actual_amount} | Status: {status}")
                     
                     test_result = {
                         "file": file_key,
+                        "original_index": original_index,
                         "vendor_name": vendor_name,
                         "approach_used": approach_used,
                         "status": status,
@@ -384,6 +466,7 @@ class InvoiceTestFramework:
                         
                     test_result = {
                         "file": file_key,
+                        "original_index": original_index,
                         "status": status,
                         "field_result": field_result,
                         "extracted_value": actual.get(field_to_test[0], ''),
@@ -392,16 +475,18 @@ class InvoiceTestFramework:
                 
             results["test_results"].append(test_result)
         
-        # Save detailed results
-        results_file = f"test_results_{extractor_field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2)
-            
-        # Print summary
+        # Print summary with vendor metrics
         self._print_extractor_summary(results, extractor_field)
-        print(f"\nDetailed results saved to: {results_file}")
+        self._print_vendor_metrics(results, extractor_field)
+        # JSON file creation disabled to avoid clutter
+        # print(f"\nDetailed results saved to: {results_file}")
         
         return results
+    
+    def test_single_extractor(self, extractor_field, limit=None):
+        """Legacy method - test a single extractor with simple limit (for backward compatibility)."""
+        range_input = "" if limit is None else f"1-{limit}"
+        return self.test_single_extractor_with_index(extractor_field, range_input)
 
     def analyze_total_amount_logic(self, limit=None):
         """
@@ -633,6 +718,7 @@ class InvoiceTestFramework:
             # Bottom-minus-shipping approach vendors
             'Angler\'s Book Supply': 'bottom_minus_ship',
             'Liberty Mountain Sports': 'bottom_minus_ship',
+            'Rio Products': 'bottom_minus_ship',
             
             # Label detection approach vendors
             'Badfish': 'label',
@@ -724,6 +810,192 @@ class InvoiceTestFramework:
             print(f"{extractor:<20} {stats['total']:<8} {stats['passed']:<6} {stats['failed']:<6} {stats['skipped']:<6} {stats['errors']:<6} {accuracy:<8}")
         
         return summary_results
+    
+    def analyze_vendor_priority_for_total_amount(self):
+        """Analyze which vendors should be prioritized for total_amount extraction fixes."""
+        print("Analyzing vendor priority for total_amount extraction fixes...")
+        
+        # Run total_amount extraction on all files
+        results = self.test_single_extractor('total_amount')
+        
+        if not results or not results.get('test_results'):
+            print("No test results available for analysis.")
+            return
+        
+        # Collect vendor statistics
+        vendor_stats = {}
+        
+        for test in results['test_results']:
+            if test['status'] == 'error':
+                continue
+                
+            vendor = test.get('vendor_name', 'Unknown')
+            if vendor not in vendor_stats:
+                vendor_stats[vendor] = {
+                    'total_files': 0, 
+                    'failed_files': 0, 
+                    'passed_files': 0,
+                    'failure_rate': 0.0,
+                    'priority_score': 0.0
+                }
+            
+            vendor_stats[vendor]['total_files'] += 1
+            
+            if test['status'] == 'fail':
+                vendor_stats[vendor]['failed_files'] += 1
+            elif test['status'] == 'pass':
+                vendor_stats[vendor]['passed_files'] += 1
+        
+        # Calculate priority scores
+        for vendor, stats in vendor_stats.items():
+            if stats['total_files'] > 0:
+                stats['failure_rate'] = stats['failed_files'] / stats['total_files']
+                # Priority score = (number of failures) * (failure rate) * (volume factor)
+                # Volume factor gives higher weight to vendors with more files
+                volume_factor = min(2.0, stats['total_files'] / 5.0)  # Cap at 2x weight
+                stats['priority_score'] = stats['failed_files'] * stats['failure_rate'] * volume_factor
+        
+        # Filter out vendors with no failures
+        problem_vendors = {v: s for v, s in vendor_stats.items() if s['failed_files'] > 0}
+        
+        # Sort by priority score (highest first)
+        sorted_vendors = sorted(problem_vendors.items(), key=lambda x: x[1]['priority_score'], reverse=True)
+        
+        print(f"\\n{'='*100}")
+        print("VENDOR PRIORITY ANALYSIS - TOTAL_AMOUNT EXTRACTION")
+        print(f"{'='*100}")
+        print(f"{'Rank':<5} {'Vendor':<30} {'Failed':<8} {'Total':<8} {'Rate':<8} {'Priority':<10} {'Impact':<15}")
+        print('-' * 100)
+        
+        for rank, (vendor, stats) in enumerate(sorted_vendors[:20], 1):  # Top 20
+            failure_rate_pct = stats['failure_rate'] * 100
+            priority_score = stats['priority_score']
+            
+            # Determine impact level
+            if stats['failed_files'] >= 5 and failure_rate_pct >= 50:
+                impact = "HIGH"
+            elif stats['failed_files'] >= 3 or failure_rate_pct >= 75:
+                impact = "MEDIUM"
+            else:
+                impact = "LOW"
+            
+            # Truncate long vendor names
+            display_vendor = vendor[:27] + "..." if len(vendor) > 27 else vendor
+            
+            print(f"{rank:<5} {display_vendor:<30} {stats['failed_files']:<8} {stats['total_files']:<8} {failure_rate_pct:<7.1f}% {priority_score:<9.2f} {impact:<15}")
+        
+        # Summary recommendations
+        high_priority = [v for v, s in sorted_vendors if s['failed_files'] >= 5 and s['failure_rate'] >= 0.5]
+        medium_priority = [v for v, s in sorted_vendors if s['failed_files'] >= 3 or s['failure_rate'] >= 0.75]
+        
+        print(f"\\n{'='*100}")
+        print("PRIORITY RECOMMENDATIONS")
+        print(f"{'='*100}")
+        print(f"Total vendors with failures: {len(problem_vendors)}")
+        print(f"High priority vendors (>=5 failures, >=50% rate): {len(high_priority)}")
+        print(f"Medium priority vendors (>=3 failures or >=75% rate): {len([v for v in medium_priority if v not in high_priority])}")
+        
+        if high_priority:
+            print(f"\\nHIGH PRIORITY - Fix these first:")
+            for vendor in high_priority[:5]:  # Top 5 high priority
+                stats = problem_vendors[vendor]
+                print(f"  • {vendor} ({stats['failed_files']}/{stats['total_files']} failures, {stats['failure_rate']*100:.1f}% rate)")
+        
+        if len(sorted_vendors) > len(high_priority):
+            remaining_vendors = [v for v in sorted_vendors if v[0] not in high_priority][:3]
+            if remaining_vendors:
+                print(f"\\nNEXT PRIORITY:")
+                for vendor, stats in remaining_vendors:
+                    print(f"  • {vendor} ({stats['failed_files']}/{stats['total_files']} failures, {stats['failure_rate']*100:.1f}% rate)")
+        
+        print(f"\\nPriority Score = (Failed Files) × (Failure Rate) × (Volume Factor)")
+        print(f"Focus on vendors with high priority scores for maximum impact.")
+        
+        return sorted_vendors
+    
+    def _print_vendor_metrics(self, results, extractor_field):
+        """Print vendor-specific metrics showing pass rates."""
+        if not results.get('test_results'):
+            return
+            
+        # Collect vendor statistics
+        vendor_stats = {}
+        
+        for test in results['test_results']:
+            if test['status'] == 'error':
+                continue
+                
+            # Extract vendor name from the test results
+            if extractor_field == 'total_amount':
+                vendor = test.get('vendor_name', 'Unknown')
+            else:
+                # For other extractors, need to get vendor from file path or extracted data
+                file_key = test.get('file', '')
+                # Try to extract vendor from filename (first part before underscore)
+                if file_key and '/' in file_key:
+                    filename = file_key.split('/')[-1]
+                    vendor = filename.split('_')[0].replace('.pdf', '')
+                else:
+                    vendor = 'Unknown'
+                    
+            if vendor not in vendor_stats:
+                vendor_stats[vendor] = {'total': 0, 'passed': 0, 'failed': 0, 'skipped': 0}
+            
+            vendor_stats[vendor]['total'] += 1
+            
+            if test['status'] == 'pass':
+                vendor_stats[vendor]['passed'] += 1
+            elif test['status'] == 'fail':
+                vendor_stats[vendor]['failed'] += 1
+            elif test['status'] == 'skipped':
+                vendor_stats[vendor]['skipped'] += 1
+        
+        # Calculate metrics
+        total_vendors = len(vendor_stats)
+        vendors_100_percent = 0
+        vendors_with_tests = 0  # Vendors that have testable results (not all skipped)
+        
+        print(f"\n{'='*80}")
+        print(f"VENDOR METRICS - {extractor_field.upper()} EXTRACTOR")
+        print(f"{'='*80}")
+        
+        print(f"{'Vendor':<30} {'Total':<6} {'Pass':<6} {'Fail':<6} {'Skip':<6} {'Accuracy':<10}")
+        print('-' * 80)
+        
+        for vendor, stats in sorted(vendor_stats.items()):
+            testable = stats['total'] - stats['skipped']
+            
+            if testable > 0:
+                vendors_with_tests += 1
+                accuracy = stats['passed'] / testable * 100
+                if accuracy == 100.0:
+                    vendors_100_percent += 1
+                    accuracy_str = f"{accuracy:.0f}%*"  # Mark 100% vendors with *
+                else:
+                    accuracy_str = f"{accuracy:.1f}%"
+            else:
+                accuracy_str = "N/A"
+            
+            # Truncate long vendor names
+            display_vendor = vendor[:27] + "..." if len(vendor) > 27 else vendor
+            
+            print(f"{display_vendor:<30} {stats['total']:<6} {stats['passed']:<6} {stats['failed']:<6} {stats['skipped']:<6} {accuracy_str:<10}")
+        
+        # Summary statistics
+        print(f"\n{'='*80}")
+        print(f"VENDOR SUMMARY")
+        print(f"{'='*80}")
+        print(f"Total unique vendors: {total_vendors}")
+        print(f"Vendors with testable data: {vendors_with_tests}")
+        print(f"Vendors with 100% accuracy: {vendors_100_percent}")
+        
+        if vendors_with_tests > 0:
+            percent_perfect = vendors_100_percent / vendors_with_tests * 100
+            print(f"Percentage of vendors with 100% accuracy: {percent_perfect:.1f}%")
+            print(f"Vendors with issues: {vendors_with_tests - vendors_100_percent}")
+        
+        if vendors_100_percent > 0:
+            print(f"\n* = 100% accuracy")
         
     def _print_extractor_summary(self, results, extractor_field):
         """Print a summary for single extractor test results."""
@@ -759,14 +1031,15 @@ class InvoiceTestFramework:
         
         # Side-by-side results display  
         if extractor_field == 'total_amount':
-            print(f"\n{'='*120}")
-            print(f"{'Vendor':<30} {'Approach':<15} {'Expected':<12} {'Actual':<12} {'Status':<15}")
-            print('-' * 120)
+            print(f"\n{'='*130}")
+            print(f"{'Idx':<5} {'Vendor':<30} {'Approach':<15} {'Expected':<12} {'Actual':<12} {'Status':<15}")
+            print('-' * 130)
             
             for test in results['test_results']:
                 if test['status'] == 'error':
                     continue
                     
+                idx = test.get('original_index', '?')
                 vendor = test.get('vendor_name', 'Unknown')
                 if len(vendor) > 27:
                     vendor = vendor[:27] + "..."
@@ -776,13 +1049,14 @@ class InvoiceTestFramework:
                 actual = test.get('actual_amount', '')
                 status = test.get('status', '')
                 
-                print(f"{vendor:<30} {approach:<15} {expected:<12} {actual:<12} {status:<15}")
+                print(f"[{idx}]  {vendor:<30} {approach:<15} {expected:<12} {actual:<12} {status:<15}")
         else:
-            print(f"\n{'='*120}")
-            print(f"{'File':<45} {'Expected':<25} {'Actual':<25} {'Status':<10}")
-            print('-' * 120)
+            print(f"\n{'='*130}")
+            print(f"{'Idx':<5} {'File':<45} {'Expected':<25} {'Actual':<25} {'Status':<10}")
+            print('-' * 130)
             
             for test in results['test_results']:
+                idx = test.get('original_index', '?')
                 filename = test['file'].split('/')[-1] if '/' in test['file'] else test['file']
                 # Truncate long filenames
                 if len(filename) > 42:
@@ -806,7 +1080,7 @@ class InvoiceTestFramework:
                 }
                 status = status_map.get(test['status'], test['status'])
                 
-                print(f"{filename:<45} {expected:<25} {actual:<25} {status:<10}")
+                print(f"[{idx}]  {filename:<45} {expected:<25} {actual:<25} {status:<10}")
         
         # Show detailed failures if there are any but not too many
         failed_tests = [t for t in results['test_results'] if t['status'] == 'fail']

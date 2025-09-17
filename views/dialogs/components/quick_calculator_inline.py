@@ -727,6 +727,43 @@ class QuickCalculatorInline(QGroupBox):
                 self.grand_total_field.setText(f"{values['grand_total']:.2f}")
                 self.grand_total_field.blockSignals(False)
         
+        # Apply GT override rules after all priority-based calculations
+        values = self._apply_override_rules(values)
+        
+        return values
+        
+    def _apply_override_rules(self, values):
+        """Apply override rules to prevent negative inventory, negative shipping, or impossible math."""
+        # Rule 1: Inventory cannot be negative (discount cannot exceed subtotal)
+        if values['inventory'] < 0:
+            # Cap discount at subtotal amount to make inventory = 0
+            values['discount'] = values['subtotal']
+            values['inventory'] = 0
+            
+            # Update discount amount field
+            self.discount_amt_field.blockSignals(True)
+            self.discount_amt_field.setText(f"{values['discount']:.2f}")
+            self.discount_amt_field.blockSignals(False)
+            
+            # Update discount percentage field if subtotal > 0
+            if values['subtotal'] > 0:
+                pct_value = (values['discount'] / values['subtotal']) * 100
+                self.discount_pct_field.blockSignals(True)
+                self.discount_pct_field.setText(f"{pct_value:.1f}")
+                self.discount_pct_field.blockSignals(False)
+        
+        # Rule 2: Grand Total must be at least Inventory + Shipping
+        minimum_gt = values['inventory'] + values['shipping']
+        
+        if values['grand_total'] < minimum_gt:
+            # Override GT to the minimum valid value
+            values['grand_total'] = minimum_gt
+            
+            # Update the UI field (block signals to prevent recursion)
+            self.grand_total_field.blockSignals(True)
+            self.grand_total_field.setText(f"{values['grand_total']:.2f}")
+            self.grand_total_field.blockSignals(False)
+            
         return values
         
     def _update_displays(self, values):

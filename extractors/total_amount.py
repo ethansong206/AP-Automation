@@ -48,6 +48,8 @@ def extract_total_amount(words, vendor_name):
         # Bottom-minus-shipping approach vendors (100% success, unique to this approach)
         'Angler\'s Book Supply': 'bottom_minus_ship',
         'Liberty Mountain Sports': 'bottom_minus_ship',
+        'Yeti Coolers': 'bottom_minus_ship',
+        'Montana Fly Company': 'bottom_minus_ship',
         
         # Label detection approach vendors (100% success)
         'Badfish': 'label',

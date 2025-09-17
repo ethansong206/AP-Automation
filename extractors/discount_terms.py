@@ -17,8 +17,9 @@ def extract_discount_terms(words, vendor_name):
         "WARRANTY",
         "RETURN AUTHORIZATION",
         "DEFECTIVE",
-        "NO CHARGE",
-        "NO TERMS"
+        "NO TERMS",
+        "PRODUCT RETURN",
+        "PARTS MISSING"
     ]
     for term in special_terms:
         if term in first_n_words:
@@ -87,6 +88,36 @@ def extract_discount_terms(words, vendor_name):
     
     if vendor_name == "Dapper Ink LLC":
         return "DUE TODAY"
+    
+    # Fishpond-specific format: "10% 30, 4% 60, NET 61" -> "10% 30 NET 61"
+    if vendor_name == "Fishpond":
+        # Look for pattern like "10% 30, 4% 60, NET 61"
+        fishpond_pattern = r"(\d{1,2})%\s*(\d{1,3}),\s*\d{1,2}%\s*\d{1,3},\s*NET\s*(\d{1,3})"
+        match = re.search(fishpond_pattern, all_text)
+        if match:
+            result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
+            #print(f"[DEBUG] Found Discount Terms: {result}")
+            return result
+    
+    # Oboz-specific format: "4%NET 30" -> "4% NET 30"
+    if vendor_name == "Oboz Footwear LLC":
+        # Look for pattern like "x%NET xx"
+        oboz_pattern = r"(\d{1,2})%NET\s*(\d{1,3})"
+        match = re.search(oboz_pattern, all_text)
+        if match:
+            result = f"{match.group(1)}% NET {match.group(2)}"
+            #print(f"[DEBUG] Found Discount Terms: {result}")
+            return result
+    
+    # Sea to Summit-specific format: "8% 60 / NET 61" -> "8% 60 NET 61"
+    if vendor_name == "Sea to Summit":
+        # Look for pattern like "x% yy / NET zz"
+        sea_to_summit_pattern = r"(\d{1,2})%\s*(\d{1,3})\s*/\s*NET\s*(\d{1,3})"
+        match = re.search(sea_to_summit_pattern, all_text)
+        if match:
+            result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
+            #print(f"[DEBUG] Found Discount Terms: {result}")
+            return result
 
     # Existing patterns
     patterns = [
@@ -107,9 +138,13 @@ def extract_discount_terms(words, vendor_name):
                 digits = re.match(r"(\d)(\d{2})NET(\d{2})", value)
                 if digits:
                     value = f"{digits.group(1)}% {digits.group(2)} NET {digits.group(3)}"
-            # Remove commas and standardize spaces between digit/letter boundaries
+            # Remove commas and standardize spaces
             value = value.replace(",", " ")
+            # Insert space after % if followed by digit
+            value = re.sub(r'%(?=\d)', '% ', value)
+            # Insert space between digit and letter boundaries (but not %)
             value = re.sub(r'(?<=\d)(?=[A-Z])|(?<=[A-Z])(?=\d)', ' ', value)
+            # Clean up multiple spaces
             value = re.sub(r"\s+", " ", value).strip()
             if "DUE IN" in value:
                 net_days = match.group(1)
@@ -118,5 +153,17 @@ def extract_discount_terms(words, vendor_name):
                 return result
             #print(f"[DEBUG] Found Discount Terms: {value}")
             return value
+
+    # Gear Aid default: if no terms found, default to NET 60
+    if vendor_name == "Gear Aid":
+        return "NET 60"
+    
+    # Scout Curated Wears default: if no terms found, default to NET 30
+    if vendor_name == "Scout Curated Wears":
+        return "NET 30"
+    
+    # Turtlebox Audio LLC default: if no terms found, default to NET 30
+    if vendor_name == "Turtlebox Audio LLC":
+        return "NET 30"
 
     return ""

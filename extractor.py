@@ -31,12 +31,22 @@ def extract_fields(documents):
 
         if row["Discount Terms"] and row["Invoice Date"]:
             try:
-                discounted_due = calculate_discount_due_date(
-                    row["Discount Terms"], row["Invoice Date"]
-                )
-                row["Discount Due Date"] = discounted_due
-                if vendor_name == "Dapper Ink LLC":
-                    row["Discount Due Date"] = row["Invoice Date"] # Special case for Dapper Ink
+                # Special discount terms where due date should equal invoice date
+                special_terms = [
+                    "STATEMENT", "CREDIT MEMO", "CREDIT NOTE", "WARRANTY", 
+                    "RETURN AUTHORIZATION", "DEFECTIVE", "NO TERMS", 
+                    "PRODUCT RETURN", "PARTS MISSING", "DUE TODAY"
+                ]
+                
+                if row["Discount Terms"] in special_terms:
+                    # For special terms, due date equals invoice date
+                    row["Discount Due Date"] = row["Invoice Date"]
+                else:
+                    # Normal calculation for regular discount terms
+                    discounted_due = calculate_discount_due_date(
+                        row["Discount Terms"], row["Invoice Date"]
+                    )
+                    row["Discount Due Date"] = discounted_due
             except Exception as e:
                 print(f"[WARN] Could not compute discount due date: {e}")
 
