@@ -176,10 +176,19 @@ class VendorListDialog(QDialog):
         
         # Connect model changes
         self.model.itemChanged.connect(self._handle_item_changed)
-        
+
         # Connect proxy model signals to ensure view updates
         self.proxy.modelReset.connect(self.table.reset)
         self.proxy.layoutChanged.connect(self.table.update)
+
+        # Disable automatic sorting on data changes
+        self.proxy.setDynamicSortFilter(False)
+
+        # Connect to selection changes to auto-format vendor numbers when user leaves cell
+        self.table.selectionModel().currentChanged.connect(self._on_cell_changed)
+
+        # Also format vendor numbers when editing is finished (e.g., Tab, Enter, click elsewhere)
+        self.model.dataChanged.connect(self._on_data_changed)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search vendors…")
@@ -210,6 +219,7 @@ class VendorListDialog(QDialog):
         self._dirty = False
         self.original = {}
         self._validation_timer = None
+        self._validation_in_progress = False
         
         # Load data after everything is set up
         self._load_data()
@@ -299,10 +309,10 @@ class VendorListDialog(QDialog):
         self.model.blockSignals(False)
         self.proxy.blockSignals(False)
         
-        # Trigger the view to display the data
-        self.proxy.invalidate()
+        # Trigger the view to display the data and do initial sort
         self.table.sortByColumn(-1, Qt.AscendingOrder)
         self.table.horizontalHeader().setSortIndicatorShown(False)
+        self.proxy.invalidate()
         
         # Set column widths to 40%, 20%, 40%
         self._set_column_widths()
@@ -358,11 +368,20 @@ class VendorListDialog(QDialog):
 
     # ---------- Editing helpers ----------
     def add_row(self):
-        row = self.model.rowCount()
-        # Create the row first
-        self.model.insertRow(row)
+        # Insert new row at the top (row 0) instead of bottom
+        self.model.insertRow(0)
         for col in range(3):
-            self._set_item(row, col, "")
+            self._set_item(0, col, "")
+
+        # Update original tracking for all rows since row indices shifted
+        new_orig = {}
+        for (r, c), val in self.original.items():
+            new_orig[(r + 1, c)] = val  # Shift all existing rows down by 1
+        new_orig[(0, 0)] = ""  # New row at top
+        new_orig[(0, 1)] = ""
+        new_orig[(0, 2)] = ""
+        self.original = new_orig
+
         self._update_dirty()
         # Schedule validation for the new row
         self._schedule_validation()
@@ -409,11 +428,65 @@ class VendorListDialog(QDialog):
         self._update_dirty()
         self._dirty = True
 
+    def _on_cell_changed(self, current, previous):
+        """Handle when user moves to a different cell - auto-format vendor numbers."""
+        if not previous.isValid():
+            return
+
+        # Map proxy index back to source index
+        source_previous = self.proxy.mapToSource(previous)
+
+        # Check if we're leaving a vendor number cell (column 1)
+        if source_previous.column() == 1:
+            source_row = source_previous.row()
+            item = self.model.item(source_row, 1)
+            if item:
+                raw_number = item.text().strip()
+                if raw_number:
+                    # Extract only digits and format to 7 digits with leading zeros
+                    digits_only = ''.join(ch for ch in raw_number if ch.isdigit())
+                    if digits_only:
+                        formatted_number = digits_only.zfill(7)
+                        if formatted_number != raw_number:
+                            # Temporarily block signals to avoid triggering unnecessary events
+                            self.model.blockSignals(True)
+                            try:
+                                item.setText(formatted_number)
+                                print(f"[DEBUG] Auto-formatted vendor number: '{raw_number}' → '{formatted_number}'")
+                            finally:
+                                self.model.blockSignals(False)
+
+    def _on_data_changed(self, top_left, bottom_right, roles):
+        """Handle when data changes to auto-format vendor numbers."""
+        # Only process when editing is complete (DisplayRole changed)
+        if Qt.DisplayRole not in roles:
+            return
+
+        # Check if any changed cells are in the vendor number column (column 1)
+        if top_left.column() <= 1 <= bottom_right.column():
+            for row in range(top_left.row(), bottom_right.row() + 1):
+                item = self.model.item(row, 1)
+                if item:
+                    raw_number = item.text().strip()
+                    if raw_number:
+                        # Extract only digits and format to 7 digits with leading zeros
+                        digits_only = ''.join(ch for ch in raw_number if ch.isdigit())
+                        if digits_only:
+                            formatted_number = digits_only.zfill(7)
+                            if formatted_number != raw_number:
+                                # Temporarily block signals to avoid triggering unnecessary events
+                                self.model.blockSignals(True)
+                                try:
+                                    item.setText(formatted_number)
+                                    print(f"[DEBUG] Auto-formatted vendor number on data change: '{raw_number}' → '{formatted_number}'")
+                                finally:
+                                    self.model.blockSignals(False)
+
     def _handle_item_changed(self, item):
         key = (item.row(), item.column())
         orig = self.original.get(key, "")
         new_text = item.text().strip()
-        
+
         # Debug changes, especially to identifiers
         if item.column() == 2:  # Identifier column
             vendor_name = ""
@@ -421,14 +494,18 @@ class VendorListDialog(QDialog):
             if name_item:
                 vendor_name = name_item.text().strip()
             print(f"[DEBUG] Identifier changed for vendor '{vendor_name}': '{orig}' → '{new_text}'")
-        
+
         # No highlighting - just track changes
         self._update_dirty()
-        # Schedule validation when items change
+        # Schedule validation when items change (but don't trigger sorting)
         self._schedule_validation()
     
     def _schedule_validation(self):
         """Schedule vendor number validation to run after a short delay."""
+        # Don't schedule if validation is already in progress
+        if self._validation_in_progress:
+            return
+
         if self._validation_timer is None:
             self._validation_timer = QTimer()
             self._validation_timer.timeout.connect(self._validate_vendor_numbers)
@@ -437,40 +514,47 @@ class VendorListDialog(QDialog):
     
     def _validate_vendor_numbers(self):
         """Check for rows with vendor names but no vendor numbers and warn the user."""
-        invalid_rows = []
-        
-        for row in range(self.model.rowCount()):
-            name_item = self.model.item(row, 0)
-            number_item = self.model.item(row, 1)
-            
-            name = name_item.text().strip() if name_item else ""
-            number = number_item.text().strip() if number_item else ""
-            
-            # Check for invalid rows (name without number) - no highlighting
-            if name and not number:
-                invalid_rows.append(row + 1)  # 1-based for user display
-        
-        if invalid_rows:
-            if len(invalid_rows) == 1:
-                msg = (f"Row {invalid_rows[0]} has a Vendor Name but no Vendor Number.\n\n"
-                       f"You must either:\n"
-                       f"• Enter a Vendor Number for this row, or\n"
-                       f"• Delete this row\n\n"
-                       f"Rows with Vendor Names require Vendor Numbers to be saved.")
-            else:
-                row_list = ", ".join(str(r) for r in invalid_rows)
-                msg = (f"Rows {row_list} have Vendor Names but no Vendor Numbers.\n\n"
-                       f"You must either:\n"
-                       f"• Enter Vendor Numbers for these rows, or\n"
-                       f"• Delete these rows\n\n"
-                       f"Rows with Vendor Names require Vendor Numbers to be saved.")
-            
-            QMessageBox.warning(
-                self,
-                "Missing Vendor Numbers",
-                msg,
-                QMessageBox.Ok
-            )
+        # Set flag to prevent multiple concurrent validations
+        self._validation_in_progress = True
+
+        try:
+            invalid_rows = []
+
+            for row in range(self.model.rowCount()):
+                name_item = self.model.item(row, 0)
+                number_item = self.model.item(row, 1)
+
+                name = name_item.text().strip() if name_item else ""
+                number = number_item.text().strip() if number_item else ""
+
+                # Check for invalid rows (name without number) - no highlighting
+                if name and not number:
+                    invalid_rows.append(row + 1)  # 1-based for user display
+
+            if invalid_rows:
+                if len(invalid_rows) == 1:
+                    msg = (f"Row {invalid_rows[0]} has a Vendor Name but no Vendor Number.\n\n"
+                           f"You must either:\n"
+                           f"• Enter a Vendor Number for this row, or\n"
+                           f"• Delete this row\n\n"
+                           f"Rows with Vendor Names require Vendor Numbers to be saved.")
+                else:
+                    row_list = ", ".join(str(r) for r in invalid_rows)
+                    msg = (f"Rows {row_list} have Vendor Names but no Vendor Numbers.\n\n"
+                           f"You must either:\n"
+                           f"• Enter Vendor Numbers for these rows, or\n"
+                           f"• Delete these rows\n\n"
+                           f"Rows with Vendor Names require Vendor Numbers to be saved.")
+
+                QMessageBox.warning(
+                    self,
+                    "Missing Vendor Numbers",
+                    msg,
+                    QMessageBox.Ok
+                )
+        finally:
+            # Always reset the flag when validation is complete
+            self._validation_in_progress = False
 
     def _update_dirty(self):
         dirty = False

@@ -33,9 +33,9 @@ def extract_fields(documents):
             try:
                 # Special discount terms where due date should equal invoice date
                 special_terms = [
-                    "STATEMENT", "CREDIT MEMO", "CREDIT NOTE", "WARRANTY", 
-                    "RETURN AUTHORIZATION", "DEFECTIVE", "NO TERMS", 
-                    "PRODUCT RETURN", "PARTS MISSING", "DUE TODAY"
+                    "STATEMENT", "CREDIT MEMO", "CREDIT NOTE", "WARRANTY",
+                    "RETURN AUTHORIZATION", "DEFECTIVE", "NO TERMS",
+                    "PRODUCT RETURN", "PARTS MISSING", "DUE TODAY", "RA FOR CREDIT"
                 ]
                 
                 if row["Discount Terms"] in special_terms:
@@ -44,7 +44,7 @@ def extract_fields(documents):
                 else:
                     # Normal calculation for regular discount terms
                     discounted_due = calculate_discount_due_date(
-                        row["Discount Terms"], row["Invoice Date"]
+                        row["Discount Terms"], row["Invoice Date"], row["Vendor Name"]
                     )
                     row["Discount Due Date"] = discounted_due
             except Exception as e:

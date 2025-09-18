@@ -12,7 +12,7 @@ from collections import defaultdict
 # Import the actual extraction pipeline
 from pdf_reader import extract_text_data_from_pdfs
 from extractor import extract_fields
-from extractors.total_amount import extract_bottom_most_currency, extract_bottom_most_minus_shipping
+from extractors.total_amount import extract_bottom_most_currency, extract_bottom_most_minus_shipping, VENDOR_APPROACH_MAP
 
 
 class InvoiceTestFramework:
@@ -405,16 +405,30 @@ class InvoiceTestFramework:
         for i, (file_key, expected, original_index) in enumerate(test_files, 1):
             vendor_folder, filename = file_key.split('/', 1)
             print(f"  [{i}/{len(test_files)}] Testing {extractor_field} on {file_key}...")
-            
+
             # Run extraction
             actual = self.run_extraction_test(vendor_folder, filename)
-            
+
             if "error" in actual:
                 results["errors"] += 1
+
+                # Display error for all extractors to show what went wrong
+                vendor_name = actual.get('vendor_name', 'Unknown')
+                error_msg = actual.get('error', 'Unknown error')[:50]  # Truncate long errors
+
+                if extractor_field == 'total_amount':
+                    print(f"[{original_index:>3}] {vendor_name[:25]:<25} {'ERROR':<20} {'':<15} {'':<15} [X] ERROR: {error_msg}")
+                else:
+                    # For other extractors, show in the standard format
+                    filename = file_key.split('/')[-1] if '/' in file_key else file_key
+                    if len(filename) > 42:
+                        filename = filename[:42] + "..."
+                    print(f"[{original_index:>3}] {filename:<50} {'':<20} {'':<20} [X] ERROR: {error_msg}")
+
                 test_result = {
                     "file": file_key,
                     "original_index": original_index,
-                    "status": "error", 
+                    "status": "error",
                     "error": actual["error"]
                 }
             else:
@@ -436,8 +450,17 @@ class InvoiceTestFramework:
                     else:
                         results["failed"] += 1
                     
-                    # Display the cleaner format in terminal with index
-                    print(f"    [{original_index}] Vendor: {vendor_name[:25]} | Approach: {approach_used} | Expected: {expected_amount} | Actual: {actual_amount} | Status: {status}")
+                    # Status with X only for failures to make them stand out
+                    status_map = {
+                        'pass': 'PASS',
+                        'fail': '[X] FAIL',
+                        'skipped': 'SKIP',
+                        'error': '[X] ERROR'
+                    }
+                    visual_status = status_map.get(status, status)
+
+                    # Display with proper column alignment
+                    print(f"[{original_index:>3}] {vendor_name[:25]:<25} {approach_used:<20} {expected_amount:<15} {actual_amount:<15} {visual_status}")
                     
                     test_result = {
                         "file": file_key,
@@ -678,59 +701,7 @@ class InvoiceTestFramework:
 
     def _determine_approach_used(self, vendor_name, actual_amount, expected_amount, vendor_folder, filename):
         """Determine which approach was used by the total_amount extractor."""
-        # Check if vendor has a specific approach mapping
-        VENDOR_APPROACH_MAP = {
-            # Gross approach vendors  
-            'Sendero Provisions Co., LLC': 'gross',
-            'Yak Attack': 'gross',
-            'Marine Layer': 'gross', 
-            'Wapsi Fly': 'gross',
-            'Columbia Sportswear': 'gross',
-            'The North Face': 'gross',
-            'Hareline Dubbin, Inc': 'gross',
-            'Industrial Revolution, Inc': 'gross',
-            'Korkers Products, LLC': 'gross',
-            'ON Running': 'gross',
-            'Oregon Freeze Dry': 'gross',
-            'Outdoor Research': 'gross',
-            'Waboba Inc': 'gross',
-            'Birkenstock USA': 'gross',
-            
-            # Calculated approach vendors
-            'Howler Brothers': 'calculated',
-            'Oboz Footwear LLC': 'calculated',
-            'Osprey Packs, Inc': 'calculated',
-            'Temple Fork Outfitters': 'calculated',
-            'National Geographic Maps': 'calculated',
-            'Toad & Co': 'calculated',
-            'Astral Footwear': 'calculated',
-            'Eagles Nest Outfitters, Inc.': 'calculated',
-            'Fulling Mill Fly Fishing LLC': 'calculated',
-            'Olukai LLC': 'calculated',
-            
-            # Bottom-most approach vendors
-            'Hobie Cat Company II, LLC': 'bottom_most',
-            'TOPO ATHLETIC': 'bottom_most', 
-            'Free Fly Apparel': 'bottom_most',
-            'Patagonia': 'bottom_most',
-            'Black Diamond Equipment Ltd': 'bottom_most',
-            
-            # Bottom-minus-shipping approach vendors
-            'Angler\'s Book Supply': 'bottom_minus_ship',
-            'Liberty Mountain Sports': 'bottom_minus_ship',
-            'Rio Products': 'bottom_minus_ship',
-            
-            # Label detection approach vendors
-            'Badfish': 'label',
-            
-            # Label minus shipping approach vendors
-            'Accent & Cannon': 'label_minus_ship',
-            'Cotopaxi': 'label_minus_ship', 
-            'Hoka': 'label_minus_ship',
-            'Katin': 'label_minus_ship',
-            'Loksak': 'label_minus_ship',
-            'Vuori': 'label_minus_ship',
-        }
+        # Use the imported VENDOR_APPROACH_MAP from total_amount extractor
         
         if vendor_name in VENDOR_APPROACH_MAP:
             return VENDOR_APPROACH_MAP[vendor_name]
@@ -1029,31 +1000,40 @@ class InvoiceTestFramework:
             accuracy = results['passed'] / testable * 100
             print(f"Accuracy: {accuracy:.1f}% ({results['passed']}/{testable} testable files)")
         
-        # Side-by-side results display  
+        # Side-by-side results display
         if extractor_field == 'total_amount':
-            print(f"\n{'='*130}")
-            print(f"{'Idx':<5} {'Vendor':<30} {'Approach':<15} {'Expected':<12} {'Actual':<12} {'Status':<15}")
-            print('-' * 130)
-            
+            print(f"\n{'='*120}")
+            print(f"{'Idx':>5} {'Vendor':<25} {'Approach':<20} {'Expected':<15} {'Actual':<15} {'Status'}")
+            print('─' * 120)
+
             for test in results['test_results']:
                 if test['status'] == 'error':
                     continue
-                    
+
                 idx = test.get('original_index', '?')
                 vendor = test.get('vendor_name', 'Unknown')
-                if len(vendor) > 27:
-                    vendor = vendor[:27] + "..."
-                
+                if len(vendor) > 25:
+                    vendor = vendor[:22] + "..."
+
                 approach = test.get('approach_used', 'unknown')
                 expected = test.get('expected_amount', '')
                 actual = test.get('actual_amount', '')
                 status = test.get('status', '')
-                
-                print(f"[{idx}]  {vendor:<30} {approach:<15} {expected:<12} {actual:<12} {status:<15}")
+
+                # Status with X only for failures to make them stand out
+                status_map = {
+                    'pass': 'PASS',
+                    'fail': '[X] FAIL',
+                    'skipped': 'SKIP',
+                    'error': '[X] ERROR'
+                }
+                visual_status = status_map.get(status, status)
+
+                print(f"[{idx:>3}] {vendor:<25} {approach:<20} {expected:<15} {actual:<15} {visual_status}")
         else:
-            print(f"\n{'='*130}")
-            print(f"{'Idx':<5} {'File':<45} {'Expected':<25} {'Actual':<25} {'Status':<10}")
-            print('-' * 130)
+            print(f"\n{'='*120}")
+            print(f"{'Idx':>5} {'File':<50} {'Expected':<20} {'Actual':<20} {'Status'}")
+            print('─' * 120)
             
             for test in results['test_results']:
                 idx = test.get('original_index', '?')
@@ -1062,25 +1042,26 @@ class InvoiceTestFramework:
                 if len(filename) > 42:
                     filename = filename[:39] + "..."
                     
-                expected = test.get('expected_value', '')[:22]
-                actual = test.get('extracted_value', '')[:22]
+                expected = (test.get('expected_value') or '')[:22]
+                actual = (test.get('extracted_value') or '')[:22]
                 
                 # Add ellipsis if truncated
-                if len(test.get('expected_value', '')) > 22:
+                if len(test.get('expected_value') or '') > 22:
                     expected += "..."
-                if len(test.get('extracted_value', '')) > 22:
+                if len(test.get('extracted_value') or '') > 22:
                     actual += "..."
                 
-                # Status without emoji for Windows compatibility
+                # Status with X only for failures to make them stand out
                 status_map = {
                     'pass': 'PASS',
-                    'fail': 'FAIL',
+                    'fail': '[X] FAIL',
                     'skipped': 'SKIP',
-                    'error': 'ERROR'
+                    'error': '[X] ERROR'
                 }
                 status = status_map.get(test['status'], test['status'])
-                
-                print(f"[{idx}]  {filename:<45} {expected:<25} {actual:<25} {status:<10}")
+
+                # Better formatting with fixed column widths
+                print(f"[{idx:>3}] {filename:<50} {expected:<20} {actual:<20} {status}")
         
         # Show detailed failures if there are any but not too many
         failed_tests = [t for t in results['test_results'] if t['status'] == 'fail']

@@ -1250,8 +1250,9 @@ class ManualEntryDialog(QDialog):
     def _on_calculate_due_date(self):
         terms = self.fields["Discount Terms"].text().strip()
         invoice_date_str = self.fields["Invoice Date"].date().toString("MM/dd/yy")
+        vendor_name = self.fields["Vendor Name"].currentText().strip()
         try:
-            due_str = calculate_discount_due_date(terms, invoice_date_str)
+            due_str = calculate_discount_due_date(terms, invoice_date_str, vendor_name)
         except Exception as e:
             print(f"[WARN] calculate_discount_due_date failed: {e}")
             due_str = None

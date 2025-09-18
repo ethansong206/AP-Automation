@@ -19,7 +19,8 @@ def extract_discount_terms(words, vendor_name):
         "DEFECTIVE",
         "NO TERMS",
         "PRODUCT RETURN",
-        "PARTS MISSING"
+        "PARTS MISSING",
+        "RA FOR CREDIT"
     ]
     for term in special_terms:
         if term in first_n_words:
@@ -88,7 +89,13 @@ def extract_discount_terms(words, vendor_name):
     
     if vendor_name == "Dapper Ink LLC":
         return "DUE TODAY"
-    
+
+    # Rumpl-specific format: Look for "Memo" label with percentage at same Y-coordinate
+    if vendor_name == "Rumpl":
+        memo_percentage = _extract_rumpl_memo_percentage(words)
+        if memo_percentage:
+            return memo_percentage
+
     # Fishpond-specific format: "10% 30, 4% 60, NET 61" -> "10% 30 NET 61"
     if vendor_name == "Fishpond":
         # Look for pattern like "10% 30, 4% 60, NET 61"
@@ -118,6 +125,42 @@ def extract_discount_terms(words, vendor_name):
             result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
             #print(f"[DEBUG] Found Discount Terms: {result}")
             return result
+
+    # BIG Adventures-specific: Add "DISCOUNT OF X%" to terms if no percentage already exists
+    if vendor_name == "BIG Adventures, LLC":
+        # First get standard discount terms using normal extraction
+        standard_result = None
+        for pattern in [
+            r"\b\d{1,2}%\s*NET\s*\d{1,3}\b",                # x% NET xx
+            r"\b\d{1,2}%\s*\d{1,2},?\s*NET\s*\d{1,3}\b",    # x% xx NET xx
+            r"\bNET\s*\d{1,3}\b",                           # NET xx
+        ]:
+            match = re.search(pattern, all_text)
+            if match:
+                value = match.group()
+                value = value.replace(",", " ")
+                value = re.sub(r'%(?=\d)', '% ', value)
+                value = re.sub(r'(?<=\d)(?=[A-Z])|(?<=[A-Z])(?=\d)', ' ', value)
+                value = re.sub(r"\s+", " ", value).strip()
+                standard_result = value
+                break
+
+        # Look for "DISCOUNT OF X%, $XX.XX" pattern (handle OCR artifacts like CID:XX)
+        discount_pattern = r"DISCOUNT\s+OF\s+(\d{1,2})%,\s*(?:\(CID:\d+\))?\s*\$?[\d,]+\.?\d*"
+        special_match = re.search(discount_pattern, all_text)
+
+        # If we found terms, check if they already have a percentage
+        if standard_result and "%" not in standard_result:
+            if special_match:
+                discount_percent = special_match.group(1)
+                result = f"{discount_percent}% {standard_result}"
+                #print(f"[DEBUG] Found BIG Adventures Combined Terms: {result}")
+                return result
+
+        # Return standard result if found (with or without percentage)
+        if standard_result:
+            #print(f"[DEBUG] Found BIG Adventures Standard Terms: {standard_result}")
+            return standard_result
 
     # Existing patterns
     patterns = [
@@ -167,3 +210,46 @@ def extract_discount_terms(words, vendor_name):
         return "NET 30"
 
     return ""
+
+def _extract_rumpl_memo_percentage(words):
+    """Extract percentage value that appears next to 'Memo' label at same Y-coordinate for Rumpl."""
+    if not words:
+        return None
+
+    # Find "Memo" labels
+    memo_positions = []
+    for word in words:
+        if word["text"].lower() == "memo":
+            memo_positions.append({
+                "x0": word["x0"],
+                "x1": word["x1"],
+                "top": word["top"],
+                "page_num": word.get("page_num", 0)
+            })
+
+    # Find percentages at same Y-coordinate to the right of memo labels
+    for memo_pos in memo_positions:
+        memo_page = memo_pos.get("page_num", 0)
+
+        for word in words:
+            word_page = word.get("page_num", 0)
+
+            # Skip if on different pages
+            if memo_page != word_page:
+                continue
+
+            # Check if this word contains a percentage
+            if "%" in word["text"]:
+                # Check if it's at the same Y-coordinate (within 5px) and to the right
+                vertical_alignment = abs(word["top"] - memo_pos["top"])
+                horizontal_distance = word["x0"] - memo_pos["x1"]
+
+                if (vertical_alignment <= 5 and          # Same Y-coordinate (±5px)
+                    0 <= horizontal_distance <= 300):   # To the right within 300px
+
+                    # Extract just the percentage (e.g., "7%" from "7%")
+                    percentage_match = re.search(r"(\d{1,2})%", word["text"])
+                    if percentage_match:
+                        return f"{percentage_match.group(1)}%"
+
+    return None

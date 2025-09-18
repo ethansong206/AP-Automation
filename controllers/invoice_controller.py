@@ -16,14 +16,15 @@ class InvoiceController:
     def recalculate_dependent_fields(self, row):
         """Recalculate fields that depend on other fields."""
         # First, recalculate the due date from discount terms
+        vendor_name = self.main_window.table.get_cell_text(row, 1).strip()
         discount_terms = self.main_window.table.get_cell_text(row, 5).strip()
         invoice_date = self.main_window.table.get_cell_text(row, 4).strip()
-        
+
         # Always force recalculation of due date if there are terms and invoice date
         if discount_terms and invoice_date:
             from extractors.utils import calculate_discount_due_date
             try:
-                due_date = calculate_discount_due_date(discount_terms, invoice_date)
+                due_date = calculate_discount_due_date(discount_terms, invoice_date, vendor_name)
                 if due_date:
                     # FORCE UPDATE: Always update the due date regardless of any tracking state
                     self.main_window.table.update_calculated_field(row, 6, due_date, True)

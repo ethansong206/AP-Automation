@@ -4,7 +4,8 @@ Provides professional financial summary with editable fields and smart calculati
 """
 
 from copy import deepcopy
-from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout, QLineEdit, 
+from collections import deque
+from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout, QLineEdit,
                              QLabel, QFrame, QWidget, QMessageBox)
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QFont, QColor, QPalette
@@ -53,16 +54,18 @@ class QuickCalculatorInline(QGroupBox):
         self.pct_label_width = max(15, int(15 * self.dpi_scale))
         
         # Priority queue for tracking field changes
-        self.recently_changed = []  # Most recent at index 0
+        self.recently_changed = deque(maxlen=2)  # Most recent at index 0
 
         # Track which discount input (pct or amt) was last edited
         self._last_discount_source = None
+
         
         # Track when auto-calculation was accepted by user
         self._auto_calc_accepted = False
-        
+
         # Store pending confirmation data
         self._pending_confirmation = None
+
         
         # Field references
         self.subtotal_field = None
@@ -425,7 +428,6 @@ class QuickCalculatorInline(QGroupBox):
         """Trigger save to persist auto-calculation changes to the invoice table."""
         if self.dialog_ref and hasattr(self.dialog_ref, 'save_current_invoice'):
             try:
-                print(f"[QC DEBUG] Triggering auto-save after auto-calculation acceptance")
                 
                 # Call the dialog's save methods directly
                 self.dialog_ref.save_current_invoice()  # Updates internal values_list
@@ -455,22 +457,19 @@ class QuickCalculatorInline(QGroupBox):
                             self.dialog_ref.values_list[idx], 
                             self.dialog_ref.flag_states[idx]
                         )
-                        print(f"[QC DEBUG] Auto-save completed and invoice table updated")
                 
             except Exception as e:
-                print(f"[QC DEBUG] Error during auto-save: {e}")
+                print(f"[ERROR] QC auto-save failed: {e}")
     
     def _block_all_signals(self, block):
         """Block or unblock signals on all QC input fields."""
-        print(f"[SYNC DEBUG] _block_all_signals called with block={block}")
         fields = [
-            self.subtotal_field, self.discount_pct_field, 
+            self.subtotal_field, self.discount_pct_field,
             self.discount_amt_field, self.shipping_field, self.grand_total_field
         ]
         for field in fields:
             if field:
                 field.blockSignals(block)
-                print(f"[SYNC DEBUG] {field.objectName() or 'unnamed_field'} signals blocked: {field.signalsBlocked()}")
         
     def _connect_signals(self):
         # Subtotal should tell us it changed, so we can resync discounts
@@ -480,20 +479,11 @@ class QuickCalculatorInline(QGroupBox):
         self.discount_amt_field.textChanged.connect(lambda: self._on_field_changed('discount_amt'))
         self.shipping_field.textChanged.connect(lambda: self._on_field_changed('shipping'))
         self.grand_total_field.textChanged.connect(lambda: self._on_field_changed('grand_total'))
-        
+
     def _on_field_changed(self, field_name):
-        print(f"[SYNC DEBUG] _on_field_changed called with: '{field_name}'")
-
-        # Debug signal blocking status for discount fields
-        if field_name == 'discount_pct':
-            print(f"[SYNC DEBUG] discount_pct_field signals blocked: {self.discount_pct_field.signalsBlocked()}")
-        elif field_name == 'discount_amt':
-            print(f"[SYNC DEBUG] discount_amt_field signals blocked: {self.discount_amt_field.signalsBlocked()}")
-
         # Record the last discount source to decide which value stays 'authoritative'
         if field_name in ['discount_pct', 'discount_amt']:
             self._last_discount_source = field_name
-            print(f"[SYNC DEBUG] _last_discount_source set to: {self._last_discount_source}")
 
             # Debounced sync for discount fields themselves
             if hasattr(self, '_sync_timer') and self._sync_timer.isActive():
@@ -541,11 +531,9 @@ class QuickCalculatorInline(QGroupBox):
         """Add field to front of priority queue."""
         if field_name in self.recently_changed:
             self.recently_changed.remove(field_name)
-        self.recently_changed.insert(0, field_name)
-        
-        # Keep only last 2 for our priority logic
-        if len(self.recently_changed) > 2:
-            self.recently_changed.pop()
+        self.recently_changed.appendleft(field_name)
+
+        print(f"[DEBUG] Field '{field_name}' marked as changed. Priority queue: {list(self.recently_changed)}")
             
     def _show_field_indicator(self, field_name):
         """Show visual indicator for recently changed field."""
@@ -562,50 +550,36 @@ class QuickCalculatorInline(QGroupBox):
             
     def _sync_discount_fields(self, changed_field):
         """Synchronize discount % and $ fields."""
-        print(f"[SYNC DEBUG] _sync_discount_fields called with: '{changed_field}'")
-        
         try:
             subtotal_value = self.currency.parse_money(self.subtotal_field.text()) or 0
-            print(f"[SYNC DEBUG] Subtotal value: {subtotal_value}")
-            
+
             # Temporarily block signals to prevent circular updates
-            print(f"[SYNC DEBUG] Blocking signals on discount fields")
             self.discount_pct_field.blockSignals(True)
             self.discount_amt_field.blockSignals(True)
-            
+
             if changed_field == 'discount_pct' and subtotal_value > 0:
                 # Update $ field based on % field
                 pct_text = self.discount_pct_field.text().strip()
-                print(f"[SYNC DEBUG] % field text: '{pct_text}', updating $ field")
                 if pct_text:
                     try:
                         pct_value = float(pct_text) / 100
                         amt_value = subtotal_value * pct_value
-                        print(f"[SYNC DEBUG] Setting $ field to: {amt_value:.2f}")
                         self.discount_amt_field.setText(f"{amt_value:.2f}")
-                        print(f"[SYNC DEBUG] $ field now shows: '{self.discount_amt_field.text()}'")
-                    except ValueError as e:
-                        print(f"[SYNC DEBUG] Error parsing %: {e}")
+                    except ValueError:
                         pass
-                    
+
             elif changed_field == 'discount_amt':
                 # Update % field based on $ field
                 amt_text = self.discount_amt_field.text().strip()
                 amt_value = self.currency.parse_money(amt_text) or 0
                 amt_value = abs(amt_value)
-                print(f"[SYNC DEBUG] $ field text: '{amt_text}', parsed: {amt_value}, updating % field")
                 if subtotal_value > 0:
                     pct_value = (amt_value / subtotal_value) * 100
-                    print(f"[SYNC DEBUG] Setting % field to: {pct_value:.1f}")
                     self.discount_pct_field.setText(f"{pct_value:.1f}")
-                    print(f"[SYNC DEBUG] % field now shows: '{self.discount_pct_field.text()}'")
-                else:
-                    print(f"[SYNC DEBUG] Cannot sync %, subtotal is 0")
 
             elif changed_field == 'subtotal':
                 # Decide which discount input is authoritative
                 last = getattr(self, '_last_discount_source', None)
-                print(f"[SYNC DEBUG] Subtotal changed; _last_discount_source={last}")
 
                 if last == 'discount_amt':
                     # Keep $ fixed, recompute % from $
@@ -615,11 +589,9 @@ class QuickCalculatorInline(QGroupBox):
                         amt_value = abs(amt_value)
                         if subtotal_value > 0:
                             pct_value = (amt_value / subtotal_value) * 100.0
-                            print(f"[SYNC DEBUG] Subtotal changed; keeping $, setting % to {pct_value:.1f}")
                             self.discount_pct_field.setText(f"{pct_value:.1f}")
                         else:
                             # If subtotal is 0, percent is undefined—clear it
-                            print(f"[SYNC DEBUG] Subtotal is 0; clearing %")
                             self.discount_pct_field.clear()
                     # If $ is blank, do nothing
                 else:
@@ -629,18 +601,15 @@ class QuickCalculatorInline(QGroupBox):
                         try:
                             pct_value = float(pct_text) / 100.0
                             amt_value = subtotal_value * pct_value
-                            print(f"[SYNC DEBUG] Subtotal changed; keeping %, setting $ to {amt_value:.2f}")
                             self.discount_amt_field.setText(f"{amt_value:.2f}")
-                        except ValueError as e:
-                            print(f"[SYNC DEBUG] Error parsing % on subtotal change: {e}")
+                        except ValueError:
+                            pass
                     # If % is blank, do nothing
-                    
-        except (ValueError, ZeroDivisionError) as e:
-            print(f"[SYNC DEBUG] Exception during sync: {e}")
+
+        except (ValueError, ZeroDivisionError):
             pass
         finally:
             # Always restore signals
-            print(f"[SYNC DEBUG] Restoring signals on discount fields")
             self.discount_pct_field.blockSignals(False)
             self.discount_amt_field.blockSignals(False)
             
@@ -678,22 +647,29 @@ class QuickCalculatorInline(QGroupBox):
         """Apply priority-based calculation logic for three-way relationship."""
         # Three components: inventory, shipping, grand_total
         # Rule: Last 2 changed determine the third
-        
-        recent_changes = self.recently_changed[:2]  # Last 2 changed
-        
+
+        recent_changes = list(self.recently_changed)  # Convert deque to list
+
         # Always calculate inventory first (this ensures the key exists)
         values['inventory'] = values['subtotal'] - values['discount']
-        
+
+        print(f"[DEBUG] Priority calculation: recent_changes={recent_changes}, values={values}")
+
         if len(recent_changes) >= 2:
             changed_set = set(recent_changes)
-            
+            print(f"[DEBUG] Changed set: {changed_set}")
+
             if changed_set == {'grand_total', 'shipping'}:
+                print(f"[DEBUG] Case: grand_total + shipping -> calculate inventory")
+                print(f"[DEBUG] Before calc: GT={values['grand_total']}, Shipping={values['shipping']}")
                 # Calculate inventory = grand_total - shipping
                 inventory_calc = values['grand_total'] - values['shipping']
+                print(f"[DEBUG] Calculated inventory: {inventory_calc}")
                 # Update subtotal and clear discounts to achieve this inventory
                 values['subtotal'] = inventory_calc
                 values['discount'] = 0
                 values['inventory'] = inventory_calc
+                print(f"[DEBUG] After update: subtotal={values['subtotal']}, discount={values['discount']}")
                 # Update UI fields
                 self.subtotal_field.blockSignals(True)
                 self.discount_pct_field.blockSignals(True)
@@ -714,56 +690,148 @@ class QuickCalculatorInline(QGroupBox):
                 
             elif changed_set == {'inventory', 'shipping'}:
                 # Calculate grand_total = inventory + shipping
-                values['grand_total'] = values['inventory'] + values['shipping']
-                self.grand_total_field.blockSignals(True)
-                self.grand_total_field.setText(f"{values['grand_total']:.2f}")
-                self.grand_total_field.blockSignals(False)
-        else:
-            # Default behavior: calculate grand_total
-            # BUT: Don't override if user just manually set grand_total
-            if 'grand_total' not in self.recently_changed or len(self.recently_changed) > 1:
-                values['grand_total'] = values['inventory'] + values['shipping']
-                self.grand_total_field.blockSignals(True)
-                self.grand_total_field.setText(f"{values['grand_total']:.2f}")
-                self.grand_total_field.blockSignals(False)
+                # Only if grand_total isn't the most recently changed field
+                if self.recently_changed[0] != 'grand_total':
+                    values['grand_total'] = values['inventory'] + values['shipping']
+                    self.grand_total_field.blockSignals(True)
+                    self.grand_total_field.setText(f"{values['grand_total']:.2f}")
+                    self.grand_total_field.blockSignals(False)
+        # No else block - only calculate when 2 fields have changed
         
         # Apply GT override rules after all priority-based calculations
         values = self._apply_override_rules(values)
         
         return values
+
+    def _is_credit_memo(self):
+        """Check if this is a credit memo based on discount terms."""
+        try:
+            # Get discount terms from the dialog
+            if hasattr(self, 'dialog_ref') and self.dialog_ref:
+                # Check if there's a discount terms field
+                if hasattr(self.dialog_ref, 'discount_terms_field'):
+                    discount_terms = self.dialog_ref.discount_terms_field.text().strip().upper()
+                elif hasattr(self.dialog_ref, 'form_fields') and 'Discount Terms' in self.dialog_ref.form_fields:
+                    discount_terms = self.dialog_ref.form_fields['Discount Terms'].text().strip().upper()
+                else:
+                    return False
+
+                # Check for credit memo indicators
+                credit_indicators = [
+                    "CREDIT MEMO", "CREDIT NOTE", "PRODUCT RETURN",
+                    "RETURN AUTHORIZATION", "DEFECTIVE", "RA FOR CREDIT"
+                ]
+
+                for indicator in credit_indicators:
+                    if indicator in discount_terms:
+                        return True
+
+        except Exception:
+            pass
+
+        return False
+
+    def _original_is_credit_memo(self):
+        """Check if this appears to be a credit memo based on the original total amount."""
+        try:
+            # Check if the original total amount (from extraction) is negative
+            # This indicates it was detected as a credit memo
+            if hasattr(self, 'dialog_ref') and self.dialog_ref:
+                # Get the original extracted total amount from the dialog
+                total_amount_text = self.dialog_ref.total_amount_field.text() if hasattr(self.dialog_ref, 'total_amount_field') else ""
+                if total_amount_text.strip():
+                    # Remove currency formatting and check if negative
+                    cleaned_amount = total_amount_text.replace('$', '').replace(',', '').strip()
+                    if cleaned_amount.startswith('-') or cleaned_amount.startswith('('):
+                        return True
+                    try:
+                        amount_value = float(cleaned_amount)
+                        if amount_value < 0:
+                            return True
+                    except ValueError:
+                        pass
+        except Exception:
+            pass
+        
+        return False
         
     def _apply_override_rules(self, values):
         """Apply override rules to prevent negative inventory, negative shipping, or impossible math."""
-        # Rule 1: Inventory cannot be negative (discount cannot exceed subtotal)
-        if values['inventory'] < 0:
+        is_credit = self._is_credit_memo()
+
+        print(f"[DEBUG] Override rules: is_credit={is_credit}, values before={values}")
+
+        # Rule 1: Inventory cannot be negative (skip for credit memos)
+        if not is_credit and values['inventory'] < 0:
+            print(f"[DEBUG] Rule 1 triggered: inventory {values['inventory']} < 0")
             # Cap discount at subtotal amount to make inventory = 0
             values['discount'] = values['subtotal']
             values['inventory'] = 0
-            
+
             # Update discount amount field
             self.discount_amt_field.blockSignals(True)
             self.discount_amt_field.setText(f"{values['discount']:.2f}")
             self.discount_amt_field.blockSignals(False)
-            
+
             # Update discount percentage field if subtotal > 0
             if values['subtotal'] > 0:
                 pct_value = (values['discount'] / values['subtotal']) * 100
                 self.discount_pct_field.blockSignals(True)
                 self.discount_pct_field.setText(f"{pct_value:.1f}")
                 self.discount_pct_field.blockSignals(False)
-        
-        # Rule 2: Grand Total must be at least Inventory + Shipping
-        minimum_gt = values['inventory'] + values['shipping']
-        
-        if values['grand_total'] < minimum_gt:
-            # Override GT to the minimum valid value
-            values['grand_total'] = minimum_gt
-            
-            # Update the UI field (block signals to prevent recursion)
-            self.grand_total_field.blockSignals(True)
-            self.grand_total_field.setText(f"{values['grand_total']:.2f}")
-            self.grand_total_field.blockSignals(False)
-            
+
+        # Rule 2: Shipping should never be negative (only for regular invoices)
+        if not is_credit and values['shipping'] < 0:
+            print(f"[DEBUG] Rule 2 triggered: shipping {values['shipping']} < 0, setting to 0")
+
+            # Make the most recently changed field "win" by adjusting the other field
+            recent_changes = list(self.recently_changed)
+            if len(recent_changes) >= 1:
+                most_recent = recent_changes[0]
+                print(f"[DEBUG] Most recent change: {most_recent}, adjusting other field to maintain consistency")
+
+                if most_recent == 'grand_total':
+                    # GT was most recently changed, adjust inventory to match GT - 0 shipping
+                    values['shipping'] = 0
+                    values['inventory'] = values['grand_total']  # Since shipping = 0
+                    values['subtotal'] = values['inventory'] + values['discount']
+
+                    # Update UI fields
+                    self.shipping_field.blockSignals(True)
+                    self.subtotal_field.blockSignals(True)
+                    self.shipping_field.setText("0.00")
+                    self.subtotal_field.setText(f"{values['subtotal']:.2f}")
+                    self.shipping_field.blockSignals(False)
+                    self.subtotal_field.blockSignals(False)
+
+                elif most_recent == 'inventory':
+                    # Inventory was most recently changed, adjust GT to match inventory + 0 shipping
+                    values['shipping'] = 0
+                    values['grand_total'] = values['inventory']  # Since shipping = 0
+
+                    # Update UI fields
+                    self.shipping_field.blockSignals(True)
+                    self.grand_total_field.blockSignals(True)
+                    self.shipping_field.setText("0.00")
+                    self.grand_total_field.setText(f"{values['grand_total']:.2f}")
+                    self.shipping_field.blockSignals(False)
+                    self.grand_total_field.blockSignals(False)
+
+                else:
+                    # Shipping was most recently changed (shouldn't happen since shipping went negative)
+                    # Just set shipping to 0 without other adjustments
+                    values['shipping'] = 0
+                    self.shipping_field.blockSignals(True)
+                    self.shipping_field.setText("0.00")
+                    self.shipping_field.blockSignals(False)
+            else:
+                # No recent changes, just set shipping to 0
+                values['shipping'] = 0
+                self.shipping_field.blockSignals(True)
+                self.shipping_field.setText("0.00")
+                self.shipping_field.blockSignals(False)
+
+        print(f"[DEBUG] Override rules complete: values after={values}")
         return values
         
     def _update_displays(self, values):
@@ -880,7 +948,6 @@ class QuickCalculatorInline(QGroupBox):
             needs_recalc = True  # Force recalculation to update displays
         else:
             # Auto-populate from form fields
-            print(f"[QC DEBUG] Starting auto-population. Available fields: {list(form_fields.keys())}")
             
             # Get dialog reference to access original values
             dialog = self.dialog_ref
@@ -928,19 +995,29 @@ class QuickCalculatorInline(QGroupBox):
                                 self.discount_amt_field.setText(f"{discount_amt:.2f}")
                                 auto_populated = True
             
-            # Apply auto-calculations immediately (no popup needed)
+            # Add auto-populated fields to priority queue for immediate calculation
             if auto_populated:
+                # Add fields to priority queue based on what was auto-populated
+                # This will trigger two-field calculation when signals are restored
+
+                # Check what was auto-populated and add to priority queue
+                # Add inventory first so it gets pushed down when GT is manually entered
+                if hasattr(dialog, '_original_total_amount') and dialog._original_total_amount:
+                    self._mark_field_changed('inventory')  # subtotal maps to inventory
+
+                if hasattr(dialog, '_original_shipping_cost') and dialog._original_shipping_cost:
+                    self._mark_field_changed('shipping')
+
                 # Check if discount was auto-calculated
                 current_values = self._get_current_values()
                 if current_values['discount'] > 0:
                     # Auto-calculation occurred, mark as accepted and trigger dirty state
                     self._auto_calc_accepted = True
                     self.is_dirty = True
-                    print(f"[QC DEBUG] Auto-calculation applied - discount found and calculated")
                 else:
                     # Only auto-population occurred (no calculations), can set clean state
                     self.set_save_state()
-                
+
             # No confirmation popup needed
             self._pending_confirmation = None
             needs_recalc = True
@@ -1031,7 +1108,6 @@ class QuickCalculatorInline(QGroupBox):
             'recently_changed': self.recently_changed.copy(),
             'auto_calc_accepted': self._auto_calc_accepted
         }
-        print(f"[QC DEBUG] Saving state with deque: {state['recently_changed']}, auto_calc: {state['auto_calc_accepted']}")
         return state
     
     def set_save_state(self, state=None):
@@ -1059,7 +1135,6 @@ class QuickCalculatorInline(QGroupBox):
         if not state:
             return
             
-        print(f"[QC DEBUG] Loading state with deque: {state.get('recently_changed', [])}, auto_calc: {state.get('auto_calc_accepted', False)}")
         
         # Load field values
         self.subtotal_field.setText(state.get('subtotal', ''))
@@ -1096,8 +1171,6 @@ class QuickCalculatorManager:
         
     def __getattr__(self, name):
         """Delegate all other calls to the widget."""
-        if name == 'load_or_populate_from_form':
-            print(f"[QC DEBUG] Manager delegating {name} to widget")
         if self.widget:
             return getattr(self.widget, name)
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")

@@ -8,6 +8,7 @@ CPSQL-AP copy.csv
 # Testing files
 test_results_*.json
 test_expectations_backup.csv
+test_expectations.csv
 *_backup.csv
 new_invoice_expectations.csv
 settings.local.json

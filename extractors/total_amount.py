@@ -1,112 +1,318 @@
 import re
 import string
+from decimal import Decimal, ROUND_HALF_UP
 from .common_extraction import normalize_words, find_label_positions, find_value_to_right
 from .utils import clean_currency
 
+# Special vendor label mappings for label-based extraction
+SPECIAL_VENDOR_LABELS = {
+    "Topo Designs LLC": "amount due",
+    "NOCS Provisions": "amount due",
+    "Merrell": "amount due",
+    "Accent & Cannon": "Balance Due",
+    "NuCanoe": "balance due",
+    "KATIN": "balance due",
+    "BIG Adventures, LLC": "balance due",
+    "Fulling Mill Fly Fishing LLC": "amount to pay",
+    "Treadlabs": "outstanding",
+    "Industrial Revolution, Inc": "remaining amount",
+    "Yakima": "Balance:",
+    "Simms": "total amt due",
+}
+
+def format_currency(amount):
+    """Format amount to 2 decimal places using proper currency rounding (round half up)."""
+    if isinstance(amount, str):
+        amount = float(amount)
+    # Convert to Decimal for precise rounding, then back to string
+    decimal_amount = Decimal(str(amount))
+    rounded = decimal_amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    return str(rounded)
+
+# Comprehensive currency pattern that supports:
+# - Regular: 123.45, $123.45, 1,234.56
+# - Negative: -123.45, -$123.45, $-123.45
+# - Parentheses: (123.45), ($123.45), $(123.45)
+CURRENCY_PATTERN = r'^(?:-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}|\$?\((?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}\))$T?'
+
+def is_currency(text):
+    """Check if text matches currency format (including parentheses for negative amounts)."""
+    original_text = text.strip()
+    preprocessed_text = preprocess_currency_text(original_text)
+    # Check both original and preprocessed text to handle parentheses format
+    return (re.match(CURRENCY_PATTERN, original_text) is not None or
+            re.match(CURRENCY_PATTERN, preprocessed_text) is not None)
+
+# --- Vendor-specific approach mapping for 100% success vendors ---
+VENDOR_APPROACH_MAP = {
+    # Gross approach vendors (100% success)
+    'Yak Attack': 'gross',
+    'Marine Layer': 'gross', 
+    'Wapsi Fly': 'gross',
+    'Columbia Sportswear': 'gross',
+    'The North Face': 'gross',
+    'Hareline Dubbin, Inc': 'gross',
+    'Korkers Products, LLC': 'gross',
+    'ON Running': 'gross',
+    'Oregon Freeze Dry': 'gross',
+    'Outdoor Research': 'gross',
+    'Waboba Inc': 'gross',
+    'Birkenstock USA': 'gross',
+    'Columbia River': 'gross',
+    'Smartwool': 'gross',
+    
+    # Calculated approach vendors (100% success, not already in gross)
+    'Howler Brothers': 'calculated',
+    'Oboz Footwear LLC': 'calculated',
+    'Osprey Packs, Inc': 'calculated',
+    'Temple Fork Outfitters': 'calculated',
+    'National Geographic Maps': 'calculated',
+    'Toad & Co': 'calculated',
+    'Astral Footwear': 'calculated',
+    'Eagles Nest Outfitters, Inc.': 'calculated',
+    'Fulling Mill Fly Fishing LLC': 'calculated',
+    'Olukai LLC': 'calculated',
+    'Johnson Outdoors': 'calculated',
+    'Nemo Equipment Inc': 'calculated',
+    'Nite Ize Inc': 'calculated',
+    
+    # Bottom-most approach vendors (100% success, not in above)
+    'Hobie Cat Company II, LLC': 'bottom_most',
+    'TOPO ATHLETIC': 'bottom_most', 
+    'Free Fly Apparel': 'bottom_most',
+    'Patagonia': 'bottom_most',
+    'BioLite': 'bottom_most',
+    'Eagle Creek': 'bottom_most',
+    'Chubbies Inc': 'bottom_most',
+    'Chums': 'bottom_most',
+    'Gregory Mountain Products': 'bottom_most',
+    'Hydro Flask': 'bottom_most',
+    'IceMule Company': 'bottom_most',
+    'KATIN': 'bottom_most',
+    'Keen Inc': 'bottom_most',
+    'Roxy': 'bottom_most',
+    'Ruffwear': 'bottom_most',
+    'Scout Curated Wears': 'bottom_most',
+    'Secrid': 'bottom_most',
+    'Sendero Provisions Co., LLC': 'bottom_most',
+    'Sterling Rope Company Inc': 'bottom_most',
+    'Thread Wallets': 'bottom_most',
+    
+    # Bottom-minus-shipping approach vendors (100% success, unique to this approach)
+    'Angler\'s Book Supply': 'bottom_minus_ship',
+    'Liberty Mountain Sports': 'bottom_minus_ship',
+    'Yeti Coolers': 'bottom_minus_ship',
+    'Montana Fly Company': 'bottom_minus_ship',
+    'Rio Products': 'subtotal_minus_discount',
+    'Arcade Belts Inc': 'bottom_minus_ship',
+    'Antigravity Gear LLC': 'bottom_minus_ship',
+    'Arc\'teryx': 'bottom_minus_ship',
+    'Confluence Outdoor Inc.': 'bottom_minus_ship',
+    'Dapper Ink LLC': 'bottom_minus_ship',
+    'Gear Aid': 'bottom_minus_ship',
+    'Goorin Bros': 'bottom_minus_ship',
+    'Grundens': 'bottom_minus_ship',
+    'Hadley Wren': 'bottom_minus_ship',
+    'HQ Kites & Designs USA, Inc': 'bottom_minus_ship',
+    'Hydrapak': 'bottom_minus_ship',
+    'Industrial Revolution, Inc': 'bottom_minus_ship',
+    'Jackson Kayak': 'bottom_minus_ship',
+    'johnnie-O': 'bottom_minus_ship',
+    'Joshua Tree Products': 'bottom_minus_ship',
+    'Leatherman Tools': 'bottom_minus_ship',
+    'Korkers Products, LLC': 'bottom_minus_ship',
+    'Leki': 'bottom_minus_ship',
+    'Malone': 'bottom_minus_ship',
+    'Merrell': 'bottom_minus_ship',
+    'New River Gear': 'bottom_minus_ship',
+    'Newport Vessels': 'bottom_minus_ship',
+    'NOCS Provisions': 'bottom_minus_ship',
+    'Nomadix': 'bottom_minus_ship',
+    'Noso, LLC': 'bottom_minus_ship',
+    'O\'Neill': 'bottom_minus_ship',
+    'Opinel USA, Inc': 'bottom_minus_ship',
+    'Panache Apparel': 'bottom_minus_ship',
+    'Pisgah Map Co. LLC': 'bottom_minus_ship',
+    'Reef Lifestyle, LLC': 'bottom_minus_ship',
+    'Salomon': 'bottom_minus_ship',
+    'Saxx Underwear': 'bottom_minus_ship',
+    'Scientific Anglers LLC': 'bottom_minus_ship',
+    'Smith Sport Optics': 'bottom_minus_ship',
+    'Sunday Afternoons': 'bottom_minus_ship',
+    'Swell Watercraft': 'bottom_minus_ship',
+    'TEVA': 'bottom_minus_ship',
+    'Treadlabs': 'bottom_minus_ship',
+    'Turtlebox Audio LLC': 'bottom_minus_ship',
+    'Victorinox Swiss Army, Inc.': 'bottom_minus_ship',
+    'Werner Paddles': 'bottom_minus_ship',
+    'Wild Tribute': 'bottom_minus_ship',
+    
+    # Label detection approach vendors (100% success)
+    'Badfish': 'label',
+    
+    # Label minus shipping approach vendors (100% success)
+    'Accent & Cannon': 'label_minus_ship',
+    'Cotopaxi': 'label_minus_ship', 
+    'Hoka': 'label_minus_ship',
+    'Katin': 'label_minus_ship',
+    'Loksak': 'label_minus_ship',
+    'Vuori': 'label_minus_ship',
+    
+    # Label calculated approach vendors (label amount, subtract shipping, apply discount)
+    'BIG Adventures, LLC': 'label_calculated',
+
+    # Bottom calculated approach vendors (bottom-most amount, subtract shipping, apply discount)
+    'Big Agnes Inc': 'bottom_calculated',
+    'Black Diamond Equipment Ltd': 'bottom_calculated',
+    'Carve Designs': 'bottom_calculated',
+    'Crazy Creek Products Inc': 'bottom_calculated',
+    'Helinox': 'bottom_calculated',
+    'Fishpond': 'bottom_calculated',
+    'GCI Outdoor': 'bottom_calculated',
+    'NuCanoe': 'bottom_calculated',
+    'Sea to Summit': 'bottom_calculated',
+    'Rumpl': 'gross_calculated',
+    'Simms': 'label',
+    'Solitude Fly Company Inc': 'bottom_calculated',
+    'Umpqua Feather Merchants': 'bottom_calculated',
+
+    # Second from bottom approach vendors
+    'Darn Tough': 'second_from_bottom',
+}
+
+def _apply_credit_memo_logic(amount_str, words, vendor_name):
+    """Apply credit memo/note logic to ensure negative amounts for credit documents."""
+    if not amount_str:
+        return amount_str
+
+    # Check if this is a credit document
+    discount_terms = _extract_discount_terms(words, vendor_name).lower()
+    if ('credit memo' in discount_terms or 'credit note' in discount_terms or 'product return' in discount_terms or 'return authorization' in discount_terms or 'ra for credit' in discount_terms):
+        try:
+            # Handle parentheses format (238.95) for credit memos
+            if amount_str.startswith('(') and amount_str.endswith(')'):
+                # Extract the amount inside parentheses and make it negative
+                inner_amount = amount_str[1:-1].strip()
+                amount_value = float(inner_amount)
+                return f"-{format_currency(amount_value)}"
+            else:
+                # Regular format - make positive amounts negative, keep negative amounts as-is
+                amount_value = float(amount_str)
+                if amount_value > 0:
+                    return f"-{format_currency(amount_value)}"
+                else:
+                    # Already negative, keep as-is for credit documents
+                    return format_currency(amount_value)
+        except ValueError:
+            pass
+
+    # If we have a negative amount but it's NOT a credit document, default to 0
+    # This handles cases where invoices are paid by credits/discounts but not properly labeled
+    try:
+        amount_value = float(amount_str)
+        if amount_value < 0:
+            # Not a credit document but amount is negative - likely fully paid by credits
+            return "0.00"
+    except (ValueError, TypeError):
+        pass
+
+    return amount_str
+
 def extract_total_amount(words, vendor_name):
     """Extract the total amount from OCR words, returns a float or empty string."""
-    
-    #print(f"[TOTAL_DEBUG] Starting extraction for vendor: {vendor_name}")
 
-    # --- Vendor-specific approach mapping for 100% success vendors ---
-    VENDOR_APPROACH_MAP = {
-        # Gross approach vendors (100% success)
-        'Sendero Provisions Co., LLC': 'gross',
-        'Yak Attack': 'gross',
-        'Marine Layer': 'gross', 
-        'Wapsi Fly': 'gross',
-        'Columbia Sportswear': 'gross',
-        'The North Face': 'gross',
-        'Hareline Dubbin, Inc': 'gross',
-        'Industrial Revolution, Inc': 'gross',
-        'Korkers Products, LLC': 'gross',
-        'ON Running': 'gross',
-        'Oregon Freeze Dry': 'gross',
-        'Outdoor Research': 'gross',
-        'Waboba Inc': 'gross',
-        'Birkenstock USA': 'gross',
-        
-        # Calculated approach vendors (100% success, not already in gross)
-        'Howler Brothers': 'calculated',
-        'Oboz Footwear LLC': 'calculated',
-        'Osprey Packs, Inc': 'calculated',
-        'Temple Fork Outfitters': 'calculated',
-        'National Geographic Maps': 'calculated',
-        'Toad & Co': 'calculated',
-        'Astral Footwear': 'calculated',
-        'Eagles Nest Outfitters, Inc.': 'calculated',
-        'Fulling Mill Fly Fishing LLC': 'calculated',
-        'Olukai LLC': 'calculated',
-        
-        # Bottom-most approach vendors (100% success, not in above)
-        'Hobie Cat Company II, LLC': 'bottom_most',
-        'TOPO ATHLETIC': 'bottom_most', 
-        'Free Fly Apparel': 'bottom_most',
-        'Patagonia': 'bottom_most',
-        'Black Diamond Equipment Ltd': 'bottom_most',
-        
-        # Bottom-minus-shipping approach vendors (100% success, unique to this approach)
-        'Angler\'s Book Supply': 'bottom_minus_ship',
-        'Liberty Mountain Sports': 'bottom_minus_ship',
-        'Yeti Coolers': 'bottom_minus_ship',
-        'Montana Fly Company': 'bottom_minus_ship',
-        
-        # Label detection approach vendors (100% success)
-        'Badfish': 'label',
-        
-        # Label minus shipping approach vendors (100% success)
-        'Accent & Cannon': 'label_minus_ship',
-        'Cotopaxi': 'label_minus_ship', 
-        'Hoka': 'label_minus_ship',
-        'Katin': 'label_minus_ship',
-        'Loksak': 'label_minus_ship',
-        'Vuori': 'label_minus_ship',
-    }
-    
+
     # --- 3-TIER FALLBACK SYSTEM ---
-    
+
     # TIER 1: Vendor-specific approach (for 100% success vendors)
     preferred_approach = VENDOR_APPROACH_MAP.get(vendor_name)
+
     
     if preferred_approach == 'gross':
         result = _extract_gross_amount(words, vendor_name)
-        if result: return result
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
     elif preferred_approach == 'calculated':
         gross_amount = _extract_gross_amount(words, vendor_name)
         if gross_amount:
             result = _apply_calculated_adjustment(gross_amount, words, vendor_name)
-            if result: return result
-        if gross_amount: return gross_amount
+            if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if gross_amount: return _apply_credit_memo_logic(gross_amount, words, vendor_name)
     elif preferred_approach == 'bottom_most':
         result = extract_bottom_most_currency(words, vendor_name)
-        if result: return result
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
     elif preferred_approach == 'bottom_minus_ship':
         shipping_cost = _extract_shipping_cost(words, vendor_name)
         result = extract_bottom_most_minus_shipping(words, vendor_name, shipping_cost)
-        if result: return result
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
     elif preferred_approach == 'label':
         result = _extract_with_label_fallback(words, vendor_name)
-        if result: return result
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
     elif preferred_approach == 'label_minus_ship':
         result = extract_label_minus_shipping(words, vendor_name)
-        if result: return result
-    
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+    elif preferred_approach == 'label_calculated':
+        label_amount = _extract_with_label_fallback(words, vendor_name)
+        if label_amount:
+            result = _apply_calculated_adjustment(label_amount, words, vendor_name)
+            if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if label_amount: return _apply_credit_memo_logic(label_amount, words, vendor_name)
+    elif preferred_approach == 'bottom_calculated':
+        bottom_amount = extract_bottom_most_currency(words, vendor_name)
+        if bottom_amount:
+            result = _apply_calculated_adjustment(bottom_amount, words, vendor_name)
+            if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if bottom_amount: return _apply_credit_memo_logic(bottom_amount, words, vendor_name)
+    elif preferred_approach == 'second_from_bottom':
+        result = extract_second_from_bottom_currency(words, vendor_name)
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+    elif preferred_approach == 'second_from_bottom_minus_ship':
+        shipping_cost = _extract_shipping_cost(words, vendor_name)
+        result = extract_second_from_bottom_minus_shipping(words, vendor_name, shipping_cost)
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+    elif preferred_approach == 'subtotal_minus_discount':
+        result = extract_subtotal_minus_discount(words, vendor_name)
+        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+    elif preferred_approach == 'gross_calculated':
+        gross_amount = _extract_gross_amount(words, vendor_name)
+        if gross_amount:
+            # Subtract shipping if possible
+            shipping_cost = _extract_shipping_cost(words, vendor_name)
+            try:
+                gross_value = float(gross_amount)
+                shipping_value = float(shipping_cost) if shipping_cost else 0.0
+                amount_after_shipping = gross_value - shipping_value
+
+                # Apply discount from terms
+                discount_terms = _extract_discount_terms(words, vendor_name)
+                if discount_terms and "%" in discount_terms:
+                    from .utils import calculate_discounted_total
+                    result = calculate_discounted_total(discount_terms, format_currency(amount_after_shipping), vendor_name)
+                    if result: return _apply_credit_memo_logic(result, words, vendor_name)
+
+                # No discount found, return amount after shipping
+                return _apply_credit_memo_logic(format_currency(amount_after_shipping), words, vendor_name)
+            except (ValueError, TypeError):
+                # If calculation fails, return gross amount
+                return _apply_credit_memo_logic(gross_amount, words, vendor_name)
+        return _apply_credit_memo_logic(gross_amount, words, vendor_name) if gross_amount else ""
+
     # TIER 2: Label-based fallback (for failed cases)
-    #print(f"[TOTAL_DEBUG] {vendor_name}: Trying label-based fallback")
+    if vendor_name == "Simms":
+        print(f"[DEBUG] Simms reached TIER 2: Label-based fallback")
     label_result = _extract_with_label_fallback(words, vendor_name)
+    if vendor_name == "Simms":
+        print(f"[DEBUG] Simms TIER 2 label_result: '{label_result}'")
     if label_result:
-        #print(f"[TOTAL_DEBUG] {vendor_name}: Label fallback succeeded: {label_result}")
-        return label_result
+        if vendor_name == "Simms":
+            print(f"[DEBUG] Simms TIER 2 label fallback succeeded: {label_result}")
+        return _apply_credit_memo_logic(label_result, words, vendor_name)
     #print(f"[TOTAL_DEBUG] {vendor_name}: Label fallback failed, trying general logic")
     
     # TIER 3: Original logic fallback
+    if vendor_name == "Simms":
+        print(f"[DEBUG] Simms reached TIER 3: Original logic fallback")
 
-     # --- Currency pattern ---
-    amount_pattern = r'^-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
-
-    def is_currency(text):
-        value = preprocess_currency_text(text.strip())
-        return re.match(amount_pattern, value) is not None
+    # Use centralized currency detection
 
     # --- ON Running special-case ---
     if vendor_name == "ON Running":
@@ -138,8 +344,8 @@ def extract_total_amount(words, vendor_name):
                 cleaned = clean_currency(preprocess_currency_text(value))
                 try:
                     amount = float(cleaned)
-                    #print(f"[DEBUG] Selected ON Running amount: {value} → {amount:.2f}")
-                    return f"{amount:.2f}"
+                    #print(f"[DEBUG] Selected ON Running amount: {value} → {format_currency(amount)}")
+                    return _apply_credit_memo_logic(format_currency(amount), words, vendor_name)
                 except Exception:
                     #print(f"[DEBUG] Failed to convert '{value}' to float for ON Running")
                     pass
@@ -147,31 +353,39 @@ def extract_total_amount(words, vendor_name):
         #print("[DEBUG] ON Running special-case failed, falling back to general logic.")
 
     # --- Special-case vendor/label mapping ---
-    special_vendor_labels = {
-        "Topo Designs LLC": "amount due",
-        "NOCS Provisions": "amount due",
-        "Merrell": "amount due",
-        "Accent & Cannon": "Balance Due",
-        "NuCanoe": "balance due",
-        "KATIN": "balance due",
-        "BIG Adventures, LLC": "balance due",
-        "Fulling Mill Fly Fishing LLC": "amount to pay",
-        "Treadlabs": "outstanding",
-        "Industrial Revolution, Inc": "remaining amount",
-        "Yakima": "Balance:",
-    }
-
-    label = special_vendor_labels.get(vendor_name)
+    label = SPECIAL_VENDOR_LABELS.get(vendor_name)
 
     normalized_words = normalize_words(words, first_page_only=True)
 
     # --- Special-case logic ---
     if label:
-        #print(f"[DEBUG] Special-case vendor detected: {vendor_name} (label: {label})")
+        if vendor_name == "Simms":
+            print(f"[DEBUG] Simms special-case vendor detected with label: '{label}'")
         # Use find_label_positions to find the label
         label_positions = find_label_positions(normalized_words, label_type=None, custom_label=label)
-        #print(f"[DEBUG] Found {len(label_positions)} label positions for '{label}'")
+        if vendor_name == "Simms":
+            print(f"[DEBUG] Simms found {len(label_positions)} label positions for '{label}'")
         # Use find_value_to_right to find the first valid currency value to the right
+        if vendor_name == "Simms":
+            # Debug: Show all currency values near the label
+            for label_pos in label_positions:
+                print(f"[DEBUG] Simms label position: x0:{label_pos.get('x0', 0)}, x1:{label_pos.get('x1', 0)}, top:{label_pos.get('top', 0)}")
+                nearby_currencies = []
+                for word in normalized_words:
+                    if is_currency(word["text"]):
+                        distance = word.get("x0", 0) - label_pos.get("x1", 0)
+                        v_distance = abs(word.get("top", 0) - label_pos.get("top", 0))
+                        nearby_currencies.append({
+                            'text': word["text"],
+                            'x0': word.get("x0", 0),
+                            'top': word.get("top", 0),
+                            'h_distance': distance,
+                            'v_distance': v_distance
+                        })
+                print(f"[DEBUG] Simms nearby currencies:")
+                for curr in sorted(nearby_currencies, key=lambda x: x['h_distance']):
+                    print(f"  '{curr['text']}' at x0:{curr['x0']}, top:{curr['top']} | h_dist:{curr['h_distance']:.1f}, v_dist:{curr['v_distance']:.1f}")
+
         value = find_value_to_right(
             normalized_words,
             label_positions,
@@ -182,19 +396,23 @@ def extract_total_amount(words, vendor_name):
             cleaned = clean_currency(preprocess_currency_text(value))
             try:
                 amount = float(cleaned)
-                #print(f"[DEBUG] Selected special-case amount: {value} → {amount:.2f}")
-                return f"{amount:.2f}"
+                if vendor_name == "Simms":
+                    print(f"[DEBUG] Simms selected special-case amount: '{value}' → ${format_currency(amount)}")
+                return _apply_credit_memo_logic(format_currency(amount), words, vendor_name)
             except Exception:
-                #print(f"[DEBUG] Failed to convert '{value}' to float")
+                if vendor_name == "Simms":
+                    print(f"[DEBUG] Simms failed to convert '{value}' to float")
                 pass
-        #print("[DEBUG] Special-case label found, but no valid value to right. Falling back to general logic.")
+        else:
+            if vendor_name == "Simms":
+                print(f"[DEBUG] Simms special-case label found, but no valid value to right. Falling back to general logic.")
 
     # --- General logic (existing) ---
     candidates = []
     for word in words:
         value = word["text"].strip()
         value = preprocess_currency_text(value)
-        if re.match(amount_pattern, value):
+        if is_currency(value):
             cleaned = clean_currency(value)
             try:
                 amount = float(cleaned)
@@ -211,7 +429,19 @@ def extract_total_amount(words, vendor_name):
         return ""
 
     #print(f"[TOTAL_DEBUG] {vendor_name}: Found {len(candidates)} total candidates")
-    
+
+    # Johnson Outdoors special case: filter out $50.00 candidates
+    if vendor_name == "Johnson Outdoors":
+        original_count = len(candidates)
+        candidates = [c for c in candidates if abs(c['amount']) != 50.0]
+        if len(candidates) != original_count:
+            #print(f"[DEBUG] Johnson Outdoors: Filtered out {original_count - len(candidates)} $50.00 candidates")
+            pass
+
+    if not candidates:
+        #print(f"[TOTAL_DEBUG] {vendor_name}: No valid currency amounts found after filtering")
+        return ""
+
     # Find the amount with largest absolute value
     largest_abs = max(candidates, key=lambda x: abs(x['amount']))
 
@@ -225,16 +455,13 @@ def extract_total_amount(words, vendor_name):
     result = negative_match if negative_match else largest_abs
     #print(f"[TOTAL_DEBUG] {vendor_name}: Selected amount: {result['raw']} → {result['amount']:.2f}")
 
-    return f"{result['amount']:.2f}"
+    final_amount = format_currency(result['amount'])
+    return _apply_credit_memo_logic(final_amount, words, vendor_name)
 
 def extract_bottom_most_currency(words, vendor_name):
-    """Extract the currency amount that appears lowest on the page (highest Y-coordinate)."""
-    amount_pattern = r'^-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
-    
-    def is_currency(text):
-        value = preprocess_currency_text(text.strip())
-        return re.match(amount_pattern, value) is not None
-    
+    """Extract the currency amount that appears lowest on the page (highest Y-coordinate).
+    If multiple values exist at the same bottom Y-position, take the rightmost one."""
+
     # Collect all currency candidates with their position data
     candidates = []
     for word in words:
@@ -247,44 +474,215 @@ def extract_bottom_most_currency(words, vendor_name):
                     'raw': word["text"],
                     'amount': amount,
                     'page_num': word.get("page_num", 0),
-                    'y_position': word.get("top", 0)  # Y-coordinate on page
+                    'y_position': word.get("top", 0),  # Y-coordinate on page
+                    'x_position': word.get("x0", 0)   # X-coordinate for rightmost selection
                 })
             except ValueError:
                 continue
-    
+
     if not candidates:
         return ""
-    
-    # Find the candidate with the highest Y-coordinate (lowest on page)
-    # Sort by page number first, then by Y-position (descending for lowest position)
-    bottom_most = max(candidates, key=lambda x: (x['page_num'], x['y_position']))
-    
-    return f"{bottom_most['amount']:.2f}"
+
+    # Find the bottom-most Y-position on the last page
+    max_page = max(candidates, key=lambda x: x['page_num'])['page_num']
+    page_candidates = [c for c in candidates if c['page_num'] == max_page]
+    max_y = max(page_candidates, key=lambda x: x['y_position'])['y_position']
+
+    # Get all candidates at the bottom-most Y-position
+    bottom_candidates = [c for c in page_candidates if c['y_position'] == max_y]
+
+    # If multiple candidates at same Y-position, take the rightmost one
+    if len(bottom_candidates) > 1:
+        bottom_most = max(bottom_candidates, key=lambda x: x['x_position'])
+    else:
+        bottom_most = bottom_candidates[0]
+
+    return format_currency(bottom_most['amount'])
+
+def extract_second_from_bottom_currency(words, vendor_name):
+    """Extract the currency amount that appears second-to-lowest on the page (second highest Y-coordinate).
+    If multiple values exist at the same Y-position, take the rightmost one."""
+
+    # Collect all currency candidates with their position data
+    candidates = []
+    for word in words:
+        if is_currency(word["text"]):
+            value = preprocess_currency_text(word["text"].strip())
+            cleaned = clean_currency(value)
+            try:
+                amount = float(cleaned)
+                candidates.append({
+                    'raw': word["text"],
+                    'amount': amount,
+                    'page_num': word.get("page_num", 0),
+                    'y_position': word.get("top", 0),  # Y-coordinate on page
+                    'x_position': word.get("x0", 0)   # X-coordinate for rightmost selection
+                })
+            except ValueError:
+                continue
+
+    if len(candidates) < 2:
+        # If less than 2 candidates, fall back to bottom-most
+        return extract_bottom_most_currency(words, vendor_name)
+
+    # Find unique Y-positions on the last page, sorted from bottom to top
+    max_page = max(candidates, key=lambda x: x['page_num'])['page_num']
+    page_candidates = [c for c in candidates if c['page_num'] == max_page]
+    unique_y_positions = sorted(set(c['y_position'] for c in page_candidates), reverse=True)
+
+    # If we don't have at least 2 distinct Y-positions, fall back to bottom-most
+    if len(unique_y_positions) < 2:
+        return extract_bottom_most_currency(words, vendor_name)
+
+    # Get the second Y-position from bottom
+    second_y = unique_y_positions[1]
+
+    # Get all candidates at the second Y-position
+    second_candidates = [c for c in page_candidates if c['y_position'] == second_y]
+
+    # If multiple candidates at same Y-position, take the rightmost one
+    if len(second_candidates) > 1:
+        second_from_bottom = max(second_candidates, key=lambda x: x['x_position'])
+    else:
+        second_from_bottom = second_candidates[0]
+
+    return format_currency(second_from_bottom['amount'])
 
 def extract_bottom_most_minus_shipping(words, vendor_name, shipping_cost_str):
     """Extract the bottom-most currency amount and subtract shipping cost."""
     bottom_most_amount = extract_bottom_most_currency(words, vendor_name)
-    
+
     if not bottom_most_amount:
         return ""
-    
+
     try:
         bottom_most_value = float(bottom_most_amount)
         shipping_cost = float(str(shipping_cost_str).replace(',', '')) if shipping_cost_str else 0.0
-        
+
         adjusted_amount = bottom_most_value - shipping_cost
-        return f"{adjusted_amount:.2f}"
+        return format_currency(adjusted_amount)
     except (ValueError, TypeError):
         return bottom_most_amount  # Return original if calculation fails
+
+def extract_second_from_bottom_minus_shipping(words, vendor_name, shipping_cost_str):
+    """Extract the second-from-bottom currency amount and subtract shipping cost."""
+    second_from_bottom_amount = extract_second_from_bottom_currency(words, vendor_name)
+
+    if not second_from_bottom_amount:
+        return ""
+
+    try:
+        second_from_bottom_value = float(second_from_bottom_amount)
+        shipping_cost = float(str(shipping_cost_str).replace(',', '')) if shipping_cost_str else 0.0
+
+        adjusted_amount = second_from_bottom_value - shipping_cost
+        return format_currency(adjusted_amount)
+    except (ValueError, TypeError):
+        return second_from_bottom_amount  # Return original if calculation fails
+
+def extract_subtotal_minus_discount(words, vendor_name):
+    """Extract subtotal value and subtract any currency value found below it (for Rio Products)."""
+    from .common_extraction import normalize_words
+
+    normalized_words = normalize_words(words, first_page_only=False)
+
+    if not normalized_words:
+        return ""
+
+
+    # Find "subtotal" label positions
+    subtotal_positions = []
+
+    for word in normalized_words:
+        word_text = word["text"].lower().rstrip(":")
+
+        if word_text == "subtotal":
+            pos_data = {
+                "x0": word["x0"],
+                "x1": word["x1"],
+                "top": word["top"],
+                "bottom": word["bottom"],
+                "label": word["text"],
+                "page_num": word["page_num"]
+            }
+            subtotal_positions.append(pos_data)
+
+    # Find subtotal values and potential discounts below them
+    for label_pos in subtotal_positions:
+        label_page = label_pos.get("page_num", 0)
+
+        # Find subtotal value (to the right or below the label)
+        subtotal_candidates = []
+        discount_candidates = []
+
+        for word in normalized_words:
+            word_page = word.get("page_num", 0)
+
+            # Skip if they're on different pages
+            if label_page != word_page:
+                continue
+
+            if is_currency(word["text"]):
+                # Check distances for Rio Products subtotal detection
+                horizontal_distance = word["x0"] - label_pos["x1"]
+                vertical_alignment = abs(word["top"] - label_pos["top"])
+                vertical_distance = word["top"] - label_pos["bottom"]
+
+
+                # Check if this currency is on the same line as the subtotal label
+                if (vertical_distance >= -5 and vertical_distance <= 15 and  # Same line as label (±15px)
+                    abs(horizontal_distance) <= 200):                       # Horizontally reasonable range
+
+                    value = preprocess_currency_text(word["text"].strip())
+                    cleaned = clean_currency(value)
+                    try:
+                        amount = float(cleaned)
+                        subtotal_candidates.append({
+                            'amount': amount,
+                            'y_position': word["top"],
+                            'x_position': word["x0"],
+                            'v_distance': vertical_distance
+                        })
+                    except ValueError:
+                        continue
+
+                # Check if this currency is on a different line (discount candidate)
+                elif vertical_distance > 15:  # Different line from label
+                    value = preprocess_currency_text(word["text"].strip())
+                    cleaned = clean_currency(value)
+                    try:
+                        amount = float(cleaned)
+                        discount_candidates.append({
+                            'amount': amount,
+                            'y_position': word["top"]
+                        })
+                    except ValueError:
+                        continue
+
+        # Process if we found a subtotal
+        if subtotal_candidates:
+            # Take the leftmost subtotal candidate (smallest x-position)
+            leftmost_subtotal = min(subtotal_candidates, key=lambda x: x['x_position'])
+            subtotal_amount = leftmost_subtotal['amount']
+
+            # Find the discount (lowest Y-position = furthest down)
+            if discount_candidates:
+                # Sort by Y-position descending (highest Y = lowest on page)
+                discount_candidates.sort(key=lambda x: x['y_position'], reverse=True)
+                discount_amount = discount_candidates[0]['amount']
+
+                # Calculate final amount: subtotal - discount
+                final_amount = subtotal_amount - discount_amount
+                return format_currency(final_amount)
+            else:
+                # No discount found, return subtotal as-is
+                return format_currency(subtotal_amount)
+
+    return ""
 
 def _extract_gross_amount(words, vendor_name):
     """Extract using the original gross amount logic."""
     # This is the original extract_total_amount logic
-    amount_pattern = r'^-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
-
-    def is_currency(text):
-        value = preprocess_currency_text(text.strip())
-        return re.match(amount_pattern, value) is not None
 
     # --- ON Running special-case ---
     if vendor_name == "ON Running":
@@ -314,26 +712,12 @@ def _extract_gross_amount(words, vendor_name):
                 cleaned = clean_currency(preprocess_currency_text(value))
                 try:
                     amount = float(cleaned)
-                    return f"{amount:.2f}"
+                    return format_currency(amount)
                 except Exception:
                     pass
 
     # --- Special-case vendor/label mapping ---
-    special_vendor_labels = {
-        "Topo Designs LLC": "amount due",
-        "NOCS Provisions": "amount due",
-        "Merrell": "amount due",
-        "Accent & Cannon": "Balance Due",
-        "NuCanoe": "balance due",
-        "KATIN": "balance due",
-        "BIG Adventures, LLC": "balance due",
-        "Fulling Mill Fly Fishing LLC": "amount to pay",
-        "Treadlabs": "outstanding",
-        "Industrial Revolution, Inc": "remaining amount",
-        "Yakima": "Balance:",
-    }
-
-    label = special_vendor_labels.get(vendor_name)
+    label = SPECIAL_VENDOR_LABELS.get(vendor_name)
     normalized_words = normalize_words(words, first_page_only=True)
 
     # --- Special-case logic ---
@@ -349,7 +733,7 @@ def _extract_gross_amount(words, vendor_name):
             cleaned = clean_currency(preprocess_currency_text(value))
             try:
                 amount = float(cleaned)
-                return f"{amount:.2f}"
+                return format_currency(amount)
             except Exception:
                 pass
 
@@ -358,7 +742,7 @@ def _extract_gross_amount(words, vendor_name):
     for word in words:
         value = word["text"].strip()
         value = preprocess_currency_text(value)
-        if re.match(amount_pattern, value):
+        if is_currency(value):
             cleaned = clean_currency(value)
             try:
                 amount = float(cleaned)
@@ -368,6 +752,17 @@ def _extract_gross_amount(words, vendor_name):
                 })
             except ValueError:
                 continue
+
+    if not candidates:
+        return ""
+
+    # Johnson Outdoors special case: filter out $50.00 candidates
+    if vendor_name == "Johnson Outdoors":
+        original_count = len(candidates)
+        candidates = [c for c in candidates if abs(c['amount']) != 50.0]
+        if len(candidates) != original_count:
+            #print(f"[DEBUG] Johnson Outdoors: Filtered out {original_count - len(candidates)} $50.00 candidates")
+            pass
 
     if not candidates:
         return ""
@@ -384,35 +779,37 @@ def _extract_gross_amount(words, vendor_name):
     # Prefer negative amount if it exists with same absolute value
     result = negative_match if negative_match else largest_abs
 
-    return f"{result['amount']:.2f}"
+    return format_currency(result['amount'])
 
 def _apply_calculated_adjustment(gross_amount, words, vendor_name):
     """Apply discount and shipping adjustments to gross amount."""
     try:
-        total_amount = float(gross_amount.replace(',', ''))
-        
+        # Use Decimal for precise calculations to avoid floating-point precision issues
+        total_amount = Decimal(gross_amount.replace(',', ''))
+
         # Get shipping cost
-        shipping_cost = float(_extract_shipping_cost(words, vendor_name).replace(',', '')) if _extract_shipping_cost(words, vendor_name) else 0.0
-        
-        # Get discount terms
+        shipping_cost_str = _extract_shipping_cost(words, vendor_name)
+        shipping_cost = Decimal(shipping_cost_str.replace(',', '')) if shipping_cost_str else Decimal('0.0')
+
+        # Get discount terms using standard extraction
         discount_terms = _extract_discount_terms(words, vendor_name).strip()
-        
+
         # Subtract shipping cost
         net_amount = total_amount - shipping_cost
-        
+
         # Parse discount percentage if present
-        discount_rate = 0.0
+        discount_rate = Decimal('0.0')
         if discount_terms and '%' in discount_terms:
             import re
             discount_match = re.search(r'(\d+(?:\.\d+)?)%', discount_terms)
             if discount_match:
-                discount_rate = float(discount_match.group(1)) / 100.0
-        
-        # Apply discount
-        adjusted_amount = net_amount * (1 - discount_rate)
-        
-        return f"{adjusted_amount:.2f}"
-        
+                discount_rate = Decimal(discount_match.group(1)) / Decimal('100.0')
+
+        # Apply discount using Decimal arithmetic
+        adjusted_amount = net_amount * (Decimal('1.0') - discount_rate)
+
+        return format_currency(float(adjusted_amount))
+
     except (ValueError, TypeError):
         return gross_amount  # Return original if calculation fails
 
@@ -434,6 +831,7 @@ def _extract_discount_terms(words, vendor_name):
     except ImportError:
         return ""
 
+
 def extract_label_minus_shipping(words, vendor_name):
     """Extract using label detection, then subtract shipping cost."""
     label_result = _extract_with_label_fallback(words, vendor_name)
@@ -448,14 +846,76 @@ def extract_label_minus_shipping(words, vendor_name):
         label_amount = float(label_result)
         ship_amount = float(shipping_cost.replace('$', '').replace(',', ''))
         result = label_amount - ship_amount
-        return f"{result:.2f}"
+        return format_currency(result)
     except (ValueError, TypeError):
         return label_result  # Fallback to label result
 
 def _extract_with_label_fallback(words, vendor_name):
     """TIER 2: Try to extract using common total/balance labels."""
-    
-    # Common labels that might indicate the final amount
+
+    # First, check if this vendor has a specific label defined
+    vendor_specific_label = SPECIAL_VENDOR_LABELS.get(vendor_name)
+    if vendor_specific_label:
+
+        normalized_words = normalize_words(words, first_page_only=False)
+
+        # For Simms, handle "total amt due" appearing within a sentence
+        if vendor_name == "Simms" and vendor_specific_label == "total amt due":
+            # Look for the phrase "total amt due" within the combined text
+            all_text = " ".join([w.get("text", "") for w in normalized_words]).lower()
+            if "total amt due" in all_text:
+
+                # Find the position where "total amt due" appears and look for currency after it
+                for i, word in enumerate(normalized_words):
+                    word_text = word.get("text", "").lower()
+                    # Check if this word and the next few words form "total amt due"
+                    combined_text = ""
+                    start_word = None
+                    for j in range(i, min(i + 5, len(normalized_words))):
+                        combined_text += " " + normalized_words[j].get("text", "").lower()
+                        if "total amt due" in combined_text.strip():
+                            start_word = normalized_words[j]
+                            break
+
+                    if start_word:
+                        # Look for currency values after this position
+                        for k in range(j+1, len(normalized_words)):
+                            later_word = normalized_words[k]
+                            word_text = later_word.get("text", "")
+                            # Handle trailing punctuation that might be attached to currency
+                            test_text = word_text.rstrip('.,;!?')  # Remove common trailing punctuation
+
+                            # For Simms, also check for single decimal place currency (e.g., $146.8)
+                            is_valid_currency = is_currency(test_text)
+                            if not is_valid_currency and vendor_name == "Simms":
+                                # Check if it's currency with single decimal place (e.g., $146.8)
+                                single_decimal_pattern = r'^\$?\d+\.\d$'
+                                if re.match(single_decimal_pattern, test_text):
+                                    is_valid_currency = True
+
+                            if is_valid_currency:
+                                value = test_text
+                                cleaned = clean_currency(preprocess_currency_text(value))
+                                try:
+                                    amount = float(cleaned)
+                                    return format_currency(amount)
+                                except Exception:
+                                    continue
+                        break
+
+        label_positions = find_label_positions(normalized_words, label_type=None, custom_label=vendor_specific_label)
+
+
+        value = find_value_to_right(normalized_words, label_positions, is_currency, strict=True)
+        if value:
+            cleaned = clean_currency(preprocess_currency_text(value))
+            try:
+                amount = float(cleaned)
+                return format_currency(amount)
+            except Exception:
+                pass
+
+    # If no vendor-specific label or it failed, use common fallback labels
     fallback_labels = [
         # High priority exact matches
         'balance due', 'amount due', 'total due', 'payment due',
@@ -470,12 +930,7 @@ def _extract_with_label_fallback(words, vendor_name):
         'balance', 'total', 'due', 'subtotal', 'amount'
     ]
     
-    # Currency pattern for validation
-    amount_pattern = r'^-?\$?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}$T?'
-    
-    def is_currency(text):
-        value = preprocess_currency_text(text.strip())
-        return re.match(amount_pattern, value) is not None
+    # Use centralized currency detection
     
     # Search for labels and nearby currency values
     candidates = []
@@ -584,10 +1039,10 @@ def _extract_with_label_fallback(words, vendor_name):
     
     # Return the best candidate
     best_candidate = candidates[0]
-    return f"{best_candidate['amount']:.2f}"
+    return format_currency(best_candidate['amount'])
 
 def preprocess_currency_text(text):
-    """Handle specific currency-related CIDs and symbols"""
+    """Handle specific currency-related CIDs and symbols, including parentheses for negative amounts"""
     # Only handle known currency CIDs
     currency_cid_map = {
         "(cid:36)": "$",  # Dollar sign
@@ -595,4 +1050,12 @@ def preprocess_currency_text(text):
     }
     for cid, symbol in currency_cid_map.items():
         text = text.replace(cid, symbol)
+
+    # Handle parentheses format for negative amounts: (238.95) -> -238.95
+    if text.startswith('(') and text.endswith(')'):
+        # Remove parentheses and add minus sign
+        inner_text = text[1:-1].strip()
+        if inner_text:  # Make sure there's content inside
+            text = f"-{inner_text}"
+
     return text

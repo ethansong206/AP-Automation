@@ -12,15 +12,16 @@ def clean_currency(value):
 
 
 # --- Calculate due date based on payment terms ---
-def calculate_discount_due_date(terms, invoice_date):
+def calculate_discount_due_date(terms, invoice_date, vendor_name=None):
     """
     Parse payment terms and calculate the due date. Supports terms with
     or without the explicit word "NET" (e.g., "2% 10 NET 30", "8% 75", "NET 30").
-    
+
     Args:
         terms (str): Payment terms string.
         invoice_date (str): Invoice date string in supported format.
-        
+        vendor_name (str): Vendor name for special cases.
+
     Returns:
         str: Due date in MM/DD/YY format or None if no days can be determined.
     """
@@ -54,6 +55,11 @@ def calculate_discount_due_date(terms, invoice_date):
             raise ValueError("Invalid invoice date format")
     
     due_date = inv_date + timedelta(days=net_days)
+
+    # Special case: Carve Designs - subtract one day from calculated due date
+    if vendor_name == "Carve Designs":
+        due_date = due_date - timedelta(days=1)
+
     return due_date.strftime("%m/%d/%y")
 
 
