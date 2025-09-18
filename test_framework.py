@@ -66,30 +66,46 @@ class InvoiceTestFramework:
             # Step 1: Extract text data (same as app)
             documents = extract_text_data_from_pdfs([str(pdf_path)])
             
-            # Step 2: Run extraction (same as app) 
+            # Step 2: Run extraction (same as app)
             extracted_rows = extract_fields(documents)
-            
+
             if not extracted_rows:
                 return {"error": "No data extracted"}
-                
+
+            # Step 3: Also get enhanced total_amount data for testing
+            enhanced_total_data = None
+            try:
+                from extractors.total_amount import extract_total_amount
+                words = documents[0]["words"]
+                vendor_name = extracted_rows[0][0]  # vendor_name from row
+                enhanced_total_data = extract_total_amount(words, vendor_name)
+            except Exception as e:
+                print(f"[TEST] Failed to extract enhanced total data: {e}")
+
             # Return the exact row data that would go to the invoice table
-            # Format: [vendor_name, invoice_number, po_number, invoice_date, 
+            # Format: [vendor_name, invoice_number, po_number, invoice_date,
             #         discount_terms, discount_due_date, total_amount, shipping_cost,
             #         QC_subtotal, QC_disc_pct, QC_disc_amount, QC_shipping, QC_used_flag]
             row = extracted_rows[0]  # First row (should only be one per PDF)
             
-            return {
+            result = {
                 "vendor_name": row[0],
-                "invoice_number": row[1], 
+                "invoice_number": row[1],
                 "po_number": row[2],
                 "invoice_date": row[3],
                 "discount_terms": row[4],
-                "discount_due_date": row[5], 
+                "discount_due_date": row[5],
                 "total_amount": row[6],
                 "shipping_cost": row[7],
                 "grand_total": row[6]  # For testing, grand_total should match total_amount initially
                 # QC fields (rows[8-12]) are not tested as they're user-entered
             }
+
+            # Add enhanced total_amount data for testing
+            if enhanced_total_data and isinstance(enhanced_total_data, dict):
+                result["_enhanced_total"] = enhanced_total_data
+
+            return result
             
         except Exception as e:
             return {"error": f"Extraction failed: {str(e)}"}
@@ -326,8 +342,7 @@ class InvoiceTestFramework:
                 results["errors"] += 1
                 test_result = {
                     "file": file_key,
-                    "original_index": original_index,
-                    "status": "error", 
+                    "status": "error",
                     "error": actual["error"]
                 }
             else:
@@ -1119,15 +1134,64 @@ class InvoiceTestFramework:
                                 actual = result['actual'][:25] + "..." if len(str(result['actual'])) > 25 else result['actual']
                                 print(f"   {field:<18} Expected: {expected:<28} Got: {actual}")
 
+                        # Show enhanced total data if available
+                        if 'extracted_data' in test and '_enhanced_total' in test['extracted_data']:
+                            enhanced = test['extracted_data']['_enhanced_total']
+                            print(f"   Enhanced Total Data:")
+                            print(f"      Method: {enhanced.get('calculation_method', 'none')}")
+                            print(f"      Discount Type: {enhanced.get('discount_type', 'none')}")
+                            if enhanced.get('discount_value'):
+                                print(f"      Discount Value: {enhanced.get('discount_value')}")
+                            if enhanced.get('pre_discount_amount'):
+                                print(f"      Pre-discount Amount: {enhanced.get('pre_discount_amount')}")
+                            print(f"      Has Calculation: {enhanced.get('has_calculation', False)}")
+
+
+    def test_enhanced_extraction(self, vendor_folder, filename):
+        """Test enhanced total_amount extraction and display results."""
+        print(f"\nTesting enhanced extraction for: {vendor_folder}/{filename}")
+        print("=" * 60)
+
+        result = self.run_extraction_test(vendor_folder, filename)
+
+        if "error" in result:
+            print(f"Error: {result['error']}")
+            return
+
+        # Display standard extraction results
+        print("Standard Extraction Results:")
+        for key, value in result.items():
+            if key != '_enhanced_total':
+                print(f"  {key}: {value}")
+
+        # Display enhanced total data
+        if '_enhanced_total' in result:
+            enhanced = result['_enhanced_total']
+            print(f"\nEnhanced Total Amount Data:")
+            print(f"  Method: {enhanced.get('calculation_method', 'none')}")
+            print(f"  Discount Type: {enhanced.get('discount_type', 'none')}")
+            print(f"  Has Calculation: {enhanced.get('has_calculation', False)}")
+            if enhanced.get('discount_value'):
+                print(f"  Discount Value: {enhanced.get('discount_value')}")
+            if enhanced.get('pre_discount_amount'):
+                print(f"  Pre-discount Amount: {enhanced.get('pre_discount_amount')}")
+            print(f"  Final Total Amount: {enhanced.get('total_amount', 'none')}")
+        else:
+            print("\nNo enhanced total data available")
+
 
 if __name__ == "__main__":
     # Example usage
     tester = InvoiceTestFramework()
-    
+
     print("Invoice Extraction Test Framework")
     print("=" * 40)
     print("1. run_all_tests() - Run tests with expectations")
     print("2. run_extraction_test(vendor, filename) - Test single file")
-    
+    print("3. test_enhanced_extraction(vendor, filename) - Test enhanced total extraction")
+
     # Uncomment to run all tests (after filling expectations):
     # tester.run_all_tests()
+
+    # Example: Test enhanced extraction
+    # tester.test_enhanced_extraction("All", "Accent_&_Cannon_45288.pdf")

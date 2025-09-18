@@ -18,6 +18,9 @@ def extract_fields(documents):
 
         vendor_name = extract_vendor_name(words)
 
+        # Extract enhanced total amount data
+        total_amount_data = extract_total_amount(words, vendor_name)
+
         row = {
             "Vendor Name": vendor_name,
             "Invoice Number": extract_invoice_number(words, vendor_name),
@@ -26,7 +29,8 @@ def extract_fields(documents):
             "Discount Terms": extract_discount_terms(words, vendor_name),
             "Discount Due Date": "",
             "Shipping Cost": extract_shipping_cost(words, vendor_name),
-            "Total Amount": extract_total_amount(words, vendor_name)
+            "Total Amount": total_amount_data.get('total_amount', '') if isinstance(total_amount_data, dict) else str(total_amount_data),
+            "_total_amount_enhanced": total_amount_data  # Store enhanced data for QC
         }
 
         if row["Discount Terms"] and row["Invoice Date"]:

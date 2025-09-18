@@ -105,7 +105,7 @@ VENDOR_APPROACH_MAP = {
     'Montana Fly Company': 'bottom_minus_ship',
     'Rio Products': 'subtotal_minus_discount',
     'Arcade Belts Inc': 'bottom_minus_ship',
-    'Antigravity Gear LLC': 'bottom_minus_ship',
+    'Antigravity Gear LLC': 'bottom_calculated',
     'Arc\'teryx': 'bottom_minus_ship',
     'Confluence Outdoor Inc.': 'bottom_minus_ship',
     'Dapper Ink LLC': 'bottom_minus_ship',
@@ -218,8 +218,39 @@ def _apply_credit_memo_logic(amount_str, words, vendor_name):
 
     return amount_str
 
+def _create_result(total_amount, calculation_method='gross', discount_type='none',
+                  discount_value=None, pre_discount_amount=None):
+    """Create enhanced result dict with calculation details."""
+    if not total_amount:
+        return {
+            'total_amount': '',
+            'calculation_method': 'none',
+            'discount_type': 'none',
+            'discount_value': None,
+            'pre_discount_amount': None,
+            'has_calculation': False
+        }
+
+    return {
+        'total_amount': total_amount,
+        'calculation_method': calculation_method,
+        'discount_type': discount_type,
+        'discount_value': discount_value,
+        'pre_discount_amount': pre_discount_amount,
+        'has_calculation': discount_type != 'none'
+    }
+
+def _extract_percentage_from_terms(discount_terms):
+    """Extract percentage value from discount terms."""
+    if not discount_terms or '%' not in discount_terms:
+        return None
+
+    import re
+    discount_match = re.search(r'(\d+(?:\.\d+)?)%', discount_terms)
+    return discount_match.group(1) if discount_match else None
+
 def extract_total_amount(words, vendor_name):
-    """Extract the total amount from OCR words, returns a float or empty string."""
+    """Extract the total amount from OCR words, returns enhanced calculation data."""
 
 
     # --- 3-TIER FALLBACK SYSTEM ---
@@ -230,71 +261,95 @@ def extract_total_amount(words, vendor_name):
     
     if preferred_approach == 'gross':
         result = _extract_gross_amount(words, vendor_name)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'gross')
     elif preferred_approach == 'calculated':
         gross_amount = _extract_gross_amount(words, vendor_name)
         if gross_amount:
-            result = _apply_calculated_adjustment(gross_amount, words, vendor_name)
-            if result: return _apply_credit_memo_logic(result, words, vendor_name)
-        if gross_amount: return _apply_credit_memo_logic(gross_amount, words, vendor_name)
+            result_data = _apply_calculated_adjustment_enhanced(gross_amount, words, vendor_name)
+            if result_data['total_amount']:
+                final_amount = _apply_credit_memo_logic(result_data['total_amount'], words, vendor_name)
+                result_data['total_amount'] = final_amount
+                return result_data
+        if gross_amount:
+            final_amount = _apply_credit_memo_logic(gross_amount, words, vendor_name)
+            return _create_result(final_amount, 'gross')
     elif preferred_approach == 'bottom_most':
         result = extract_bottom_most_currency(words, vendor_name)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'bottom_most')
     elif preferred_approach == 'bottom_minus_ship':
         shipping_cost = _extract_shipping_cost(words, vendor_name)
         result = extract_bottom_most_minus_shipping(words, vendor_name, shipping_cost)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'bottom_minus_ship')
     elif preferred_approach == 'label':
         result = _extract_with_label_fallback(words, vendor_name)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'label')
     elif preferred_approach == 'label_minus_ship':
         result = extract_label_minus_shipping(words, vendor_name)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'label_minus_ship')
     elif preferred_approach == 'label_calculated':
         label_amount = _extract_with_label_fallback(words, vendor_name)
         if label_amount:
-            result = _apply_calculated_adjustment(label_amount, words, vendor_name)
-            if result: return _apply_credit_memo_logic(result, words, vendor_name)
-        if label_amount: return _apply_credit_memo_logic(label_amount, words, vendor_name)
+            result_data = _apply_calculated_adjustment_enhanced(label_amount, words, vendor_name)
+            if result_data['total_amount']:
+                final_amount = _apply_credit_memo_logic(result_data['total_amount'], words, vendor_name)
+                result_data['total_amount'] = final_amount
+                result_data['calculation_method'] = 'label_calculated'
+                return result_data
+        if label_amount:
+            final_amount = _apply_credit_memo_logic(label_amount, words, vendor_name)
+            return _create_result(final_amount, 'label')
     elif preferred_approach == 'bottom_calculated':
         bottom_amount = extract_bottom_most_currency(words, vendor_name)
         if bottom_amount:
-            result = _apply_calculated_adjustment(bottom_amount, words, vendor_name)
-            if result: return _apply_credit_memo_logic(result, words, vendor_name)
-        if bottom_amount: return _apply_credit_memo_logic(bottom_amount, words, vendor_name)
+            result_data = _apply_calculated_adjustment_enhanced(bottom_amount, words, vendor_name)
+            if result_data['total_amount']:
+                final_amount = _apply_credit_memo_logic(result_data['total_amount'], words, vendor_name)
+                result_data['total_amount'] = final_amount
+                result_data['calculation_method'] = 'bottom_calculated'
+                return result_data
+        if bottom_amount:
+            final_amount = _apply_credit_memo_logic(bottom_amount, words, vendor_name)
+            return _create_result(final_amount, 'bottom_most')
     elif preferred_approach == 'second_from_bottom':
         result = extract_second_from_bottom_currency(words, vendor_name)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'second_from_bottom')
     elif preferred_approach == 'second_from_bottom_minus_ship':
         shipping_cost = _extract_shipping_cost(words, vendor_name)
         result = extract_second_from_bottom_minus_shipping(words, vendor_name, shipping_cost)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        if result:
+            final_amount = _apply_credit_memo_logic(result, words, vendor_name)
+            return _create_result(final_amount, 'second_from_bottom_minus_ship')
     elif preferred_approach == 'subtotal_minus_discount':
-        result = extract_subtotal_minus_discount(words, vendor_name)
-        if result: return _apply_credit_memo_logic(result, words, vendor_name)
+        result_data = extract_subtotal_minus_discount_enhanced(words, vendor_name)
+        if result_data['total_amount']:
+            final_amount = _apply_credit_memo_logic(result_data['total_amount'], words, vendor_name)
+            result_data['total_amount'] = final_amount
+            return result_data
     elif preferred_approach == 'gross_calculated':
         gross_amount = _extract_gross_amount(words, vendor_name)
         if gross_amount:
-            # Subtract shipping if possible
-            shipping_cost = _extract_shipping_cost(words, vendor_name)
-            try:
-                gross_value = float(gross_amount)
-                shipping_value = float(shipping_cost) if shipping_cost else 0.0
-                amount_after_shipping = gross_value - shipping_value
-
-                # Apply discount from terms
-                discount_terms = _extract_discount_terms(words, vendor_name)
-                if discount_terms and "%" in discount_terms:
-                    from .utils import calculate_discounted_total
-                    result = calculate_discounted_total(discount_terms, format_currency(amount_after_shipping), vendor_name)
-                    if result: return _apply_credit_memo_logic(result, words, vendor_name)
-
-                # No discount found, return amount after shipping
-                return _apply_credit_memo_logic(format_currency(amount_after_shipping), words, vendor_name)
-            except (ValueError, TypeError):
-                # If calculation fails, return gross amount
-                return _apply_credit_memo_logic(gross_amount, words, vendor_name)
-        return _apply_credit_memo_logic(gross_amount, words, vendor_name) if gross_amount else ""
+            result_data = _apply_calculated_adjustment_enhanced(gross_amount, words, vendor_name)
+            if result_data['total_amount']:
+                final_amount = _apply_credit_memo_logic(result_data['total_amount'], words, vendor_name)
+                result_data['total_amount'] = final_amount
+                result_data['calculation_method'] = 'gross_calculated'
+                return result_data
+        if gross_amount:
+            final_amount = _apply_credit_memo_logic(gross_amount, words, vendor_name)
+            return _create_result(final_amount, 'gross')
+        return _create_result('', 'none')
 
     # TIER 2: Label-based fallback (for failed cases)
     if vendor_name == "Simms":
@@ -305,7 +360,8 @@ def extract_total_amount(words, vendor_name):
     if label_result:
         if vendor_name == "Simms":
             print(f"[DEBUG] Simms TIER 2 label fallback succeeded: {label_result}")
-        return _apply_credit_memo_logic(label_result, words, vendor_name)
+        final_amount = _apply_credit_memo_logic(label_result, words, vendor_name)
+        return _create_result(final_amount, 'label_fallback')
     #print(f"[TOTAL_DEBUG] {vendor_name}: Label fallback failed, trying general logic")
     
     # TIER 3: Original logic fallback
@@ -426,7 +482,7 @@ def extract_total_amount(words, vendor_name):
 
     if not candidates:
         #print(f"[TOTAL_DEBUG] {vendor_name}: No valid currency amounts found")
-        return ""
+        return _create_result('', 'none')
 
     #print(f"[TOTAL_DEBUG] {vendor_name}: Found {len(candidates)} total candidates")
 
@@ -440,7 +496,7 @@ def extract_total_amount(words, vendor_name):
 
     if not candidates:
         #print(f"[TOTAL_DEBUG] {vendor_name}: No valid currency amounts found after filtering")
-        return ""
+        return _create_result('', 'none')
 
     # Find the amount with largest absolute value
     largest_abs = max(candidates, key=lambda x: abs(x['amount']))
@@ -456,7 +512,13 @@ def extract_total_amount(words, vendor_name):
     #print(f"[TOTAL_DEBUG] {vendor_name}: Selected amount: {result['raw']} → {result['amount']:.2f}")
 
     final_amount = format_currency(result['amount'])
-    return _apply_credit_memo_logic(final_amount, words, vendor_name)
+    final_amount = _apply_credit_memo_logic(final_amount, words, vendor_name)
+    return _create_result(final_amount, 'general_fallback')
+
+def get_total_amount_string(words, vendor_name):
+    """Backward compatibility function that returns just the total amount string."""
+    result = extract_total_amount(words, vendor_name)
+    return result.get('total_amount', '') if isinstance(result, dict) else str(result)
 
 def extract_bottom_most_currency(words, vendor_name):
     """Extract the currency amount that appears lowest on the page (highest Y-coordinate).
@@ -680,6 +742,114 @@ def extract_subtotal_minus_discount(words, vendor_name):
 
     return ""
 
+def extract_subtotal_minus_discount_enhanced(words, vendor_name):
+    """Enhanced version of extract_subtotal_minus_discount that returns calculation details."""
+    from .common_extraction import normalize_words
+
+    normalized_words = normalize_words(words, first_page_only=False)
+
+    if not normalized_words:
+        return _create_result('', 'none')
+
+    # Find "subtotal" label positions
+    subtotal_positions = []
+
+    for word in normalized_words:
+        word_text = word["text"].lower().rstrip(":")
+
+        if word_text == "subtotal":
+            pos_data = {
+                "x0": word["x0"],
+                "x1": word["x1"],
+                "top": word["top"],
+                "bottom": word["bottom"],
+                "label": word["text"],
+                "page_num": word["page_num"]
+            }
+            subtotal_positions.append(pos_data)
+
+    # Find subtotal values and potential discounts below them
+    for label_pos in subtotal_positions:
+        label_page = label_pos.get("page_num", 0)
+
+        # Find subtotal value (to the right or below the label)
+        subtotal_candidates = []
+        discount_candidates = []
+
+        for word in normalized_words:
+            word_page = word.get("page_num", 0)
+
+            # Skip if they're on different pages
+            if label_page != word_page:
+                continue
+
+            if is_currency(word["text"]):
+                # Check distances for Rio Products subtotal detection
+                horizontal_distance = word["x0"] - label_pos["x1"]
+                vertical_alignment = abs(word["top"] - label_pos["top"])
+                vertical_distance = word["top"] - label_pos["bottom"]
+
+                # Check if this currency is on the same line as the subtotal label
+                if (vertical_distance >= -5 and vertical_distance <= 15 and  # Same line as label (±15px)
+                    abs(horizontal_distance) <= 200):                       # Horizontally reasonable range
+
+                    value = preprocess_currency_text(word["text"].strip())
+                    cleaned = clean_currency(value)
+                    try:
+                        amount = float(cleaned)
+                        subtotal_candidates.append({
+                            'amount': amount,
+                            'y_position': word["top"],
+                            'x_position': word["x0"],
+                            'v_distance': vertical_distance
+                        })
+                    except ValueError:
+                        continue
+
+                # Check if this currency is on a different line (discount candidate)
+                elif vertical_distance > 15:  # Different line from label
+                    value = preprocess_currency_text(word["text"].strip())
+                    cleaned = clean_currency(value)
+                    try:
+                        amount = float(cleaned)
+                        discount_candidates.append({
+                            'amount': amount,
+                            'y_position': word["top"]
+                        })
+                    except ValueError:
+                        continue
+
+        # Process if we found a subtotal
+        if subtotal_candidates:
+            # Take the leftmost subtotal candidate (smallest x-position)
+            leftmost_subtotal = min(subtotal_candidates, key=lambda x: x['x_position'])
+            subtotal_amount = leftmost_subtotal['amount']
+
+            # Find the discount (lowest Y-position = furthest down)
+            if discount_candidates:
+                # Sort by Y-position descending (highest Y = lowest on page)
+                discount_candidates.sort(key=lambda x: x['y_position'], reverse=True)
+                discount_amount = discount_candidates[0]['amount']
+
+                # Calculate final amount: subtotal - discount
+                final_amount = subtotal_amount - discount_amount
+
+                return _create_result(
+                    total_amount=format_currency(final_amount),
+                    calculation_method='subtotal_minus_discount',
+                    discount_type='dollar',
+                    discount_value=format_currency(discount_amount),
+                    pre_discount_amount=format_currency(subtotal_amount)
+                )
+            else:
+                # No discount found, return subtotal as-is
+                return _create_result(
+                    total_amount=format_currency(subtotal_amount),
+                    calculation_method='subtotal_minus_discount'
+                )
+
+    return _create_result('', 'none')
+
 def _extract_gross_amount(words, vendor_name):
     """Extract using the original gross amount logic."""
     # This is the original extract_total_amount logic
@@ -812,6 +982,47 @@ def _apply_calculated_adjustment(gross_amount, words, vendor_name):
 
     except (ValueError, TypeError):
         return gross_amount  # Return original if calculation fails
+
+def _apply_calculated_adjustment_enhanced(gross_amount, words, vendor_name):
+    """Apply discount and shipping adjustments to gross amount, return enhanced data."""
+    try:
+        # Use Decimal for precise calculations to avoid floating-point precision issues
+        total_amount = Decimal(gross_amount.replace(',', ''))
+
+        # Get shipping cost
+        shipping_cost_str = _extract_shipping_cost(words, vendor_name)
+        shipping_cost = Decimal(shipping_cost_str.replace(',', '')) if shipping_cost_str else Decimal('0.0')
+
+        # Get discount terms using standard extraction
+        discount_terms = _extract_discount_terms(words, vendor_name).strip()
+
+        # Subtract shipping cost first
+        amount_after_shipping = total_amount - shipping_cost
+
+        # Parse discount percentage if present
+        discount_percentage = _extract_percentage_from_terms(discount_terms)
+        if discount_percentage:
+            discount_rate = Decimal(discount_percentage) / Decimal('100.0')
+            # Apply discount using Decimal arithmetic
+            final_amount = amount_after_shipping * (Decimal('1.0') - discount_rate)
+
+            return _create_result(
+                total_amount=format_currency(float(final_amount)),
+                calculation_method='calculated',
+                discount_type='percentage',
+                discount_value=discount_percentage,
+                pre_discount_amount=format_currency(float(amount_after_shipping))
+            )
+        else:
+            # No discount found, return amount after shipping
+            return _create_result(
+                total_amount=format_currency(float(amount_after_shipping)),
+                calculation_method='calculated'
+            )
+
+    except (ValueError, TypeError):
+        # Return original if calculation fails
+        return _create_result(gross_amount, 'gross')
 
 def _extract_shipping_cost(words, vendor_name):
     """Extract shipping cost using the shipping cost extractor."""

@@ -891,7 +891,7 @@ class InvoiceApp(QWidget):
 
     # ----------- small utils -----------
     def _sanitize_filename(self, s):
-        return re.sub(r'[\\/*?:"<>|]+', "_", (s or "").strip())
+        return re.sub(r'[\\/*?:"<>|.]+', "_", (s or "").strip())
 
     def _parse_invoice_date(self, text):
         try:

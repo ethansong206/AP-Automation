@@ -1,0 +1,5 @@
+1-AI_VCHR,VendorNo,InvoiceNo,InvoiceDate,InvoiceDueDate,Comment(PO),VendorName
+2-AI_VCHR_DIST,AccountNo,DistributionAmt
+1-AI_VCHR,0000875,SOIN000904951,04/30/25,06/29/25,PO# 701-Pressn5.1.25,Rio Products
+2-AI_VCHR_DIST,140-000,570.34
+2-AI_VCHR_DIST,520-004,10.00
