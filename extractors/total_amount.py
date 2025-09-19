@@ -57,7 +57,7 @@ VENDOR_APPROACH_MAP = {
     'Oregon Freeze Dry': 'gross',
     'Outdoor Research': 'gross',
     'Waboba Inc': 'gross',
-    'Birkenstock USA': 'gross',
+    'Birkenstock USA': 'bottom_most',
     'Columbia River': 'gross',
     'Smartwool': 'gross',
     

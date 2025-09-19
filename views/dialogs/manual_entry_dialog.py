@@ -1148,27 +1148,30 @@ class ManualEntryDialog(QDialog):
             self.file_list.blockSignals(False)
 
         # Refresh viewer (now inside right card)
-        new_viewer = InteractivePDFViewer(self.pdf_paths[index])
         # Find the right card and its layout
         right_card = self.splitter.widget(2)  # Right card is the 3rd widget
         if right_card and hasattr(right_card, 'layout') and right_card.layout():
             layout = right_card.layout()
-            # Remove any existing viewers (clean slate approach)
+            # Remove any existing viewers (clean slate approach) - PROPERLY close documents first
             items_to_remove = []
             for i in range(layout.count()):
                 item = layout.itemAt(i)
                 if item and item.widget():
                     widget = item.widget()
                     # Check if it's a PDF viewer (has doc attribute or is InteractivePDFViewer)
-                    if (hasattr(widget, 'doc') or 
+                    if (hasattr(widget, 'doc') or
                         widget.__class__.__name__ == 'InteractivePDFViewer'):
+                        # CRITICAL: Immediately close the document to release file handles
+                        if hasattr(widget, 'close_document'):
+                            widget.close_document()
                         items_to_remove.append(widget)
-            
+
             for widget in items_to_remove:
                 layout.removeWidget(widget)
                 widget.deleteLater()
-            
-            # Add the new viewer
+
+            # Create and add the new viewer
+            new_viewer = InteractivePDFViewer(self.pdf_paths[index])
             layout.addWidget(new_viewer)
             self.viewer = new_viewer
             QTimer.singleShot(0, lambda: self.viewer.fit_width() if self.viewer else None)
@@ -1880,6 +1883,11 @@ class ManualEntryDialog(QDialog):
     def closeEvent(self, event):
         """Clean up resize cursor override and guard window-X close."""
         self._restoreOverrideCursor()
+
+        # CRITICAL: Close the current PDF viewer document to release file handles
+        if hasattr(self, 'viewer') and self.viewer and hasattr(self.viewer, 'close_document'):
+            self.viewer.close_document()
+
         event.ignore()
 
         def proceed_accept_close():

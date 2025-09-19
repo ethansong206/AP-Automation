@@ -29,7 +29,7 @@ def extract_fields(documents):
             "Discount Terms": extract_discount_terms(words, vendor_name),
             "Discount Due Date": "",
             "Shipping Cost": extract_shipping_cost(words, vendor_name),
-            "Total Amount": total_amount_data.get('total_amount', '') if isinstance(total_amount_data, dict) else str(total_amount_data),
+            "Total Amount": total_amount_data.get('total_amount', '') if isinstance(total_amount_data, dict) else (str(total_amount_data) if total_amount_data is not None else ''),
             "_total_amount_enhanced": total_amount_data  # Store enhanced data for QC
         }
 

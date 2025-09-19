@@ -452,26 +452,38 @@ class InvoiceApp(QWidget):
 
         model = getattr(self.table, "_model", None)
         total_rows = model.rowCount() if model else self.table.rowCount()
+
+        # Track export results
+        exported_count = 0
+        failed_exports = []
+
         for src_row in range(total_rows):
             file_path = model.get_file_path(src_row) if model else self.table.get_file_path_for_row(src_row)
             if not file_path or not os.path.isfile(file_path):
+                failed_exports.append(f"Row {src_row + 1}: File not found or invalid path: {file_path}")
                 continue
-            if model:
-                vals = model.row_values(src_row)
-                vendor = self._sanitize_filename(vals[0]) or "UNKNOWN"
-                po_number = self._sanitize_filename(vals[2]) or "PO"
-                invoice_number = self._sanitize_filename(vals[1]) or "INV"
-                date_str = vals[3]
-            else:
-                vendor = self._sanitize_filename(self.table.get_cell_text(src_row, 1)) or "UNKNOWN"
-                po_number = self._sanitize_filename(self.table.get_cell_text(src_row, 3)) or "PO"
-                invoice_number = self._sanitize_filename(self.table.get_cell_text(src_row, 2)) or "INV"
-                date_str = self.table.get_cell_text(src_row, 4)
+
+            try:
+                if model:
+                    vals = model.row_values(src_row)
+                    # Defensive access with fallbacks
+                    vendor = self._sanitize_filename(vals[0] if len(vals) > 0 else "") or "UNKNOWN"
+                    invoice_number = self._sanitize_filename(vals[1] if len(vals) > 1 else "") or "INV"
+                    po_number = self._sanitize_filename(vals[2] if len(vals) > 2 else "") or "PO"
+                    date_str = vals[3] if len(vals) > 3 else ""
+                else:
+                    vendor = self._sanitize_filename(self.table.get_cell_text(src_row, 1)) or "UNKNOWN"
+                    po_number = self._sanitize_filename(self.table.get_cell_text(src_row, 3)) or "PO"
+                    invoice_number = self._sanitize_filename(self.table.get_cell_text(src_row, 2)) or "INV"
+                    date_str = self.table.get_cell_text(src_row, 4)
+            except Exception as e:
+                failed_exports.append(f"Row {src_row + 1}: Error accessing row data: {str(e)}")
+                continue
             new_name = f"{vendor}_{po_number}_{invoice_number}.pdf"
             date_obj = self._parse_invoice_date(date_str)
             dest_dir = month_dirs[date_obj.month - 1] if date_obj else target_dir
             dest_path = os.path.join(dest_dir, new_name)
-            
+
             # Handle destination filename conflicts with incremental naming
             final_dest_path = dest_path
             counter = 1
@@ -480,15 +492,15 @@ class InvoiceApp(QWidget):
                 incremented_name = f"{name_part}_{counter}{ext}"
                 final_dest_path = os.path.join(dest_dir, incremented_name)
                 counter += 1
-            
+
             try:
                 # Copy to destination folder with incremental naming
                 shutil.copy2(file_path, final_dest_path)
-                
+
                 # Rename original file with same incremental naming logic
                 src_dir = os.path.dirname(file_path)
                 new_src_path = os.path.join(src_dir, new_name)
-                
+
                 # Only rename if the new path would be different
                 if os.path.normpath(file_path) != os.path.normpath(new_src_path):
                     # Handle filename conflicts with incremental naming
@@ -500,10 +512,10 @@ class InvoiceApp(QWidget):
                         incremented_name = f"{name_part}_{src_counter}{ext}"
                         final_src_path = os.path.join(src_dir, incremented_name)
                         src_counter += 1
-                    
+
                     # Rename the original file
                     os.rename(file_path, final_src_path)
-                    
+
                     # Update file path tracking
                     if model:
                         model.set_file_path(src_row, final_src_path)
@@ -514,16 +526,23 @@ class InvoiceApp(QWidget):
                     if old_norm in self.file_controller.loaded_files:
                         self.file_controller.loaded_files.remove(old_norm)
                         self.file_controller.loaded_files.add(new_norm)
+
+                exported_count += 1
+
             except Exception as e:
-                print(f"[ERROR] Failed to copy '{file_path}' to '{final_dest_path}': {e}")
-        QMessageBox.information(self, "Export Complete", f"Files exported to:\n{target_dir}")
+                error_msg = f"Row {src_row + 1} ({vendor}_{po_number}_{invoice_number}): {str(e)}"
+                failed_exports.append(error_msg)
+                print(f"[ERROR] Failed to export file: {error_msg}")
+
+        # Show detailed results
+        self._show_file_export_results(exported_count, 0, failed_exports, target_dir)
 
     def unified_export(self):
         """Unified export flow for both files and CSV."""
         if self.table.total_row_count() == 0:
             QMessageBox.warning(self, "No Data", "There is no data to export.")
             return
-        
+
         # Pre-export validation - warn about zero/empty totals upfront
         if not self._check_zero_or_empty_total_amount_and_warn():
             return
@@ -538,18 +557,18 @@ class InvoiceApp(QWidget):
         
         # Step 1: Ask about file export
         file_reply = QMessageBox.question(
-            self, "Export Files", 
+            self, "Export Files",
             "Export files to folder (with renamed filenames)?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes
         )
-        
+
         if file_reply == QMessageBox.Yes:
             # Step 2: Get folder selection
             target_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")
             if not target_dir:
                 return  # User cancelled folder selection
-            
+
             # Step 3: Perform file export with progress tracking
             files_exported, files_skipped, files_failed = self._perform_file_export(target_dir)
         
@@ -662,14 +681,15 @@ class InvoiceApp(QWidget):
                 if not file_path or not os.path.isfile(file_path):
                     files_skipped += 1
                     continue
-                    
-                # Get row data for filename generation (same as original logic)
+
+                # Get row data for filename generation with defensive access
                 if model:
                     vals = model.row_values(src_row)
-                    vendor = self._sanitize_filename(vals[0]) or "UNKNOWN"
-                    po_number = self._sanitize_filename(vals[2]) or "PO"
-                    invoice_number = self._sanitize_filename(vals[1]) or "INV"
-                    date_str = vals[3]
+                    # Defensive access with fallbacks for QC data compatibility
+                    vendor = self._sanitize_filename(vals[0] if len(vals) > 0 else "") or "UNKNOWN"
+                    invoice_number = self._sanitize_filename(vals[1] if len(vals) > 1 else "") or "INV"
+                    po_number = self._sanitize_filename(vals[2] if len(vals) > 2 else "") or "PO"
+                    date_str = vals[3] if len(vals) > 3 else ""
                 else:
                     vendor = self._sanitize_filename(self.table.get_cell_text(src_row, 1)) or "UNKNOWN"
                     po_number = self._sanitize_filename(self.table.get_cell_text(src_row, 3)) or "PO"
@@ -696,7 +716,7 @@ class InvoiceApp(QWidget):
                 # Rename original file with same incremental naming logic
                 src_dir = os.path.dirname(file_path)
                 new_src_path = os.path.join(src_dir, new_name)
-                
+
                 if os.path.normpath(file_path) != os.path.normpath(new_src_path):
                     final_src_path = new_src_path
                     src_counter = 1
@@ -705,7 +725,7 @@ class InvoiceApp(QWidget):
                         incremented_name = f"{name_part}_{src_counter}{ext}"
                         final_src_path = os.path.join(src_dir, incremented_name)
                         src_counter += 1
-                    
+
                     os.rename(file_path, final_src_path)
                     if model:
                         model.set_file_path(src_row, final_src_path)

@@ -85,11 +85,11 @@ class InvoiceTableModel(QAbstractTableModel):
         self._dup_groups: Dict[str, int] = {}
 
     # --- Data access methods ---
-    def row_values(self, row: int) -> List[str]:
+    def row_values_for_session(self, row: int) -> List[str]:
         """Return all 16 values for a row (8 main + 8 QC values) for session persistence."""
         if row < 0 or row >= len(self._rows):
             return [""] * 16
-        
+
         r = self._rows[row]
         return [
             r.vendor, r.invoice, r.po, r.inv_date, r.terms,
@@ -335,9 +335,31 @@ class InvoiceTableModel(QAbstractTableModel):
         self._dup_groups.clear()
 
     def row_values(self, src_row: int) -> List[str]:
+        """Return core 16 values for a row (8 main + 8 QC values) - safe for export operations."""
+        if src_row < 0 or src_row >= len(self._rows):
+            return [""] * 16
+
         r = self._rows[src_row]
-        return [r.vendor, r.invoice, r.po, r.inv_date, r.terms, r.due, r.total, r.shipping,
-                r.qc_subtotal, r.qc_disc_pct, r.qc_disc_amt, r.qc_shipping, r.qc_used]
+        # Ensure all values are strings and handle None safely
+        values = [
+            str(r.vendor or ""),              # 0
+            str(r.invoice or ""),             # 1
+            str(r.po or ""),                  # 2
+            str(r.inv_date or ""),            # 3
+            str(r.terms or ""),               # 4
+            str(r.due or ""),                 # 5
+            str(r.total or ""),               # 6
+            str(r.shipping or ""),            # 7
+            str(r.qc_subtotal or ""),         # 8
+            str(r.qc_disc_pct or ""),         # 9
+            str(r.qc_disc_amt or ""),         # 10
+            str(r.qc_shipping or ""),         # 11
+            str(r.qc_used or ""),             # 12
+            str(r.qc_save_state or ""),       # 13 - QC save state JSON
+            str(r.qc_original_subtotal or ""), # 14 - QC original subtotal
+            str(r.qc_inventory or "")         # 15 - QC inventory value
+        ]
+        return values
 
     def get_file_path(self, src_row: int) -> str:
         return self._rows[src_row].file_path
@@ -390,7 +412,7 @@ class InvoiceTableModel(QAbstractTableModel):
                 # Update the first 8 visible columns
                 for c, val in zip(BODY_COLS, (row_values + [""] * 8)[:8]):
                     self.setData(self.index(i, c), val, Qt.EditRole)
-                
+
                 # Update QC values directly on the row object (not visible in table)
                 extended_values = (row_values + [""] * 13)[:13]
                 r.qc_subtotal = extended_values[8] if len(extended_values) > 8 else ""
@@ -398,9 +420,8 @@ class InvoiceTableModel(QAbstractTableModel):
                 r.qc_disc_amt = extended_values[10] if len(extended_values) > 10 else ""
                 r.qc_shipping = extended_values[11] if len(extended_values) > 11 else ""
                 r.qc_used = extended_values[12] if len(extended_values) > 12 else "false"
-                
-                print(f"[QC DEBUG] update_row_by_source saved QC values: subtotal={r.qc_subtotal}, disc_pct={r.qc_disc_pct}, disc_amt={r.qc_disc_amt}, shipping={r.qc_shipping}, used={r.qc_used}")
-                
+
+
                 # Recalculate grand total after updating
                 r._update_grand_total()
                 grand_total_index = self.index(i, C_GRAND_TOTAL)

@@ -211,6 +211,19 @@ class InteractivePDFViewer(QWidget):
         # ---- Load initial PDF ----
         self.load_pdf(pdf_path)
 
+    def __del__(self):
+        """Ensure PDF document is properly closed when viewer is destroyed."""
+        self.close_document()
+
+    def close_document(self):
+        """Explicitly close the PDF document to release file handles."""
+        if self.doc:
+            try:
+                self.doc.close()
+            except:
+                pass  # Ignore errors during cleanup
+            self.doc = None
+
     # -----------------------------
     # UI helpers
     # -----------------------------
@@ -238,9 +251,11 @@ class InteractivePDFViewer(QWidget):
     # -----------------------------
     def load_pdf(self, pdf_path: str):
         """Open a PDF file and render the current page."""
+        # Close any existing document first
+        self.close_document()
+
         self.scene.clear()
         self._pix_item = None
-        self.doc = None
         self.page_index = 0
         self.rotation = 0
         if not pdf_path or not os.path.isfile(pdf_path):

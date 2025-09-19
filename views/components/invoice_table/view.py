@@ -450,7 +450,7 @@ class InvoiceTable(QWidget):
         src = self._view_to_source_row(view_row)
         if src < 0:
             return [""] * 16
-        return self._model.row_values(src)
+        return self._model.row_values_for_session(src)
     
     def update_calculated_field(self, view_row: int, col: int, value: str, emit_change: bool = True):
         """Update a table cell without marking it as manually edited."""
