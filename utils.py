@@ -5,6 +5,9 @@ import shutil
 import re
 from datetime import datetime
 from PyQt5.QtCore import QStandardPaths
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _should_write_headers(filename: str) -> bool:
@@ -56,45 +59,11 @@ DIST_HEADER = [
     "DistributionAmt"
 ]
 
-def is_row_valid_for_export(invoice_table, row):
-    """Check if row is valid for export (no errors, complete data)"""
-    # Get required fields
-    vendor_name = invoice_table.get_cell_text(row, 1)
-    invoice_no = invoice_table.get_cell_text(row, 2)
-    invoice_date = invoice_table.get_cell_text(row, 4)
-    total_amount = invoice_table.get_cell_text(row, 8)
-    
-    # Log validation details
-    print(f"Validating row {row}: Vendor='{vendor_name}', Invoice='{invoice_no}', Total='{total_amount}'")
-    
-    # Check for empty vendor name
-    if not vendor_name:
-        print(f"[INFO] Row {row} skipped: Missing or invalid vendor name")
-        return False
-    
-    # Check for invoice number
-    if not invoice_no or invoice_no.strip() == "":
-        print(f"[INFO] Row {row} skipped: Missing invoice number")
-        return False
-    
-    # Check for invoice date
-    if not invoice_date or invoice_date.strip() == "":
-        print(f"[INFO] Row {row} skipped: Missing invoice date")
-        return False
-    
-    # Check for total amount
-    if not total_amount or total_amount.strip() == "":
-        print(f"[INFO] Row {row} skipped: Missing total amount")
-        return False
-    
-    # Row is valid
-    print(f"[INFO] Row {row} is valid for export")
-    return True
 
 def get_vendor_id(vendor_name):
     """Get vendor number from vendor name using vendors.csv file."""
     if not vendor_name:
-        print(f"[WARN] Empty vendor name")
+        logger.warning("Empty vendor name provided")
         return "0"  # Default vendor ID
     
     # Extra aggressive cleaning - convert all whitespace sequences to single spaces
@@ -102,7 +71,7 @@ def get_vendor_id(vendor_name):
     original = vendor_name  # Save for logging
     vendor_name = re.sub(r'\s+', ' ', vendor_name.strip())
     
-    print(f"[DEBUG] Vendor lookup: '{original}' → '{vendor_name}'")
+    logger.debug(f"Vendor lookup: '{original}' → '{vendor_name}'")
     
     if not vendor_name:
         return "0"
@@ -123,39 +92,18 @@ def get_vendor_id(vendor_name):
                     
                     # Case-insensitive comparison
                     if csv_vendor_name.lower() == vendor_name.lower():
-                        print(f"[INFO] ✓ Found vendor ID '{vendor_id}' for '{vendor_name}'")
+                        logger.info(f"✓ Found vendor ID '{vendor_id}' for '{vendor_name}'")
                         return vendor_id
     except Exception as e:
-        print(f"[ERROR] Could not read vendors.csv: {e}")
+        logger.error(f"Could not read vendors.csv: {e}")
     
-    print(f"[WARN] No vendor ID found for '{vendor_name}'. Using default '0'.")
+    logger.warning(f"No vendor ID found for '{vendor_name}'. Using default '0'.")
     return "0"  # Default vendor ID when not found
 
 def format_date_for_export(date_obj):
     """Format date as MM/DD/YYYY for export"""
     return date_obj.strftime("%m/%d/%Y")
 
-def parse_date(date_string):
-    """Parse date from MM/dd/yy format"""
-    try:
-        clean_date = date_string.strip()
-        
-        if '/' in clean_date:
-            parts = clean_date.split('/')
-            if len(parts) == 3:
-                month = int(parts[0])
-                day = int(parts[1])
-                year = int(parts[2])
-                
-                # Handle 2-digit years
-                if year < 100:
-                    year += 2000
-                    
-                return datetime(year, month, day)
-    except:
-        pass
-        
-    return datetime.now()  # Fallback
 
 def clean_amount(amount_str):
     """Clean amount string for export"""
@@ -190,52 +138,6 @@ def clean_text(text):
     # Final trim
     return cleaned.strip()
 
-def parse_terms(terms_string):
-    """Parse terms string to extract terms code, due days, discount days and percentage"""
-    result = {
-        'code': 'N30',  # Default to N30
-        'due_days': 30,  # Default to 30 days
-        'disc_days': 0,
-        'disc_pct': 0.000
-    }
-    
-    if not terms_string:
-        return result
-        
-    # Normalize input for regex matching
-    terms_string = terms_string.upper().strip()
-    
-    # Primary patterns
-    net_match = re.search(r'N(?:ET)?\s*(\d+)', terms_string)  # NET 30 or N30
-    disc_match = re.search(r'(\d+(?:\.\d+)?)\s*[/%]\s*(\d+)', terms_string)  # 2/10 or 2%10
-    
-    if net_match:
-        # Explicit NET term provided
-        days = int(net_match.group(1))
-        result['code'] = f"N{days}"
-        result['due_days'] = days
-
-        if disc_match:
-            result['disc_pct'] = float(disc_match.group(1))
-            result['disc_days'] = int(disc_match.group(2))
-
-    elif disc_match:
-        # Handle formats without explicit NET (e.g., "8% 75")
-        days = int(disc_match.group(2))
-        result['code'] = f"N{days}"
-        result['due_days'] = days
-        result['disc_pct'] = float(disc_match.group(1))
-        result['disc_days'] = 0
-
-    else:
-        # Fallback: any standalone number becomes NET days
-        num_match = re.search(r'(\d+)', terms_string)
-        if num_match:
-            days = int(num_match.group(1))
-            result['code'] = f"N{days}"
-            result['due_days'] = days
-    
-    return result
 
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and PyInstaller"""
@@ -274,7 +176,7 @@ def _migrate_from_qt_appdata(roaming_root: str, target_dir: str) -> None:
                 item != "AP Automation"):
                 
                 # Found an old versioned folder - migrate its contents
-                print(f"[INFO] Migrating data from {item} to AP Automation")
+                logger.info(f"Migrating data from {item} to AP Automation")
                 
                 # Create target directory
                 os.makedirs(target_dir, exist_ok=True)
@@ -284,20 +186,20 @@ def _migrate_from_qt_appdata(roaming_root: str, target_dir: str) -> None:
                 new_vendors = os.path.join(target_dir, "vendors.csv")
                 if os.path.exists(old_vendors) and not os.path.exists(new_vendors):
                     shutil.move(old_vendors, new_vendors)
-                    print(f"[INFO] Migrated vendors.csv from {item}")
+                    logger.info(f"Migrated vendors.csv from {item}")
                 
                 # Move manual_vendor_map.json if it exists
                 old_map = os.path.join(item_path, "manual_vendor_map.json")
                 new_map = os.path.join(target_dir, "manual_vendor_map.json")
                 if os.path.exists(old_map) and not os.path.exists(new_map):
                     shutil.move(old_map, new_map)
-                    print(f"[INFO] Migrated manual_vendor_map.json from {item}")
+                    logger.info(f"Migrated manual_vendor_map.json from {item}")
                 
                 # Only migrate from the first found folder to avoid conflicts
                 break
                 
     except Exception as e:
-        print(f"[WARN] Could not migrate from old AppData folders: {e}")
+        logger.warning(f"Could not migrate from old AppData folders: {e}")
 
 
 def _add_rows_with_duplicate_prevention(existing_rows: list[dict], new_rows: list[dict]) -> None:
@@ -323,9 +225,9 @@ def _add_rows_with_duplicate_prevention(existing_rows: list[dict], new_rows: lis
         if new_signature not in existing_signatures:
             existing_rows.append(new_row)
             existing_signatures.add(new_signature)
-            print(f"[INFO] Added vendor: {new_row.get('Vendor Name', '')} (#{new_row.get('Vendor No. (Sage)', '')})")
+            logger.info(f"Added vendor: {new_row.get('Vendor Name', '')} (#{new_row.get('Vendor No. (Sage)', '')})")
         else:
-            print(f"[INFO] Skipped duplicate vendor: {new_row.get('Vendor Name', '')} (#{new_row.get('Vendor No. (Sage)', '')})")
+            logger.debug(f"Skipped duplicate vendor: {new_row.get('Vendor Name', '')} (#{new_row.get('Vendor No. (Sage)', '')})")
 
 
 def _merge_vendors_csv(src: str, dest: str) -> None:
@@ -421,7 +323,7 @@ def _merge_vendors_csv(src: str, dest: str) -> None:
     conflicts_resolved = False
     
     if conflicts:
-        print(f"[INFO] Found {len(conflicts)} vendor conflicts to resolve")
+        logger.info(f"Found {len(conflicts)} vendor conflicts to resolve")
         # Import here to avoid circular imports
         try:
             from views.dialogs.vendor_merge_dialog import VendorMergeDialog
@@ -430,16 +332,16 @@ def _merge_vendors_csv(src: str, dest: str) -> None:
             app = QApplication.instance()
             if app is None:
                 # If no QApplication exists, we can't show dialogs
-                print("[WARN] Cannot show merge dialog - no Qt application running")
+                logger.warning("Cannot show merge dialog - no Qt application running")
                 return
                 
-            print("[INFO] Showing merge dialog to user")
+            logger.info("Showing merge dialog to user")
             dialog = VendorMergeDialog(conflicts)
             dialog_result = dialog.exec_()
             
             if dialog_result == dialog.Accepted:
                 user_choices = dialog.get_user_choices()
-                print(f"[INFO] User made choices for {len(user_choices)} conflicts")
+                logger.info(f"User made choices for {len(user_choices)} conflicts")
                 conflicts_resolved = True
                 
                 # Apply user choices
@@ -447,7 +349,7 @@ def _merge_vendors_csv(src: str, dest: str) -> None:
                 
                 for conflict_index, choice in user_choices.items():
                     conflict = conflicts[conflict_index]
-                    print(f"[INFO] Conflict {conflict_index}: User chose '{choice}'")
+                    logger.info(f"Conflict {conflict_index}: User chose '{choice}'")
                     
                     if choice == 'bundle':
                         # Replace user row with bundle row
@@ -462,30 +364,30 @@ def _merge_vendors_csv(src: str, dest: str) -> None:
                                 row.get("Vendor Name", "") == old_row.get("Vendor Name", "") and
                                 row.get("Identifier", "") == old_row.get("Identifier", "")):
                                 final_user_rows[i] = new_row
-                                print(f"[INFO] Replaced vendor: {old_row.get('Vendor Name', '')} with bundle version")
+                                logger.info(f"Replaced vendor: {old_row.get('Vendor Name', '')} with bundle version")
                                 replaced = True
                                 break
                         if not replaced:
-                            print(f"[WARN] Could not find row to replace for {old_row.get('Vendor Name', '')}")
+                            logger.warning(f"Could not find row to replace for {old_row.get('Vendor Name', '')}")
                                 
                     elif choice == 'both':
                         # Keep both - user row stays, add bundle row if not duplicate
                         bundle_row = conflict['bundle_row']
                         bundle_rows_to_add.append(bundle_row)
-                        print(f"[INFO] Keeping both versions of vendor: {bundle_row.get('Vendor Name', '')}")
+                        logger.info(f"Keeping both versions of vendor: {bundle_row.get('Vendor Name', '')}")
                         
                     # choice == 'user' means keep user's version (no action needed)
                 
                 # Add bundle rows from "both" choices, with duplicate prevention
                 if bundle_rows_to_add:
-                    print(f"[INFO] Adding {len(bundle_rows_to_add)} additional vendors from 'keep both' choices")
+                    logger.info(f"Adding {len(bundle_rows_to_add)} additional vendors from 'keep both' choices")
                     _add_rows_with_duplicate_prevention(final_user_rows, bundle_rows_to_add)
             else:
                 # User cancelled - don't merge
-                print("[INFO] User cancelled merge dialog")
+                logger.info("User cancelled merge dialog")
                 return
         except ImportError as e:
-            print(f"[WARN] Could not import merge dialog: {e}")
+            logger.warning(f"Could not import merge dialog: {e}")
             return
     
     # Add new vendors (no conflicts) with duplicate prevention
@@ -521,7 +423,7 @@ def _merge_vendors_csv(src: str, dest: str) -> None:
                    len(final_user_rows) != len(user_rows))
     
     if should_write:
-        print(f"[INFO] Writing updated vendors.csv with {len(final_user_rows)} entries to {dest}")
+        logger.info(f"Writing updated vendors.csv with {len(final_user_rows)} entries to {dest}")
         try:
             with open(dest, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=["Vendor No. (Sage)", "Vendor Name", "Identifier"])
@@ -535,12 +437,12 @@ def _merge_vendors_csv(src: str, dest: str) -> None:
                     }
                     writer.writerow(output_row)
                     written_count += 1
-            print(f"[INFO] Successfully wrote {written_count} vendors to {dest}")
+            logger.info(f"Successfully wrote {written_count} vendors to {dest}")
         except Exception as e:
-            print(f"[ERROR] Failed to write vendors file: {e}")
+            logger.error(f"Failed to write vendors file: {e}")
             raise
     else:
-        print("[INFO] No vendor data changes needed")
+        logger.info("No vendor data changes needed")
 
 
 def _merge_manual_map(src: str, dest: str) -> None:
@@ -577,28 +479,25 @@ def get_vendor_csv_path() -> str:
     # Use standardized "AP Automation" folder in AppData/Roaming
     user_dir = _appdata_dir()
     user_path = os.path.join(user_dir, "vendors.csv")
-    print(f"[DEBUG] Vendor CSV path: {user_path}")
+    logger.debug(f"Vendor CSV path: {user_path}")
 
     bundled_path = resource_path(os.path.join("data", "vendors.csv"))
     if not os.path.exists(user_path):
-        print(f"[INFO] User vendors.csv doesn't exist, copying from bundle")
+        logger.info(f"User vendors.csv doesn't exist, copying from bundle")
         if os.path.exists(bundled_path):
             shutil.copyfile(bundled_path, user_path)
-            print(f"[INFO] Copied {bundled_path} to {user_path}")
+            logger.info(f"Copied {bundled_path} to {user_path}")
     else:
-        print(f"[INFO] User vendors.csv exists, checking for merge needed")
+        logger.info(f"User vendors.csv exists, checking for merge needed")
         if os.path.exists(bundled_path):
             _merge_vendors_csv(bundled_path, user_path)
     return user_path
 
-def get_manual_map_path() -> str:
-    """Path to user-managed manual_vendor_map.json with defaults merged."""
-    return _get_data_file("manual_vendor_map.json", _merge_manual_map)
 
 def format_and_write_csv(filename, invoice_data_list):
     """Write invoices to CSV using simplified export layout for SAGE"""
     try:
-        print(f"[INFO] Writing {len(invoice_data_list)} invoices to {filename}")
+        logger.info(f"Writing {len(invoice_data_list)} invoices to {filename}")
         
         write_headers = _should_write_headers(filename)
         existing_vouchers = _scan_existing_voucher_rows(filename) if not write_headers else set()
@@ -666,5 +565,5 @@ def format_and_write_csv(filename, invoice_data_list):
         return True, msg
 
     except Exception as e:
-        print(f"[ERROR] Export failed: {str(e)}")
+        logger.error(f"Export failed: {str(e)}")
         return False, f"Export failed: {str(e)}"

@@ -1,6 +1,9 @@
 import re
 from datetime import datetime, timedelta
 from .utils import try_parse_date
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 def extract_invoice_date(words, vendor_name):
     # Carve Designs-specific logic: for email format, skip dates with timestamps
@@ -92,7 +95,7 @@ def extract_invoice_date(words, vendor_name):
                 MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
                 
                 if MIN_VALID_DATE <= parsed_date <= today:
-                    #print(f"[DEBUG] Arc'teryx: Reconstructed '{sep_match.group(0)}' as {reconstructed_date}")
+                    logger.debug(f"Arc'teryx: Reconstructed '{sep_match.group(0)}' as {reconstructed_date}")
                     return reconstructed_date
     
     # Lifestraw-specific logic: use top-most date (consistent format)
@@ -123,7 +126,7 @@ def extract_invoice_date(words, vendor_name):
             # Sort by Y coordinate (top to bottom) and use the top-most
             date_candidates.sort(key=lambda x: x["y"])
             top_date = date_candidates[0]
-            #print(f"[DEBUG] Lifestraw: Using top-most date '{top_date['text']}'")
+            logger.debug(f"Lifestraw: Using top-most date '{top_date['text']}'")
             return top_date["date"].strftime("%m/%d/%y")
     
     # Nite Ize Inc-specific logic: use top-most date (consistent format)
@@ -151,7 +154,7 @@ def extract_invoice_date(words, vendor_name):
             # Sort by Y coordinate (top to bottom) and use the top-most
             date_candidates.sort(key=lambda x: x["y"])
             top_date = date_candidates[0]
-            #print(f"[DEBUG] Nite Ize Inc: Using top-most date '{top_date['text']}'")
+            logger.debug(f"Nite Ize Inc: Using top-most date '{top_date['text']}'")
             return top_date["date"].strftime("%m/%d/%y")
     
     # Salomon-specific logic: use left-most date (consistent format)
@@ -179,7 +182,7 @@ def extract_invoice_date(words, vendor_name):
             # Sort by X coordinate (left to right) and use the left-most
             date_candidates.sort(key=lambda x: x["x"])
             left_date = date_candidates[0]
-            #print(f"[DEBUG] Salomon: Using left-most date '{left_date['text']}'")
+            logger.debug(f"Salomon: Using left-most date '{left_date['text']}'")
             return left_date["date"].strftime("%m/%d/%y")
     
     # Saxx Underwear-specific logic: handle YYYY-MM-DD format
@@ -229,16 +232,16 @@ def extract_invoice_date(words, vendor_name):
     combined_pattern = "|".join(patterns)
     
     # Add a search on the combined text blob
-    #print("\n[DEBUG] Searching in combined text blob")
+    logger.debug("Searching in combined text blob")
     text_blob_matches = re.finditer(combined_pattern, text_blob, flags=re.IGNORECASE)
     blob_matches_found = False
     
     for match in text_blob_matches:
         blob_matches_found = True
-        #print(f"[DEBUG] Found date in text blob: '{match.group(0)}'")
+        logger.debug(f"Found date in text blob: '{match.group(0)}'")
     
     #if not blob_matches_found:
-        #print("[DEBUG] No dates found in text blob either")
+        logger.debug("No dates found in text blob either")
 
     # Find date strings with positions - NOW USING BLOB MATCHES
     date_candidates = []
@@ -256,7 +259,7 @@ def extract_invoice_date(words, vendor_name):
 
     # ALWAYS process blob matches, not just when date_candidates is empty
     if blob_matches_found:
-        #print("[DEBUG] Processing text blob matches...")
+        logger.debug("Processing text blob matches...")
         text_blob_matches = re.finditer(combined_pattern, text_blob, flags=re.IGNORECASE)
         
         for match in text_blob_matches:
@@ -294,7 +297,7 @@ def extract_invoice_date(words, vendor_name):
             })
             #print(f"[DEBUG] Added blob match '{match_text}' using position of word '{closest_word['text']}'")
 
-    #print("\n[DEBUG] Regex date matches found:")
+    logger.debug("Regex date matches found:")
     #for dc in date_candidates:
     #    print(f" - {dc['text']} at position ({dc['x']}, {dc['y']})")
 
@@ -311,7 +314,7 @@ def extract_invoice_date(words, vendor_name):
         parsed_date = try_parse_date(raw_text)
         
         if parsed_date:
-            #print(f"   Parsed date: {parsed_date}, Range check: {MIN_VALID_DATE} <= {parsed_date} <= {today}")
+            logger.debug(f"Parsed date: {parsed_date}, Range check: {MIN_VALID_DATE} <= {parsed_date} <= {today}")
             if MIN_VALID_DATE <= parsed_date <= today:
                 valid_dates.append({
                     "date": parsed_date,
@@ -319,14 +322,14 @@ def extract_invoice_date(words, vendor_name):
                     "y": candidate["y"],
                     "word": candidate["word"]
                 })
-                #print(f"   OK Accepted valid date: {parsed_date} at position ({candidate['x']}, {candidate['y']})")
+                logger.debug(f"OK Accepted valid date: {parsed_date} at position ({candidate['x']}, {candidate['y']})")
             #else:
-                #print(f"   X Skipped date {parsed_date}, out of range")
+                logger.debug(f"X Skipped date {parsed_date}, out of range")
         #else:
-            #print(f"   X Could not parse: {raw_text}")
+            logger.debug(f"X Could not parse: {raw_text}")
     
     if not valid_dates:
-        #print("[DEBUG] No valid dates found.")
+        logger.debug("No valid dates found.")
         return ""
     
     # Find invoice date labels - SIMPLIFIED APPROACH

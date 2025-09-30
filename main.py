@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QFont
 
 from ui import InvoiceApp  # Import from ui.py instead of views directly
+from logging_config import setup_logging, get_logger
 
 
 class CrashDialog(QDialog):
@@ -73,7 +74,14 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     formatted_trace = "".join(
         traceback.format_exception(exc_type, exc_value, exc_traceback)
     )
-    logging.error("Uncaught exception:\n%s", formatted_trace)
+    # Log with our enhanced logging system
+    try:
+        logger = get_logger('exception_handler')
+        logger.critical(f"UNCAUGHT EXCEPTION: {exc_type.__name__}: {exc_value}")
+        logger.critical(f"Full traceback:\n{formatted_trace}")
+    except:
+        # Fallback to basic logging if our system isn't ready
+        logging.error("Uncaught exception:\n%s", formatted_trace)
 
     app = QApplication.instance()
 
@@ -103,7 +111,14 @@ USE_SHELL = True  # ⟵ flip to False anytime to compare with your normal window
 
 def main():
     """Application entry point."""
-    logging.basicConfig(level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s")
+    # Initialize comprehensive logging system
+    setup_logging(level=logging.INFO, debug_mode=False)
+    logger = get_logger(__name__)
+
+    logger.info("Starting AP Automation application")
+    logger.debug(f"Python version: {sys.version}")
+    logger.debug(f"Using shell interface: {USE_SHELL}")
+
     sys.excepthook = handle_exception
 
     app = QApplication(sys.argv)

@@ -1,8 +1,13 @@
 import re
 import string
+import csv
+import os
 from decimal import Decimal, ROUND_HALF_UP
 from .common_extraction import normalize_words, find_label_positions, find_value_to_right
 from .utils import clean_currency
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Special vendor label mappings for label-based extraction
 SPECIAL_VENDOR_LABELS = {
@@ -19,6 +24,24 @@ SPECIAL_VENDOR_LABELS = {
     "Yakima": "Balance:",
     "Simms": "total amt due",
 }
+
+def _load_vendor_approach_map():
+    """Load vendor approach mapping from CSV file."""
+    vendor_map = {}
+    csv_path = os.path.join(os.path.dirname(__file__), '..', 'vendor_approach_map.csv')
+
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                vendor_map[row['vendor_name']] = row['approach']
+        logger.info(f"Loaded {len(vendor_map)} vendor approach mappings from CSV")
+    except Exception as e:
+        logger.error(f"Failed to load vendor approach map: {e}")
+        # Fallback to empty dict - will use general logic
+        vendor_map = {}
+
+    return vendor_map
 
 def format_currency(amount):
     """Format amount to 2 decimal places using proper currency rounding (round half up)."""
@@ -43,142 +66,8 @@ def is_currency(text):
     return (re.match(CURRENCY_PATTERN, original_text) is not None or
             re.match(CURRENCY_PATTERN, preprocessed_text) is not None)
 
-# --- Vendor-specific approach mapping for 100% success vendors ---
-VENDOR_APPROACH_MAP = {
-    # Gross approach vendors (100% success)
-    'Yak Attack': 'gross',
-    'Marine Layer': 'gross', 
-    'Wapsi Fly': 'gross',
-    'Columbia Sportswear': 'gross',
-    'The North Face': 'gross',
-    'Hareline Dubbin, Inc': 'gross',
-    'Korkers Products, LLC': 'gross',
-    'ON Running': 'gross',
-    'Oregon Freeze Dry': 'gross',
-    'Outdoor Research': 'gross',
-    'Waboba Inc': 'gross',
-    'Birkenstock USA': 'bottom_most',
-    'Columbia River': 'gross',
-    'Smartwool': 'gross',
-    
-    # Calculated approach vendors (100% success, not already in gross)
-    'Howler Brothers': 'calculated',
-    'Oboz Footwear LLC': 'calculated',
-    'Osprey Packs, Inc': 'calculated',
-    'Temple Fork Outfitters': 'calculated',
-    'National Geographic Maps': 'calculated',
-    'Toad & Co': 'calculated',
-    'Astral Footwear': 'calculated',
-    'Eagles Nest Outfitters, Inc.': 'calculated',
-    'Fulling Mill Fly Fishing LLC': 'calculated',
-    'Olukai LLC': 'calculated',
-    'Johnson Outdoors': 'calculated',
-    'Nemo Equipment Inc': 'calculated',
-    'Nite Ize Inc': 'calculated',
-    
-    # Bottom-most approach vendors (100% success, not in above)
-    'Hobie Cat Company II, LLC': 'bottom_most',
-    'TOPO ATHLETIC': 'bottom_most', 
-    'Free Fly Apparel': 'bottom_most',
-    'Patagonia': 'bottom_most',
-    'BioLite': 'bottom_most',
-    'Eagle Creek': 'bottom_most',
-    'Chubbies Inc': 'bottom_most',
-    'Chums': 'bottom_most',
-    'Gregory Mountain Products': 'bottom_most',
-    'Hydro Flask': 'bottom_most',
-    'IceMule Company': 'bottom_most',
-    'KATIN': 'bottom_most',
-    'Keen Inc': 'bottom_most',
-    'Roxy': 'bottom_most',
-    'Ruffwear': 'bottom_most',
-    'Scout Curated Wears': 'bottom_most',
-    'Secrid': 'bottom_most',
-    'Sendero Provisions Co., LLC': 'bottom_most',
-    'Sterling Rope Company Inc': 'bottom_most',
-    'Thread Wallets': 'bottom_most',
-    
-    # Bottom-minus-shipping approach vendors (100% success, unique to this approach)
-    'Angler\'s Book Supply': 'bottom_minus_ship',
-    'Liberty Mountain Sports': 'bottom_minus_ship',
-    'Yeti Coolers': 'bottom_minus_ship',
-    'Montana Fly Company': 'bottom_minus_ship',
-    'Rio Products': 'subtotal_minus_discount',
-    'Arcade Belts Inc': 'bottom_minus_ship',
-    'Antigravity Gear LLC': 'bottom_calculated',
-    'Arc\'teryx': 'bottom_minus_ship',
-    'Confluence Outdoor Inc.': 'bottom_minus_ship',
-    'Dapper Ink LLC': 'bottom_minus_ship',
-    'Gear Aid': 'bottom_minus_ship',
-    'Goorin Bros': 'bottom_minus_ship',
-    'Grundens': 'bottom_minus_ship',
-    'Hadley Wren': 'bottom_minus_ship',
-    'HQ Kites & Designs USA, Inc': 'bottom_minus_ship',
-    'Hydrapak': 'bottom_minus_ship',
-    'Industrial Revolution, Inc': 'bottom_minus_ship',
-    'Jackson Kayak': 'bottom_minus_ship',
-    'johnnie-O': 'bottom_minus_ship',
-    'Joshua Tree Products': 'bottom_minus_ship',
-    'Leatherman Tools': 'bottom_minus_ship',
-    'Korkers Products, LLC': 'bottom_minus_ship',
-    'Leki': 'bottom_minus_ship',
-    'Malone': 'bottom_minus_ship',
-    'Merrell': 'bottom_minus_ship',
-    'New River Gear': 'bottom_minus_ship',
-    'Newport Vessels': 'bottom_minus_ship',
-    'NOCS Provisions': 'bottom_minus_ship',
-    'Nomadix': 'bottom_minus_ship',
-    'Noso, LLC': 'bottom_minus_ship',
-    'O\'Neill': 'bottom_minus_ship',
-    'Opinel USA, Inc': 'bottom_minus_ship',
-    'Panache Apparel': 'bottom_minus_ship',
-    'Pisgah Map Co. LLC': 'bottom_minus_ship',
-    'Reef Lifestyle, LLC': 'bottom_minus_ship',
-    'Salomon': 'bottom_minus_ship',
-    'Saxx Underwear': 'bottom_minus_ship',
-    'Scientific Anglers LLC': 'bottom_minus_ship',
-    'Smith Sport Optics': 'bottom_minus_ship',
-    'Sunday Afternoons': 'bottom_minus_ship',
-    'Swell Watercraft': 'bottom_minus_ship',
-    'TEVA': 'bottom_minus_ship',
-    'Treadlabs': 'bottom_minus_ship',
-    'Turtlebox Audio LLC': 'bottom_minus_ship',
-    'Victorinox Swiss Army, Inc.': 'bottom_minus_ship',
-    'Werner Paddles': 'bottom_minus_ship',
-    'Wild Tribute': 'bottom_minus_ship',
-    
-    # Label detection approach vendors (100% success)
-    'Badfish': 'label',
-    
-    # Label minus shipping approach vendors (100% success)
-    'Accent & Cannon': 'label_minus_ship',
-    'Cotopaxi': 'label_minus_ship', 
-    'Hoka': 'label_minus_ship',
-    'Katin': 'label_minus_ship',
-    'Loksak': 'label_minus_ship',
-    'Vuori': 'label_minus_ship',
-    
-    # Label calculated approach vendors (label amount, subtract shipping, apply discount)
-    'BIG Adventures, LLC': 'label_calculated',
-
-    # Bottom calculated approach vendors (bottom-most amount, subtract shipping, apply discount)
-    'Big Agnes Inc': 'bottom_calculated',
-    'Black Diamond Equipment Ltd': 'bottom_calculated',
-    'Carve Designs': 'bottom_calculated',
-    'Crazy Creek Products Inc': 'bottom_calculated',
-    'Helinox': 'bottom_calculated',
-    'Fishpond': 'bottom_calculated',
-    'GCI Outdoor': 'bottom_calculated',
-    'NuCanoe': 'bottom_calculated',
-    'Sea to Summit': 'bottom_calculated',
-    'Rumpl': 'gross_calculated',
-    'Simms': 'label',
-    'Solitude Fly Company Inc': 'bottom_calculated',
-    'Umpqua Feather Merchants': 'bottom_calculated',
-
-    # Second from bottom approach vendors
-    'Darn Tough': 'second_from_bottom',
-}
+# Load vendor approach mapping from CSV file
+VENDOR_APPROACH_MAP = _load_vendor_approach_map()
 
 def _apply_credit_memo_logic(amount_str, words, vendor_name):
     """Apply credit memo/note logic to ensure negative amounts for credit documents."""
@@ -353,20 +242,20 @@ def extract_total_amount(words, vendor_name):
 
     # TIER 2: Label-based fallback (for failed cases)
     if vendor_name == "Simms":
-        print(f"[DEBUG] Simms reached TIER 2: Label-based fallback")
+        logger.debug("Simms reached TIER 2: Label-based fallback")
     label_result = _extract_with_label_fallback(words, vendor_name)
     if vendor_name == "Simms":
-        print(f"[DEBUG] Simms TIER 2 label_result: '{label_result}'")
+        logger.debug(f"Simms TIER 2 label_result: '{label_result}'")
     if label_result:
         if vendor_name == "Simms":
-            print(f"[DEBUG] Simms TIER 2 label fallback succeeded: {label_result}")
+            logger.debug(f"Simms TIER 2 label fallback succeeded: {label_result}")
         final_amount = _apply_credit_memo_logic(label_result, words, vendor_name)
         return _create_result(final_amount, 'label_fallback')
     #print(f"[TOTAL_DEBUG] {vendor_name}: Label fallback failed, trying general logic")
     
     # TIER 3: Original logic fallback
     if vendor_name == "Simms":
-        print(f"[DEBUG] Simms reached TIER 3: Original logic fallback")
+        logger.debug("Simms reached TIER 3: Original logic fallback")
 
     # Use centralized currency detection
 
@@ -416,16 +305,16 @@ def extract_total_amount(words, vendor_name):
     # --- Special-case logic ---
     if label:
         if vendor_name == "Simms":
-            print(f"[DEBUG] Simms special-case vendor detected with label: '{label}'")
+            logger.debug(f"Simms special-case vendor detected with label: '{label}'")
         # Use find_label_positions to find the label
         label_positions = find_label_positions(normalized_words, label_type=None, custom_label=label)
         if vendor_name == "Simms":
-            print(f"[DEBUG] Simms found {len(label_positions)} label positions for '{label}'")
+            logger.debug(f"Simms found {len(label_positions)} label positions for '{label}'")
         # Use find_value_to_right to find the first valid currency value to the right
         if vendor_name == "Simms":
             # Debug: Show all currency values near the label
             for label_pos in label_positions:
-                print(f"[DEBUG] Simms label position: x0:{label_pos.get('x0', 0)}, x1:{label_pos.get('x1', 0)}, top:{label_pos.get('top', 0)}")
+                logger.debug(f"Simms label position: x0:{label_pos.get('x0', 0)}, x1:{label_pos.get('x1', 0)}, top:{label_pos.get('top', 0)}")
                 nearby_currencies = []
                 for word in normalized_words:
                     if is_currency(word["text"]):
@@ -438,9 +327,9 @@ def extract_total_amount(words, vendor_name):
                             'h_distance': distance,
                             'v_distance': v_distance
                         })
-                print(f"[DEBUG] Simms nearby currencies:")
+                logger.debug("Simms nearby currencies:")
                 for curr in sorted(nearby_currencies, key=lambda x: x['h_distance']):
-                    print(f"  '{curr['text']}' at x0:{curr['x0']}, top:{curr['top']} | h_dist:{curr['h_distance']:.1f}, v_dist:{curr['v_distance']:.1f}")
+                    logger.debug(f"  '{curr['text']}' at x0:{curr['x0']}, top:{curr['top']} | h_dist:{curr['h_distance']:.1f}, v_dist:{curr['v_distance']:.1f}")
 
         value = find_value_to_right(
             normalized_words,
@@ -453,15 +342,15 @@ def extract_total_amount(words, vendor_name):
             try:
                 amount = float(cleaned)
                 if vendor_name == "Simms":
-                    print(f"[DEBUG] Simms selected special-case amount: '{value}' → ${format_currency(amount)}")
+                    logger.debug(f"Simms selected special-case amount: '{value}' → ${format_currency(amount)}")
                 return _apply_credit_memo_logic(format_currency(amount), words, vendor_name)
             except Exception:
                 if vendor_name == "Simms":
-                    print(f"[DEBUG] Simms failed to convert '{value}' to float")
+                    logger.debug(f"Simms failed to convert '{value}' to float")
                 pass
         else:
             if vendor_name == "Simms":
-                print(f"[DEBUG] Simms special-case label found, but no valid value to right. Falling back to general logic.")
+                logger.debug("Simms special-case label found, but no valid value to right. Falling back to general logic.")
 
     # --- General logic (existing) ---
     candidates = []

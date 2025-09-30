@@ -1,11 +1,5 @@
 /* Main Application Styles */
 
-/* Font declarations */
-@font-face {
-    font-family: 'Inter';
-    src: url('assets/fonts/Inter-Regular.ttf');
-}
-
 /* General widget styling */
 QWidget {
     font-family: 'Inter', Arial, sans-serif;

@@ -6,6 +6,9 @@ from .common_extraction import (
     find_value_below,
     search_for_pattern
 )
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 def extract_invoice_number(words, vendor_name):
     """
@@ -340,10 +343,10 @@ def extract_invoice_number(words, vendor_name):
     
     # Prana-specific logic: check under the label "Reference"
     if vendor_name == "Prana Living LLC":
-        #print("[DEBUG] Checking for all 'reference' labels for Prana Living LLC")
+        logger.debug("Checking for all 'reference' labels for Prana Living LLC")
         for idx, w in enumerate(normalized_words):
             if w["text"] == "reference":
-                #print(f"[DEBUG] Reference label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
+                logger.debug(f"Reference label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
                 # Allow vertical overlap or small positive distance
                 candidates = [
                     cand for cand in normalized_words
@@ -351,17 +354,17 @@ def extract_invoice_number(words, vendor_name):
                        -5 <= (cand["top"] - w["bottom"]) <= 300 and
                        is_potential_invoice_number(cand["text"], vendor_name)
                 ]
-                #print(f"[DEBUG] Candidates found below 'reference': {[c['orig'] for c in candidates]}")
+                logger.debug(f"Candidates found below 'reference': {[c['orig'] for c in candidates]}")
                 if candidates:
                     best = sorted(candidates, key=lambda x: abs(x["top"] - w["bottom"]))[0]
-                    #print(f"[DEBUG] Invoice Number (below 'Reference' for Prana): {best['orig']}")
+                    logger.debug(f"Invoice Number (below 'Reference' for Prana): {best['orig']}")
                     return best["orig"].lstrip("#:").strip()
                 #else:
-                    #print("[DEBUG] No valid invoice number found below this 'reference' label.")
+                    logger.debug("No valid invoice number found below this 'reference' label.")
     
     # Prism Designs-specific logic: look for "Invoice" label and check directly below it
     if vendor_name == "Prism Designs":
-        #print("[DEBUG] Checking for 'Invoice' label for Prism Designs")
+        logger.debug("Checking for 'Invoice' label for Prism Designs")
         for idx, w in enumerate(normalized_words):
             if w["text"] == "invoice":
                 #print(f"[DEBUG] Found 'invoice' label at index={idx}, x0={w['x0']}, x1={w['x1']}, top={w['top']}, bottom={w['bottom']}")
@@ -405,7 +408,7 @@ def extract_invoice_number(words, vendor_name):
     
     # Arc'teryx-specific logic: prioritize looking below labels to avoid years like "2025"
     if vendor_name == "Arc'teryx":
-        #print("[DEBUG] Using Arc'teryx-specific logic: checking below labels first")
+        logger.debug("Using Arc'teryx-specific logic: checking below labels first")
         max_distance_below = 150
         all_candidates = []
         
@@ -551,14 +554,14 @@ def extract_invoice_number(words, vendor_name):
                     best_candidate = w
 
     if best_candidate:
-        #print(f"[DEBUG] Invoice Number (below fallback best): {best_candidate['orig']}")
+        logger.debug(f"Invoice Number (below fallback best): {best_candidate['orig']}")
         return best_candidate["orig"].lstrip("#:").strip()
 
-    #print("[DEBUG] No label match or fallback for Invoice Number.")
+    logger.debug("No label match or fallback for Invoice Number.")
     return ""
 
 def is_potential_invoice_number(text, vendor_name=None):
-    #print(f"[DEBUG] Testing invoice candidate: '{text}' for vendor '{vendor_name}'")
+    logger.debug(f"Testing invoice candidate: '{text}' for vendor '{vendor_name}'")
     # Hydro Flask: accept digit sequences but exclude phone patterns
     if vendor_name == "Hydro Flask":
         # Exclude phone number patterns

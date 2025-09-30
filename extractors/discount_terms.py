@@ -1,4 +1,7 @@
 import re
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 def extract_discount_terms(words, vendor_name):
     all_text = " ".join([w["text"] for w in words]).upper()
@@ -24,7 +27,7 @@ def extract_discount_terms(words, vendor_name):
     ]
     for term in special_terms:
         if term in first_n_words:
-            #print(f"[DEBUG] Found Discount Terms: {term}")
+            logger.debug(f"Found Discount Terms: {term}")
             return term
 
     # Special cases of terms
@@ -32,21 +35,21 @@ def extract_discount_terms(words, vendor_name):
     match = re.search(r"\b(\d{1,3})\s+DAYS\s+NET\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
 
     # 2. "NET TERMS 30" -> "NET 30"
     match = re.search(r"\bNET\s+TERMS\s+(\d{1,3})\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
 
     # 3. "30 DAYS STRIPE" -> "NET 30"
     match = re.search(r"\b(\d{1,3})\s+DAYS\s+STRIPE\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
 
     # 4. "NET 120, 75 10%" -> "10% 75 NET 120"
@@ -57,28 +60,28 @@ def extract_discount_terms(words, vendor_name):
         second = match.group(2)
         net_days = match.group(1)
         result = f"{percent}% {second} NET {net_days}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
 
     # 5. "NET xxD" -> "NET xx" (Grundens and similar cases)
     match = re.search(r"NET\s*(\d{1,2})\s*D\b", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
     
     # 6. "PAYMENT 90 DAYS" -> "NET 90"
     match = re.search(r"PAYMENT\s*(\d{1,3})\s*DAYS", all_text)
     if match:
         result = f"NET {match.group(1)}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
     
     # 7. "x/x/NET xx or x/xx/NET xx" -> "x% xx NET xx" (National Geographic Maps)
     match = re.search(r"\b(\d{1,2})\s*\/\s*(\d{1,3})\s*\/\s*NET\s*(\d{1,3})\b", all_text)
     if match:
         result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
-        #print(f"[DEBUG] Found Discount Terms: {result}")
+        logger.debug(f"Found Discount Terms: {result}")
         return result
     
     if vendor_name == "Badfish":
@@ -103,7 +106,7 @@ def extract_discount_terms(words, vendor_name):
         match = re.search(fishpond_pattern, all_text)
         if match:
             result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
-            #print(f"[DEBUG] Found Discount Terms: {result}")
+            logger.debug(f"Found Discount Terms: {result}")
             return result
     
     # Oboz-specific format: "4%NET 30" -> "4% NET 30"
@@ -113,7 +116,7 @@ def extract_discount_terms(words, vendor_name):
         match = re.search(oboz_pattern, all_text)
         if match:
             result = f"{match.group(1)}% NET {match.group(2)}"
-            #print(f"[DEBUG] Found Discount Terms: {result}")
+            logger.debug(f"Found Discount Terms: {result}")
             return result
     
     # Sea to Summit-specific format: "8% 60 / NET 61" -> "8% 60 NET 61"
@@ -123,7 +126,7 @@ def extract_discount_terms(words, vendor_name):
         match = re.search(sea_to_summit_pattern, all_text)
         if match:
             result = f"{match.group(1)}% {match.group(2)} NET {match.group(3)}"
-            #print(f"[DEBUG] Found Discount Terms: {result}")
+            logger.debug(f"Found Discount Terms: {result}")
             return result
 
     # BIG Adventures-specific: Add "DISCOUNT OF X%" to terms if no percentage already exists
@@ -154,12 +157,12 @@ def extract_discount_terms(words, vendor_name):
             if special_match:
                 discount_percent = special_match.group(1)
                 result = f"{discount_percent}% {standard_result}"
-                #print(f"[DEBUG] Found BIG Adventures Combined Terms: {result}")
+                # logger.debug(f" Found BIG Adventures Combined Terms: {result}")
                 return result
 
         # Return standard result if found (with or without percentage)
         if standard_result:
-            #print(f"[DEBUG] Found BIG Adventures Standard Terms: {standard_result}")
+            # logger.debug(f" Found BIG Adventures Standard Terms: {standard_result}")
             return standard_result
 
     # Existing patterns
@@ -192,9 +195,9 @@ def extract_discount_terms(words, vendor_name):
             if "DUE IN" in value:
                 net_days = match.group(1)
                 result = f"NET {net_days}"
-                #print(f"[DEBUG] Found Discount Terms: {result}")
+                logger.debug(f"Found Discount Terms: {result}")
                 return result
-            #print(f"[DEBUG] Found Discount Terms: {value}")
+            # logger.debug(f" Found Discount Terms: {value}")
             return value
 
     # Gear Aid default: if no terms found, default to NET 60

@@ -6,6 +6,9 @@ from PyQt5.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from PyQt5.QtCore import Qt
 from pdf_reader import extract_text_data_from_pdfs
 from extractor import extract_fields
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class FileController:
     """Controller for file operations."""
@@ -19,10 +22,10 @@ class FileController:
         """Process PDF files and add them to the table."""
         new_files = self.filter_new_files(pdf_paths)
         if not new_files:
-            print("[INFO] No new files to process.")
+            logger.info("No new files to process.")
             return False
 
-        print(f"[INFO] Processing {len(new_files)} new files...")
+        logger.info(f"Processing {len(new_files)} new files...")
         progress = QProgressDialog("Processing files...", "Cancel", 0, len(new_files), self.main_window)
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)

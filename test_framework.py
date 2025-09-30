@@ -4,7 +4,6 @@ Tests the exact same pipeline: PDF -> pdf_reader -> extractor -> output
 """
 import os
 import csv
-import json
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict

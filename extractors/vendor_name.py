@@ -8,6 +8,9 @@ from .utils import (
     load_manual_mapping,
 )
 from utils import get_vendor_csv_path
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Load vendor names and manual map once
 VENDOR_NAMES = get_vendor_list()
@@ -20,25 +23,25 @@ def reload_vendor_cache():
     VENDOR_NAMES = get_vendor_list()
     NORMALIZED_VENDOR_NAMES = [normalize_vendor_name(v) for v in VENDOR_NAMES]
     MANUAL_MAP = load_manual_mapping()
-    #print(f"[DEBUG] Reloaded {len(VENDOR_NAMES)} vendors and {len(MANUAL_MAP)} manual mappings")
+    logger.debug(f"Reloaded {len(VENDOR_NAMES)} vendors and {len(MANUAL_MAP)} manual mappings")
 
 def extract_vendor_name(words):
     all_words = [w["text"] for w in words]
     normalized_blob = normalize_string(" ".join(all_words))
     
-    #print(f"[DEBUG] Normalized text blob ({len(normalized_blob)} chars): '{normalized_blob[:200]}{'...' if len(normalized_blob) > 200 else ''}'")
-    #print(f"[DEBUG] Checking {len(MANUAL_MAP)} manual identifiers for matches...")
+    logger.debug(f"Normalized text blob ({len(normalized_blob)} chars): '{normalized_blob[:200]}{'...' if len(normalized_blob) > 200 else ''}'")
+    logger.debug(f"Checking {len(MANUAL_MAP)} manual identifiers for matches...")
 
     # --- Check Manual Mapping First ---
     for key, value in MANUAL_MAP.items():
-        #print(f"[DEBUG] Checking identifier '{key}' against text blob...")
+        logger.debug(f"Checking identifier '{key}' against text blob...")
         if key in normalized_blob:
-            #print(f"[DEBUG] ✓ Manual identifier match found: '{key}' → vendor '{value}'")
+            logger.debug(f"✓ Manual identifier match found: '{key}' → vendor '{value}'")
             return value
         #else:
-            #print(f"[DEBUG] ✗ No match for identifier '{key}'")
+            logger.debug(f"✗ No match for identifier '{key}'")
 
-    #print("[DEBUG] No manual identifier matches found, proceeding to direct vendor name matching...")
+    logger.debug("No manual identifier matches found, proceeding to direct vendor name matching...")
 
     # --- Direct exact match: consecutive multi-word groups (2 to 6) ---
     for n in range(6, 1, -1):  # Start with longest chains first
@@ -53,7 +56,7 @@ def extract_vendor_name(words):
 
             if norm in NORMALIZED_VENDOR_NAMES:
                 idx = NORMALIZED_VENDOR_NAMES.index(norm)
-                #print(f"[DEBUG] Multi-word vendor match found: {VENDOR_NAMES[idx]}")
+                logger.debug(f"Multi-word vendor match found: {VENDOR_NAMES[idx]}")
                 return VENDOR_NAMES[idx]
 
     # --- Fallback: Direct exact match for single words ---
@@ -61,10 +64,10 @@ def extract_vendor_name(words):
         norm = normalize_vendor_name(word)
         if norm in NORMALIZED_VENDOR_NAMES:
             idx = NORMALIZED_VENDOR_NAMES.index(norm)
-            #print(f"[DEBUG] Single-word vendor match found: {VENDOR_NAMES[idx]}")
+            logger.debug(f"Single-word vendor match found: {VENDOR_NAMES[idx]}")
             return VENDOR_NAMES[idx]
 
-    #print(f"[DEBUG] No vendor match found for text blob containing {len(all_words)} words")
+    logger.debug(f"No vendor match found for text blob containing {len(all_words)} words")
     return ""
 
 
@@ -114,11 +117,11 @@ def save_manual_mapping(key, vendor_name):
             writer.writeheader()
             writer.writerows(rows)
         
-        #print(f"[INFO] Saved manual mapping: '{identifier}' → '{vendor}'")
+        logger.info(f"Saved manual mapping: '{identifier}' → '{vendor}'")
         
         # Reload the manual mapping cache since we just changed the CSV
         global MANUAL_MAP
         MANUAL_MAP = load_manual_mapping()
         
     except Exception as e:
-        print(f"[ERROR] Failed to save manual mapping: {e}")
+        logger.error(f"Failed to save manual mapping: {e}")

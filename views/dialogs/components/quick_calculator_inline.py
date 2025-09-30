@@ -8,6 +8,9 @@ from collections import deque
 from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout, QLineEdit,
                              QLabel, QFrame, QWidget, QMessageBox, QPushButton)
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 from PyQt5.QtGui import QFont, QColor, QPalette
 from ..utils.currency_utils import CurrencyUtils
 
@@ -185,7 +188,7 @@ class QuickCalculatorInline(QGroupBox):
     def _on_credit_toggle_clicked(self):
         """Handle credit memo toggle button click."""
         self._is_currently_credit = self.credit_toggle_button.isChecked()
-        print(f"[DEBUG] Credit toggle clicked: {self._is_currently_credit}")
+        logger.debug(f"Credit toggle clicked: {self._is_currently_credit}")
 
         # Update button appearance and recalculate displays
         self._update_toggle_button_state()
@@ -205,55 +208,55 @@ class QuickCalculatorInline(QGroupBox):
         try:
             # Check dialog reference for discount terms or original extracted values
             if hasattr(self, 'dialog_ref') and self.dialog_ref:
-                print(f"[DEBUG] Starting early credit detection...")
+                logger.debug(f"Starting early credit detection...")
 
                 # Method 1: Check current discount terms field (fields dict)
                 if hasattr(self.dialog_ref, 'fields') and "Discount Terms" in self.dialog_ref.fields:
                     terms_text = self.dialog_ref.fields["Discount Terms"].text().strip().upper()
-                    print(f"[DEBUG] Found discount terms field with text: '{terms_text}'")
+                    logger.debug(f"Found discount terms field with text: '{terms_text}'")
                     credit_indicators = [
                         "CREDIT MEMO", "CREDIT NOTE", "PRODUCT RETURN",
                         "RETURN AUTHORIZATION", "DEFECTIVE", "RA FOR CREDIT"
                     ]
                     for indicator in credit_indicators:
                         if indicator in terms_text:
-                            print(f"[DEBUG] Early credit detection: Found '{indicator}' in discount terms field")
+                            logger.debug(f"Early credit detection: Found '{indicator}' in discount terms field")
                             return True
 
                 # Method 2: Check total amount field for negative values
                 if hasattr(self.dialog_ref, 'fields') and "Total Amount" in self.dialog_ref.fields:
                     total_text = self.dialog_ref.fields["Total Amount"].text().strip()
-                    print(f"[DEBUG] Found total amount field with text: '{total_text}'")
+                    logger.debug(f"Found total amount field with text: '{total_text}'")
                     if total_text.startswith('-') or total_text.startswith('('):
-                        print(f"[DEBUG] Early credit detection: Negative total amount detected")
+                        logger.debug(f"Early credit detection: Negative total amount detected")
                         return True
                     # Also try parsing as number
                     try:
                         total_value = float(total_text.replace('$', '').replace(',', '').replace('(', '-').replace(')', ''))
                         if total_value < 0:
-                            print(f"[DEBUG] Early credit detection: Parsed negative total amount: {total_value}")
+                            logger.debug(f" Early credit detection: Parsed negative total amount: {total_value}")
                             return True
                     except ValueError:
                         pass
 
-                print(f"[DEBUG] No credit indicators found, defaulting to regular invoice")
+                logger.debug(f"No credit indicators found, defaulting to regular invoice")
 
         except Exception as e:
-            print(f"[DEBUG] Error in early credit detection: {e}")
+            logger.debug(f"Error in early credit detection: {e}")
 
         return False
 
     def _detect_credit_memo_from_data(self, vals, form_fields):
         """Detect credit memo status from row data and form fields (called during load)."""
         try:
-            print(f"[DEBUG] Starting credit detection with populated fields...")
-            print(f"[DEBUG] Row data - vals[4] (discount terms): '{vals[4] if len(vals) > 4 else 'N/A'}'")
-            print(f"[DEBUG] Row data - vals[6] (total amount): '{vals[6] if len(vals) > 6 else 'N/A'}'")
+            logger.debug(f" Starting credit detection with populated fields...")
+            logger.debug(f" Row data - vals[4] (discount terms): '{vals[4] if len(vals) > 4 else 'N/A'}'")
+            logger.debug(f" Row data - vals[6] (total amount): '{vals[6] if len(vals) > 6 else 'N/A'}'")
 
             # Method 1: Check row data discount terms (vals[4])
             if len(vals) > 4 and vals[4]:
                 terms_text = vals[4].strip().upper()
-                print(f"[DEBUG] Checking row discount terms: '{terms_text}'")
+                logger.debug(f" Checking row discount terms: '{terms_text}'")
                 credit_indicators = [
                     "CREDIT MEMO", "CREDIT NOTE", "PRODUCT RETURN",
                     "RETURN AUTHORIZATION", "DEFECTIVE", "RA FOR CREDIT",
@@ -263,13 +266,13 @@ class QuickCalculatorInline(QGroupBox):
                 ]
                 for indicator in credit_indicators:
                     if indicator in terms_text:
-                        print(f"[DEBUG] Found credit indicator '{indicator}' in row data")
+                        logger.debug(f" Found credit indicator '{indicator}' in row data")
                         return True
 
             # Method 2: Check populated form fields
             if form_fields and "Discount Terms" in form_fields:
                 terms_text = form_fields["Discount Terms"].text().strip().upper()
-                print(f"[DEBUG] Checking form discount terms: '{terms_text}'")
+                logger.debug(f" Checking form discount terms: '{terms_text}'")
                 credit_indicators = [
                     "CREDIT MEMO", "CREDIT NOTE", "PRODUCT RETURN",
                     "RETURN AUTHORIZATION", "DEFECTIVE", "RA FOR CREDIT",
@@ -279,21 +282,21 @@ class QuickCalculatorInline(QGroupBox):
                 ]
                 for indicator in credit_indicators:
                     if indicator in terms_text:
-                        print(f"[DEBUG] Found credit indicator '{indicator}' in form fields")
+                        logger.debug(f" Found credit indicator '{indicator}' in form fields")
                         return True
 
             # Method 3: Check for negative total amount in row data (vals[6])
             if len(vals) > 6 and vals[6]:
                 total_text = vals[6].strip()
-                print(f"[DEBUG] Checking row total amount: '{total_text}'")
+                logger.debug(f" Checking row total amount: '{total_text}'")
                 if total_text.startswith('-') or total_text.startswith('('):
-                    print(f"[DEBUG] Found negative total amount in row data")
+                    logger.debug(f" Found negative total amount in row data")
                     return True
                 # Parse as number
                 try:
                     total_value = float(total_text.replace('$', '').replace(',', '').replace('(', '-').replace(')', ''))
                     if total_value < 0:
-                        print(f"[DEBUG] Parsed negative total amount: {total_value}")
+                        logger.debug(f" Parsed negative total amount: {total_value}")
                         return True
                 except ValueError:
                     pass
@@ -301,15 +304,15 @@ class QuickCalculatorInline(QGroupBox):
             # Method 4: Check populated Total Amount field
             if form_fields and "Total Amount" in form_fields:
                 total_text = form_fields["Total Amount"].text().strip()
-                print(f"[DEBUG] Checking form total amount: '{total_text}'")
+                logger.debug(f" Checking form total amount: '{total_text}'")
                 if total_text.startswith('-') or total_text.startswith('('):
-                    print(f"[DEBUG] Found negative total amount in form field")
+                    logger.debug(f" Found negative total amount in form field")
                     return True
 
-            print(f"[DEBUG] No credit indicators found")
+            logger.debug(f" No credit indicators found")
 
         except Exception as e:
-            print(f"[DEBUG] Error in credit detection from data: {e}")
+            logger.debug(f" Error in credit detection from data: {e}")
 
         return False
 
@@ -649,7 +652,7 @@ class QuickCalculatorInline(QGroupBox):
                         )
                 
             except Exception as e:
-                print(f"[ERROR] QC auto-save failed: {e}")
+                logger.error(f"QC auto-save failed: {e}")
     
     def _block_all_signals(self, block):
         """Block or unblock signals on all QC input fields."""
@@ -725,7 +728,7 @@ class QuickCalculatorInline(QGroupBox):
             self.recently_changed.remove(field_name)
         self.recently_changed.appendleft(field_name)
 
-        print(f"[DEBUG] Field '{field_name}' marked as changed. Priority queue: {list(self.recently_changed)}")
+        logger.debug(f" Field '{field_name}' marked as changed. Priority queue: {list(self.recently_changed)}")
             
     def _show_field_indicator(self, field_name):
         """Show visual indicator for recently changed field."""
@@ -834,7 +837,7 @@ class QuickCalculatorInline(QGroupBox):
             'shipping': self.currency.parse_money(self.shipping_field.text()) or 0,
             'grand_total': self.currency.parse_money(self.grand_total_field.text()) or 0
         }
-        print(f"[DEBUG] _get_current_values: discount_amt_field='{self.discount_amt_field.text()}', discount_pct_field='{self.discount_pct_field.text()}', calculated_discount={values['discount']}")
+        logger.debug(f" _get_current_values: discount_amt_field='{self.discount_amt_field.text()}', discount_pct_field='{self.discount_pct_field.text()}', calculated_discount={values['discount']}")
         return values
         
     def _calculate_based_on_priority(self, values):
@@ -847,23 +850,23 @@ class QuickCalculatorInline(QGroupBox):
         # Always calculate inventory first (this ensures the key exists)
         values['inventory'] = values['subtotal'] - values['discount']
 
-        print(f"[DEBUG] Priority calculation: recent_changes={recent_changes}, values={values}")
+        logger.debug(f" Priority calculation: recent_changes={recent_changes}, values={values}")
 
         if len(recent_changes) >= 2:
             changed_set = set(recent_changes)
-            print(f"[DEBUG] Changed set: {changed_set}")
+            logger.debug(f" Changed set: {changed_set}")
 
             if changed_set == {'grand_total', 'shipping'}:
-                print(f"[DEBUG] Case: grand_total + shipping -> calculate inventory")
-                print(f"[DEBUG] Before calc: GT={values['grand_total']}, Shipping={values['shipping']}")
+                logger.debug(f" Case: grand_total + shipping -> calculate inventory")
+                logger.debug(f" Before calc: GT={values['grand_total']}, Shipping={values['shipping']}")
                 # Calculate inventory = grand_total - shipping
                 inventory_calc = values['grand_total'] - values['shipping']
-                print(f"[DEBUG] Calculated inventory: {inventory_calc}")
+                logger.debug(f" Calculated inventory: {inventory_calc}")
                 # Update subtotal and clear discounts to achieve this inventory
                 values['subtotal'] = inventory_calc
                 values['discount'] = 0
                 values['inventory'] = inventory_calc
-                print(f"[DEBUG] After update: subtotal={values['subtotal']}, discount={values['discount']}")
+                logger.debug(f" After update: subtotal={values['subtotal']}, discount={values['discount']}")
                 # Update UI fields
                 self.subtotal_field.blockSignals(True)
                 self.discount_pct_field.blockSignals(True)
@@ -956,11 +959,11 @@ class QuickCalculatorInline(QGroupBox):
         """Apply override rules to prevent negative inventory, negative shipping, or impossible math."""
         is_credit = self._is_currently_credit
 
-        print(f"[DEBUG] Override rules: is_credit={is_credit}, values before={values}")
+        logger.debug(f" Override rules: is_credit={is_credit}, values before={values}")
 
         # Rule 1: Inventory cannot be negative (now applies to both regular and credit memos)
         if values['inventory'] < 0:
-            print(f"[DEBUG] Rule 1 triggered: inventory {values['inventory']} < 0")
+            logger.debug(f" Rule 1 triggered: inventory {values['inventory']} < 0")
             # Cap discount at subtotal amount to make inventory = 0
             values['discount'] = values['subtotal']
             values['inventory'] = 0
@@ -980,13 +983,13 @@ class QuickCalculatorInline(QGroupBox):
         # Rule 2: Shipping should never be negative (only for regular invoices)
         # Note: Credit memos use absolute values in input fields now, so negative shipping shouldn't occur
         if not is_credit and values['shipping'] < 0:
-            print(f"[DEBUG] Rule 2 triggered: shipping {values['shipping']} < 0, setting to 0")
+            logger.debug(f" Rule 2 triggered: shipping {values['shipping']} < 0, setting to 0")
             values['shipping'] = 0
             self.shipping_field.blockSignals(True)
             self.shipping_field.setText("0.00")
             self.shipping_field.blockSignals(False)
 
-        print(f"[DEBUG] Override rules complete: values after={values}")
+        logger.debug(f" Override rules complete: values after={values}")
         return values
         
     def _update_displays(self, values):
@@ -1090,7 +1093,7 @@ class QuickCalculatorInline(QGroupBox):
         if previous_credit_status != self._is_currently_credit:
             self.credit_toggle_button.setChecked(self._is_currently_credit)
             self._update_toggle_button_state()
-            print(f"[DEBUG] Credit status updated during load: {previous_credit_status} -> {self._is_currently_credit}")
+            logger.debug(f" Credit status updated during load: {previous_credit_status} -> {self._is_currently_credit}")
 
         qc_used = vals[12].lower() == "true" if len(vals) > 12 else False
         
@@ -1099,24 +1102,24 @@ class QuickCalculatorInline(QGroupBox):
         if len(vals) > 14:  # New format with original subtotal
             try:
                 self._original_subtotal = self.currency.parse_money(vals[14]) or 0
-                print(f"[DEBUG] Loaded original_subtotal from vals[14]: {vals[14]}")
+                logger.debug(f" Loaded original_subtotal from vals[14]: {vals[14]}")
             except (IndexError, ValueError) as e:
                 self._original_subtotal = 0
-                print(f"[DEBUG] Could not load original_subtotal, using 0: {e}")
+                logger.debug(f" Could not load original_subtotal, using 0: {e}")
         else:
             self._original_subtotal = 0
-            print(f"[DEBUG] vals length {len(vals)} < 15, no original_subtotal available")
+            logger.debug(f" vals length {len(vals)} < 15, no original_subtotal available")
 
         if len(vals) > 15:  # New format with saved inventory
             try:
                 self._saved_inventory = self.currency.parse_money(vals[15]) or 0
-                print(f"[DEBUG] Loaded saved_inventory from vals[15]: {vals[15]}")
+                logger.debug(f" Loaded saved_inventory from vals[15]: {vals[15]}")
             except (IndexError, ValueError) as e:
                 self._saved_inventory = 0
-                print(f"[DEBUG] Could not load saved_inventory, using 0: {e}")
+                logger.debug(f" Could not load saved_inventory, using 0: {e}")
         else:
             self._saved_inventory = 0
-            print(f"[DEBUG] vals length {len(vals)} < 16, no saved_inventory available")
+            logger.debug(f" vals length {len(vals)} < 16, no saved_inventory available")
         
         # Block signals during auto-population to prevent interference
         self._block_all_signals(True)
@@ -1142,7 +1145,7 @@ class QuickCalculatorInline(QGroupBox):
                 self.subtotal_field.setText(f"{abs(subtotal_val):.2f}")
                 self.discount_amt_field.setText(f"{abs(discount_amt_val):.2f}")
                 self.shipping_field.setText(f"{abs(shipping_val):.2f}")
-                print(f"[DEBUG] Loading credit memo with absolute values: subtotal={abs(subtotal_val)}, shipping={abs(shipping_val)}")
+                logger.debug(f" Loading credit memo with absolute values: subtotal={abs(subtotal_val)}, shipping={abs(shipping_val)}")
             else:
                 # For regular invoices, use values as-is
                 self.subtotal_field.setText(vals[8])
@@ -1192,9 +1195,9 @@ class QuickCalculatorInline(QGroupBox):
                         if hasattr(dialog, 'vendor_combo') and dialog.vendor_combo:
                             vendor_name = dialog.vendor_combo.currentText().strip()
                         enhanced_data = extract_total_amount(words, vendor_name)
-                        print(f"[DEBUG] Re-extracted enhanced data for QC: {enhanced_data}")
+                        logger.debug(f" Re-extracted enhanced data for QC: {enhanced_data}")
             except Exception as e:
-                print(f"[DEBUG] Failed to re-extract enhanced data: {e}")
+                logger.debug(f" Failed to re-extract enhanced data: {e}")
                 enhanced_data = None
 
             # If enhanced data is available, use it for intelligent population
@@ -1206,7 +1209,7 @@ class QuickCalculatorInline(QGroupBox):
                 pre_discount_amount = enhanced_data.get('pre_discount_amount')
                 has_calculation = enhanced_data.get('has_calculation', False)
 
-                print(f"[DEBUG] Using enhanced extraction data: method={calculation_method}, discount_type={discount_type}, has_calculation={has_calculation}")
+                logger.debug(f" Using enhanced extraction data: method={calculation_method}, discount_type={discount_type}, has_calculation={has_calculation}")
 
                 if total_amount:
                     total_value = self.currency.parse_money(total_amount)
@@ -1217,16 +1220,16 @@ class QuickCalculatorInline(QGroupBox):
                         discount_percentage = float(discount_value)
                         # total_value is the final post-discount amount (inventory)
                         extraction_handled_discount = True
-                        print(f"[DEBUG] Extractor handled percentage discount: {discount_percentage}%")
+                        logger.debug(f" Extractor handled percentage discount: {discount_percentage}%")
                     elif has_calculation and discount_type == 'dollar' and discount_value:
                         discount_dollar = self.currency.parse_money(discount_value)
                         # total_value is the final post-discount amount (inventory)
                         extraction_handled_discount = True
-                        print(f"[DEBUG] Extractor handled dollar discount: ${discount_dollar}")
+                        logger.debug(f" Extractor handled dollar discount: ${discount_dollar}")
                     else:
                         # Extractor did not handle discounts, total_value is pre-discount subtotal
                         extraction_handled_discount = False
-                        print(f"[DEBUG] Extractor did not handle discounts, total_value is subtotal")
+                        logger.debug(f" Extractor did not handle discounts, total_value is subtotal")
 
             # Do NOT extract discount information from form fields
             # Only use discount information from enhanced total data
@@ -1238,14 +1241,14 @@ class QuickCalculatorInline(QGroupBox):
                 # First try row data vals[6] (Total Amount)
                 if len(vals) > 6 and vals[6]:
                     total_text = vals[6].strip()
-                    print(f"[DEBUG] Auto-populating from row data vals[6]: '{total_text}'")
+                    logger.debug(f" Auto-populating from row data vals[6]: '{total_text}'")
                     if total_text:
                         total_value = self.currency.parse_money(total_text)
 
                 # Fallback to dialog's original total amount if row data not available
                 if total_value is None and hasattr(dialog, '_original_total_amount') and dialog._original_total_amount:
                     total_text = dialog._original_total_amount.strip()
-                    print(f"[DEBUG] Auto-populating from dialog original: '{total_text}'")
+                    logger.debug(f" Auto-populating from dialog original: '{total_text}'")
                     if total_text:
                         total_value = self.currency.parse_money(total_text)
 
@@ -1266,7 +1269,7 @@ class QuickCalculatorInline(QGroupBox):
                             self.subtotal_field.setText(f"{subtotal_from_enhanced:.2f}")
                             self.discount_pct_field.setText(f"{discount_percentage:.1f}")
                             self.discount_amt_field.setText(f"{discount_dollar_amount:.2f}")
-                            print(f"[DEBUG] Enhanced backward calculation: subtotal=${subtotal_from_enhanced:.2f}, discount={discount_percentage}%=${discount_dollar_amount:.2f}, inventory=${abs_total_value:.2f}")
+                            logger.debug(f" Enhanced backward calculation: subtotal=${subtotal_from_enhanced:.2f}, discount={discount_percentage}%=${discount_dollar_amount:.2f}, inventory=${abs_total_value:.2f}")
 
                             self._original_subtotal = subtotal_from_enhanced
                             self._saved_inventory = abs_total_value
@@ -1279,7 +1282,7 @@ class QuickCalculatorInline(QGroupBox):
                             self.subtotal_field.setText(f"{calculated_subtotal:.2f}")
                             self.discount_pct_field.setText(f"{discount_percentage:.1f}")
                             self.discount_amt_field.setText(f"{discount_dollar_amount:.2f}")
-                            print(f"[DEBUG] Calculated backward calculation: inventory=${abs_total_value:.2f}, discount={discount_percentage}%=${discount_dollar_amount:.2f}, subtotal=${calculated_subtotal:.2f}")
+                            logger.debug(f" Calculated backward calculation: inventory=${abs_total_value:.2f}, discount={discount_percentage}%=${discount_dollar_amount:.2f}, subtotal=${calculated_subtotal:.2f}")
 
                             self._original_subtotal = calculated_subtotal
                             self._saved_inventory = abs_total_value
@@ -1291,7 +1294,7 @@ class QuickCalculatorInline(QGroupBox):
 
                         self.subtotal_field.setText(f"{abs_total_value:.2f}")
                         self.discount_pct_field.setText(f"{discount_percentage:.1f}")
-                        print(f"[DEBUG] Forward calculation: subtotal=${abs_total_value:.2f}, discount={discount_percentage}%, inventory=${calculated_inventory:.2f}")
+                        logger.debug(f" Forward calculation: subtotal=${abs_total_value:.2f}, discount={discount_percentage}%, inventory=${calculated_inventory:.2f}")
 
                         self._original_subtotal = abs_total_value
                         self._saved_inventory = calculated_inventory
@@ -1304,7 +1307,7 @@ class QuickCalculatorInline(QGroupBox):
 
                         self.subtotal_field.setText(f"{calculated_subtotal:.2f}")
                         self.discount_amt_field.setText(f"{discount_dollar:.2f}")
-                        print(f"[DEBUG] Backward dollar discount: inventory=${abs_total_value:.2f}, discount=${discount_dollar:.2f}, subtotal=${calculated_subtotal:.2f}")
+                        logger.debug(f" Backward dollar discount: inventory=${abs_total_value:.2f}, discount=${discount_dollar:.2f}, subtotal=${calculated_subtotal:.2f}")
 
                         self._original_subtotal = calculated_subtotal
                         self._saved_inventory = abs_total_value
@@ -1315,7 +1318,7 @@ class QuickCalculatorInline(QGroupBox):
 
                         self.subtotal_field.setText(f"{abs_total_value:.2f}")
                         self.discount_amt_field.setText(f"{discount_dollar:.2f}")
-                        print(f"[DEBUG] Forward dollar discount: subtotal=${abs_total_value:.2f}, discount=${discount_dollar:.2f}, inventory=${calculated_inventory:.2f}")
+                        logger.debug(f" Forward dollar discount: subtotal=${abs_total_value:.2f}, discount=${discount_dollar:.2f}, inventory=${calculated_inventory:.2f}")
 
                         self._original_subtotal = abs_total_value
                         self._saved_inventory = calculated_inventory
@@ -1327,7 +1330,7 @@ class QuickCalculatorInline(QGroupBox):
                     # Stop any running sync timers
                     if hasattr(self, '_sync_timer') and self._sync_timer.isActive():
                         self._sync_timer.stop()
-                        print(f"[DEBUG] Stopped running sync timer")
+                        logger.debug(f" Stopped running sync timer")
 
                     # Clear discount fields with signals blocked to prevent sync
                     self.discount_pct_field.blockSignals(True)
@@ -1340,8 +1343,8 @@ class QuickCalculatorInline(QGroupBox):
                     # Clear the last discount source to prevent any sync mechanisms
                     self._last_discount_source = None
 
-                    print(f"[DEBUG] No discount: subtotal=${abs_total_value:.2f}, cleared discount fields and sync source")
-                    print(f"[DEBUG] After clearing - discount_amt_field='{self.discount_amt_field.text()}', discount_pct_field='{self.discount_pct_field.text()}'")
+                    logger.debug(f" No discount: subtotal=${abs_total_value:.2f}, cleared discount fields and sync source")
+                    logger.debug(f" After clearing - discount_amt_field='{self.discount_amt_field.text()}', discount_pct_field='{self.discount_pct_field.text()}'")
 
                     self._original_subtotal = abs_total_value
                     self._saved_inventory = abs_total_value
@@ -1354,14 +1357,14 @@ class QuickCalculatorInline(QGroupBox):
             # First try row data vals[7] (Shipping Cost)
             if len(vals) > 7 and vals[7]:
                 shipping_text = vals[7].strip()
-                print(f"[DEBUG] Auto-populating shipping from row data vals[7]: '{shipping_text}'")
+                logger.debug(f" Auto-populating shipping from row data vals[7]: '{shipping_text}'")
                 if shipping_text:
                     shipping_value = self.currency.parse_money(shipping_text)
 
             # Fallback to dialog's original shipping cost
             if shipping_value is None and hasattr(dialog, '_original_shipping_cost') and dialog._original_shipping_cost:
                 shipping_text = dialog._original_shipping_cost.strip()
-                print(f"[DEBUG] Auto-populating shipping from dialog original: '{shipping_text}'")
+                logger.debug(f" Auto-populating shipping from dialog original: '{shipping_text}'")
                 if shipping_text:
                     shipping_value = self.currency.parse_money(shipping_text)
 
@@ -1370,7 +1373,7 @@ class QuickCalculatorInline(QGroupBox):
                 display_value = abs(shipping_value)
                 self.shipping_field.setText(f"{display_value:.2f}")
                 auto_populated = True
-                print(f"[DEBUG] Populated shipping field with {display_value:.2f} (original was {shipping_value})")
+                logger.debug(f" Populated shipping field with {display_value:.2f} (original was {shipping_value})")
                 
             # 3. Discount Terms field -> Discount % (only if enhanced data wasn't used)
             if not enhanced_data_used:
@@ -1392,28 +1395,28 @@ class QuickCalculatorInline(QGroupBox):
                                     discount_amt = subtotal_val * (float(discount_pct) / 100)
                                     self.discount_amt_field.setText(f"{discount_amt:.2f}")
                                     auto_populated = True
-                                    print(f"[DEBUG] Fallback auto-populated discount: {discount_pct}% = ${discount_amt:.2f}")
+                                    logger.debug(f" Fallback auto-populated discount: {discount_pct}% = ${discount_amt:.2f}")
             else:
-                print(f"[DEBUG] Skipping fallback discount auto-population - enhanced data was used")
+                logger.debug(f" Skipping fallback discount auto-population - enhanced data was used")
             
             # Add auto-populated fields to priority queue for immediate calculation
             if auto_populated:
                 # Add fields to priority queue based on what was auto-populated
                 # This will trigger two-field calculation when signals are restored
 
-                print(f"[DEBUG] Auto-population occurred, setting up priority queue...")
+                logger.debug(f" Auto-population occurred, setting up priority queue...")
 
                 # Check what was auto-populated and add to priority queue
                 # Add inventory first so it gets pushed down when GT is manually entered
                 if total_value is not None and total_value != 0:
                     self._mark_field_changed('inventory')  # subtotal maps to inventory
-                    print(f"[DEBUG] Added 'inventory' to priority queue due to subtotal auto-population")
+                    logger.debug(f" Added 'inventory' to priority queue due to subtotal auto-population")
 
                 if shipping_value is not None:
                     self._mark_field_changed('shipping')
-                    print(f"[DEBUG] Added 'shipping' to priority queue due to shipping auto-population")
+                    logger.debug(f" Added 'shipping' to priority queue due to shipping auto-population")
 
-                print(f"[DEBUG] Priority queue after auto-population: {list(self.recently_changed)}")
+                logger.debug(f" Priority queue after auto-population: {list(self.recently_changed)}")
 
                 # Check if discount was auto-calculated
                 current_values = self._get_current_values()
@@ -1527,8 +1530,8 @@ class QuickCalculatorInline(QGroupBox):
             'original_subtotal': getattr(self, '_original_subtotal', 0),
             'saved_inventory': getattr(self, '_saved_inventory', 0)
         }
-        print(f"[DEBUG] Saving priority queue to state: {list(self.recently_changed)}")
-        print(f"[DEBUG] Saving state version: {state['version']} with credit status: {state['is_currently_credit']}")
+        logger.debug(f" Saving priority queue to state: {list(self.recently_changed)}")
+        logger.debug(f" Saving state version: {state['version']} with credit status: {state['is_currently_credit']}")
         return state
     
     def set_save_state(self, state=None):
@@ -1562,7 +1565,7 @@ class QuickCalculatorInline(QGroupBox):
 
         # Check version for compatibility
         version = state.get('version', '1.0')  # Default to 1.0 for old states
-        print(f"[DEBUG] Loading save state version: {version}")
+        logger.debug(f" Loading save state version: {version}")
 
         
         # Load field values (use absolute values for credit memos)
@@ -1589,7 +1592,7 @@ class QuickCalculatorInline(QGroupBox):
             self.discount_amt_field.setText(f"{abs(discount_amt_val):.2f}" if discount_amt_val != 0 else "")
             self.shipping_field.setText(f"{abs(shipping_val):.2f}" if shipping_val != 0 else "")
             self.grand_total_field.setText(f"{abs(grand_total_val):.2f}" if grand_total_val != 0 else "")
-            print(f"[DEBUG] Loading credit memo state with absolute values: subtotal={abs(subtotal_val)}, shipping={abs(shipping_val)}")
+            logger.debug(f" Loading credit memo state with absolute values: subtotal={abs(subtotal_val)}, shipping={abs(shipping_val)}")
         else:
             # For regular invoices, use values as-is
             self.subtotal_field.setText(subtotal_text)
@@ -1609,8 +1612,8 @@ class QuickCalculatorInline(QGroupBox):
             self._is_currently_credit = state.get('is_currently_credit', False)
         # If not in state, keep the current detected value (don't overwrite)
 
-        print(f"[DEBUG] Restored priority queue from state: {list(self.recently_changed)}")
-        print(f"[DEBUG] Credit status from state: {state.get('is_currently_credit', 'NOT_IN_STATE')} (current: {self._is_currently_credit})")
+        logger.debug(f" Restored priority queue from state: {list(self.recently_changed)}")
+        logger.debug(f" Credit status from state: {state.get('is_currently_credit', 'NOT_IN_STATE')} (current: {self._is_currently_credit})")
         
         # Update displays with current values
         values = self._get_current_values()

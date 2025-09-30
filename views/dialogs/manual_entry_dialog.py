@@ -10,6 +10,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QDate, QEvent, QTimer, pyqtSignal, QSize, QPoint, QRect
 from PyQt5.QtGui import QBrush, QGuiApplication, QColor, QPainter, QFont, QIcon, QCursor, QPen
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Import Quick Calculator Manager (new inline version)
 from .components.quick_calculator_inline import QuickCalculatorManager
@@ -257,7 +260,7 @@ class MaskedDateEdit(QDateEdit):
                 return self.currentSection()
                 
         except Exception as e:
-            print(f"[DEBUG] Section detection error: {e}")
+            logger.debug(f"Section detection error: {e}")
             # Fallback to Qt's method if our calculation fails
             try:
                 return self.sectionAt(pos)
@@ -847,7 +850,7 @@ class ManualEntryDialog(QDialog):
             try:
                 self.qc_manager.check_and_show_pending_confirmation()
             except Exception as e:
-                print(f"[QC DEBUG] Error showing auto-calc confirmation: {e}")
+                logger.debug(f"QC DEBUG - Error showing auto-calc confirmation: {e}")
 
     # ---------- Frameless outer background (rounded gray with border) ----------
     def paintEvent(self, _):
@@ -1019,7 +1022,7 @@ class ManualEntryDialog(QDialog):
         if not self.values_list:
             return
         new_data = self.get_data()
-        print(f"[QC DEBUG] save_current_invoice() saving data: {new_data}")
+        logger.debug(f"QC DEBUG - save_current_invoice() saving data: {new_data}")
         self.values_list[self.current_index] = new_data
 
     def _load_values_into_widgets(self, values):
@@ -1055,9 +1058,9 @@ class ManualEntryDialog(QDialog):
 
             # Currency fields now handled by QC manager
             # Store original values for QC auto-population
-            print(f"[QC DEBUG] Loading invoice values: vals length={len(vals)}")
-            print(f"[QC DEBUG] vals[6] (total): '{vals[6] if len(vals) > 6 else 'N/A'}'")
-            print(f"[QC DEBUG] vals[7] (shipping): '{vals[7] if len(vals) > 7 else 'N/A'}'")
+            logger.debug(f"QC DEBUG - Loading invoice values: vals length={len(vals)}")
+            logger.debug(f"QC DEBUG - vals[6] (total): '{vals[6] if len(vals) > 6 else 'N/A'}'")
+            logger.debug(f"QC DEBUG -  vals[7] (shipping): '{vals[7] if len(vals) > 7 else 'N/A'}'")
             self._original_total_amount = vals[6] if len(vals) > 6 else ""    # r.total is at index 6
             self._original_shipping_cost = vals[7] if len(vals) > 7 else ""   # r.shipping is at index 7
 
@@ -1077,7 +1080,7 @@ class ManualEntryDialog(QDialog):
             self._loading = was_loading
             # Only reset dirty if we weren't already loading (for backwards compatibility)
             if not was_loading:
-                print(f"[DIRTY DEBUG] Setting dirty=False from _load_values_into_widgets (backwards compatibility)")
+                logger.debug(f"DIRTY DEBUG -  Setting dirty=False from _load_values_into_widgets (backwards compatibility)")
                 self._dirty = False
 
     def _parse_mmddyy(self, s):
@@ -1123,14 +1126,14 @@ class ManualEntryDialog(QDialog):
             # Check if QC became dirty during auto-population
             qc_became_dirty = getattr(self.qc_manager, 'is_dirty', False)
         finally:
-            print(f"[DIRTY DEBUG] QC became dirty during auto-population: {qc_became_dirty}")
-            print(f"[DIRTY DEBUG] Setting dirty={qc_became_dirty} and loading=False from load_invoice")
+            logger.debug(f"DIRTY DEBUG -  QC became dirty during auto-population: {qc_became_dirty}")
+            logger.debug(f"DIRTY DEBUG -  Setting dirty={qc_became_dirty} and loading=False from load_invoice")
             self._dirty = qc_became_dirty  # Preserve QC dirty state instead of always clearing
             self._loading = False
             
         # Trigger recalculation AFTER loading is complete if auto-populated
         if needs_auto_calc:
-            print(f"[QC DEBUG] Triggering recalculation after loading complete")
+            logger.debug(f"QC DEBUG -  Triggering recalculation after loading complete")
             self.qc_manager.recalculate_and_update_fields(during_auto_population=True)
 
         # Check for pending auto-calculation confirmation after file is loaded
@@ -1243,7 +1246,7 @@ class ManualEntryDialog(QDialog):
             self.saved_values_list[idx] = deepcopy(self.values_list[idx])
             self.saved_flag_states[idx] = self.flag_states[idx]
             self.row_saved.emit(self.pdf_paths[idx], self.values_list[idx], self.flag_states[idx])
-        print(f"[DIRTY DEBUG] Setting dirty=False from save")
+        logger.debug(f"DIRTY DEBUG -  Setting dirty=False from save")
         self._dirty = False
         self._flash_saved()
         return True
@@ -1257,7 +1260,7 @@ class ManualEntryDialog(QDialog):
         try:
             due_str = calculate_discount_due_date(terms, invoice_date_str, vendor_name)
         except Exception as e:
-            print(f"[WARN] calculate_discount_due_date failed: {e}")
+            logger.warning(f" calculate_discount_due_date failed: {e}")
             due_str = None
 
         if not due_str:
@@ -1278,7 +1281,7 @@ class ManualEntryDialog(QDialog):
 
         self.fields["Due Date"].setDate(d)
         # Mark as modified by the user action
-        print(f"[DIRTY DEBUG] Setting dirty=True from date update, loading={self._loading}")
+        logger.debug(f"DIRTY DEBUG -  Setting dirty=True from date update, loading={self._loading}")
         self._dirty = True
 
     # ---------- Tiny saved toast ----------
@@ -1359,7 +1362,7 @@ class ManualEntryDialog(QDialog):
             self._update_file_item(item, text, self.flag_states[idx], idx)
         if idx == self.current_index:
             self._update_flag_button()
-        print(f"[DIRTY DEBUG] Setting dirty=True from flag toggle, loading={self._loading}")
+        logger.debug(f"DIRTY DEBUG -  Setting dirty=True from flag toggle, loading={self._loading}")
         self._dirty = True
 
     def _file_list_mouse_press(self, event):
@@ -1369,9 +1372,6 @@ class ManualEntryDialog(QDialog):
             if event.pos().x() - rect.x() < 20:
                 idx = self.file_list.row(item)
                 self.toggle_file_flag(idx)
-                return
-        # Fallback to default behavior
-        QListWidget.mousePressEvent(self.file_list, event)
 
     def get_flag_states(self):
         return self.flag_states
@@ -1449,10 +1449,10 @@ class ManualEntryDialog(QDialog):
                         doc.close()
                         
                         # Try to extract vendor name
-                        print(f"[DEBUG] Re-extracting vendor for file: {file_path}")
+                        logger.debug(f" Re-extracting vendor for file: {file_path}")
                         extracted_vendor = extract_vendor_name(words)
                         if extracted_vendor.strip():
-                            print(f"[DEBUG] Re-extraction successful: '{extracted_vendor}' for file: {file_path}")
+                            logger.debug(f" Re-extraction successful: '{extracted_vendor}' for file: {file_path}")
                             # Update the table with the new vendor name using the model
                             # Convert view row to source row
                             src_row = invoice_table._view_to_source_row(row)
@@ -1461,10 +1461,10 @@ class ManualEntryDialog(QDialog):
                                 invoice_table._model.setData(model_index, extracted_vendor, Qt.EditRole)
                                 updates_made += 1
                         else:
-                            print(f"[DEBUG] Re-extraction failed: No vendor found for file: {file_path}")
+                            logger.debug(f" Re-extraction failed: No vendor found for file: {file_path}")
                             
                     except Exception as e:
-                        print(f"[ERROR] Failed to re-extract vendor for row {row}, file: {file_path}: {e}")
+                        logger.error(f" Failed to re-extract vendor for row {row}, file: {file_path}: {e}")
                         continue
         
         # Update all values_list entries to stay in sync with the table
@@ -1483,7 +1483,7 @@ class ManualEntryDialog(QDialog):
                 if not self._loading:
                     self.vendor_combo.setCurrentText(updated_vendor)
             
-            print(f"[INFO] Re-extracted vendor names for {updates_made} empty cells")
+            logger.info(f" Re-extracted vendor names for {updates_made} empty cells")
 
     def _on_field_changed(self, label):
         if not self._loading:
@@ -1596,7 +1596,7 @@ class ManualEntryDialog(QDialog):
         qc_data = self.qc_manager.get_data_for_persistence()
         data.extend(qc_data)
         
-        print(f"[QC DEBUG] get_data() returning QC values: {qc_data}")
+        logger.debug(f"QC DEBUG -  get_data() returning QC values: {qc_data}")
         return data
 
     def get_all_data(self):
@@ -1679,7 +1679,7 @@ class ManualEntryDialog(QDialog):
     def _wire_dirty_tracking(self):
         def mark_dirty(*_):
             if not self._loading:
-                print(f"[DIRTY DEBUG] Setting dirty=True from mark_dirty, loading={self._loading}")
+                logger.debug(f"DIRTY DEBUG -  Setting dirty=True from mark_dirty, loading={self._loading}")
                 self._dirty = True
         for label, w in self.fields.items():
             if isinstance(w, QLineEdit):
@@ -1692,7 +1692,7 @@ class ManualEntryDialog(QDialog):
         # Wire QC dirty tracking
         def mark_dirty_from_qc(*_):
             if not self._loading:
-                print(f"[DIRTY DEBUG] Setting dirty=True from QC changes, loading={self._loading}")
+                logger.debug(f"DIRTY DEBUG -  Setting dirty=True from QC changes, loading={self._loading}")
                 self._dirty = True
                 
         # Connect to all QC field changes

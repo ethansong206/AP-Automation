@@ -8,15 +8,40 @@ from extractors import (
     extract_shipping_cost
 )
 from extractors.utils import calculate_discount_due_date, calculate_discounted_total, check_negative_total
+from logging_config import get_logger, set_performance_mode, restore_normal_mode
+
+logger = get_logger(__name__)
 
 def extract_fields(documents):
+    # More informative logging
+    if len(documents) == 1:
+        filename = documents[0].get("file_name", "Unknown")
+        logger.info(f"Processing document: {filename}")
+    else:
+        logger.info(f"Starting batch extraction for {len(documents)} documents")
+
+    # Enable performance mode for large batches to reduce console I/O
+    if len(documents) > 5:
+        set_performance_mode()
+
     extracted_rows = []
 
-    for doc in documents:
+    # Only show progress for larger batches
+    show_progress = len(documents) > 10
+    progress_interval = max(1, len(documents) // 10)  # Show progress every 10%
+
+    for i, doc in enumerate(documents, 1):
         words = doc["words"]
         file_name = doc.get("file_name", "Unknown")
 
+        # Reduced logging frequency
+        if show_progress and i % progress_interval == 0:
+            logger.info(f"Processing documents: {i}/{len(documents)}")
+
+        logger.debug(f"Processing document {i}/{len(documents)}: {file_name} ({len(words)} words)")
+
         vendor_name = extract_vendor_name(words)
+        logger.debug(f"Extracted vendor: '{vendor_name}'")
 
         # Extract enhanced total amount data
         total_amount_data = extract_total_amount(words, vendor_name)
@@ -52,19 +77,8 @@ def extract_fields(documents):
                     )
                     row["Discount Due Date"] = discounted_due
             except Exception as e:
-                print(f"[WARN] Could not compute discount due date: {e}")
+                logger.warning(f"Could not compute discount due date: {e}")
 
-        # Removed for now while changing Discounted Total to Shipping Cost
-        """
-        if row["Discount Terms"] and row["Total Amount"]:
-            try:
-                discounted_total = calculate_discounted_total(
-                    row["Discount Terms"], row["Total Amount"], vendor_name
-                )
-                row["Shipping Cost"] = discounted_total
-            except Exception as e:
-                print(f"[WARN] Could not compute discounted total: {e}")
-        """
                 
         if row["Total Amount"]:
             row["Total Amount"] = check_negative_total(row["Total Amount"], row["Discount Terms"])
@@ -77,4 +91,12 @@ def extract_fields(documents):
             "false"  # QC used flag
         ])
 
+    # Restore normal logging
+    if len(documents) > 5:
+        restore_normal_mode()
+
+    if len(extracted_rows) > 10:
+        logger.info(f"Field extraction complete: processed {len(extracted_rows)} documents successfully")
+    else:
+        logger.debug(f"Field extraction complete: processed {len(extracted_rows)} documents successfully")
     return extracted_rows

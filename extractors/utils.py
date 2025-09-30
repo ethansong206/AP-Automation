@@ -4,6 +4,9 @@ import csv
 import os
 
 from utils import get_vendor_csv_path
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # --- Clean currency strings like "$1,234.56" to "1234.56" ---
@@ -116,7 +119,7 @@ def load_vendor_list():
     vendor_set = set()
 
     if not os.path.exists(csv_path):
-        #print(f"[WARN] Vendor file not found: {csv_path}")
+        logger.warning(f"Vendor file not found: {csv_path}")
         return vendor_set
 
     with open(csv_path, newline='', encoding="utf-8") as f:
@@ -126,7 +129,7 @@ def load_vendor_list():
             if name:
                 vendor_set.add(name.lower().strip())
 
-    #print(f"[INFO] Loaded {len(vendor_set)} known vendors")
+    logger.info(f"Loaded {len(vendor_set)} known vendors")
     return vendor_set
 
 
@@ -192,13 +195,13 @@ def load_manual_mapping():
                         normalized_key = normalize_string(identifier)
                         mapping[normalized_key] = vendor_name
             
-            #print(f"[INFO] Loaded {len(mapping)} manual vendor mappings from CSV")
+            logger.info(f"Loaded {len(mapping)} manual vendor mappings from CSV")
             return mapping
         except Exception as e:
-            #print(f"[ERROR] Failed to load vendor CSV for identifiers: {e}")
+            logger.error(f"Failed to load vendor CSV for identifiers: {e}")
             return {}
     else:
-        #print(f"[WARN] Vendor CSV not found at {csv_path}")
+        logger.warning(f"Vendor CSV not found at {csv_path}")
         return {}
 
 # Check if Credit Memo amount is Negative, Flip Sign if Not

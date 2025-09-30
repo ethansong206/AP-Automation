@@ -11,6 +11,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QFont, QFontMetrics, QDragEnterEvent, QDropEvent, QIcon
 from PyQt5.QtCore import Qt, QStandardPaths, QTimer, QSize
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 try:
     from views.app_shell import _resolve_icon
@@ -264,7 +267,7 @@ class InvoiceApp(QWidget):
         for r in range(self.table.rowCount()):
             file_paths.append(self.table.get_file_path_for_row(r))
             row_values = self.table.get_row_values(r)  # Get all 13 values including QC
-            print(f"[QC DEBUG] Loading row {r} values for dialog: {row_values}")
+            logger.debug(f"QC DEBUG - Loading row {r} values for dialog: {row_values}")
             values_list.append(row_values)
             flag_states.append(self.table.is_row_flagged(r))
 
@@ -532,7 +535,7 @@ class InvoiceApp(QWidget):
             except Exception as e:
                 error_msg = f"Row {src_row + 1} ({vendor}_{po_number}_{invoice_number}): {str(e)}"
                 failed_exports.append(error_msg)
-                print(f"[ERROR] Failed to export file: {error_msg}")
+                logger.error(f"Failed to export file: {error_msg}")
 
         # Show detailed results
         self._show_file_export_results(exported_count, 0, failed_exports, target_dir)
@@ -854,7 +857,7 @@ class InvoiceApp(QWidget):
             with open(self.session_file, "w", encoding="utf-8") as fh:
                 json.dump(payload, fh, indent=2)
         except Exception as e:
-            print(f"[ERROR] Failed to save session: {e}")
+            logger.error(f"Failed to save session: {e}")
 
     def load_session(self):
         if not os.path.exists(self.session_file):
@@ -863,7 +866,7 @@ class InvoiceApp(QWidget):
             with open(self.session_file, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except Exception as e:
-            print(f"[ERROR] Failed to load session: {e}")
+            logger.error(f"Failed to load session: {e}")
             return
         rows = data.get("rows", [])
         if not rows:
@@ -934,4 +937,4 @@ class InvoiceApp(QWidget):
             # This call will trigger the merge process if there are conflicts
             get_vendor_csv_path()
         except Exception as e:
-            print(f"[WARN] Failed to initialize vendor data: {e}")
+            logger.warning(f"Failed to initialize vendor data: {e}")
