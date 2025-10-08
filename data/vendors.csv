@@ -10,6 +10,7 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000651,Arc'teryx,arcteryx
 0000160,Arcade Belts Inc,
 0000958,Artesania Inc,
+0000307,Artilect,
 0000940,Astral Buoyancy Co LLC,
 0000940,Astral Buoyancy Co LLC,airbelt 2.0
 0000940,Astral Buoyancy Co LLC,e-linda
@@ -20,7 +21,8 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000446,Astral Footwear,crewer
 0000446,Astral Footwear,loyak
 0000446,Astral Footwear,techyak
-0000042,Backpacker's Pantry,
+0000042,Backpacker's Pantry,bp breakfast scramble
+0000042,Backpacker's Pantry,bp pad thai
 0000222,Badfish,
 0000108,BearVault Inc.,
 0000203,Bedrock Sandals,
@@ -39,9 +41,11 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000566,Bronwen Jewelry,
 0001182,Buena Onda Games,
 0000627,"Camelbak Products, LLC",
+0000905,Camp USA,
 0000071,Carolina Creative,
 0001130,Carve Designs,
 0000079,Chaco Sandals,
+0000854,Chaos Headwear,info@dogree.com
 0000120,Chubbies Inc,
 0000081,Chums,
 0001151,Cliff Outdoors,
@@ -54,11 +58,11 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000097,Crazy Creek Products Inc,
 0001185,CS Gibbs Design Solutions,
 0000536,Cuzins Entertainment,
-0000850,Danner,
+0000850,Danner,lacrosse footwear
 0000334,Dapper Ink LLC,
 0000258,Darn Tough,https://cabothosierymills.billtrust.com
 0000953,Dish & Du/er,
-0000259,Dovetail,
+0000259,Dovetail,orders@portlandproductwerks.com
 0000114,Duck Head LLC,
 0000121,Eagle Creek,
 0000984,"Eagles Nest Outfitters, Inc.",
@@ -71,6 +75,7 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000406,Faherty,
 0000112,Feelfree US LLC,
 0000989,Fishpond,
+0000831,Fox River Mills Inc,
 0000086,Free Fly Apparel,
 0000139,"Freestyle Brands, LLC",
 0001290,Fulling Mill Fly Fishing LLC,
@@ -80,12 +85,12 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000053,Good To-Go,
 0001058,"Goodhew, LLC",
 0000135,Goorin Bros,
-0000441,Grand Forest Inc,
+0000441,Grand Forest Inc,www.grandforest.us
 0000862,Grayl,
 0000153,Gregory Mountain Products,
 0000337,Groove Life Corp,
 0000754,Grundens,
-0000386,GSI Sports Products Inc,
+0000386,GSI Sports Products Inc,www.gsioutdoors.com
 0001000,Hadley Wren,
 0000095,"Hareline Dubbin, Inc",
 0000551,Helinox,
@@ -120,17 +125,17 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000212,Joy Susan,
 0001081,K'Lani LLC,
 0000462,KATIN,
-0000185,Kavu,
+0000185,Kavu,1515 nw
 0000978,Keen Inc,
 0000189,Kingfisher Maps Inc,
 0000890,Kizik,
 0000666,Komperdell,
 0000093,"Korkers Products, LLC",
-0000049,Kuhl,
+0000049,Kuhl,kuhl
 0000196,Leatherman Tools,Leatherman Tool Group
 0000197,Leegin Creative Leather,
 0000199,Leki,
-0000543,Lemon,
+0000543,Lemon,united legwear
 0000472,Liberty Mountain Sports,wwwlibertymountaincom
 0000655,Life Outside Stickers,
 0000565,Lifestraw,
@@ -156,7 +161,7 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000415,NC Trailblazers LLC,
 0001277,Nemo Equipment Inc,
 0054321,Nester Hosiery,
-0000301,New River Gear,
+0000301,New River Gear,accounting@nrs.com
 0000227,Newport Vessels,torero specialty products
 0000871,Nite Ize Inc,
 0000083,Nocqua,
@@ -169,11 +174,12 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000993,O'Neill,
 0000159,Oat NYC,
 0001213,Oboz Footwear LLC,
+0000675,Occoopa Innovation Corp.,
 0000902,Old Town,
 0001131,Olukai LLC,
 0000505,ON Running,c020000055
 0000268,"Opinel USA, Inc",
-0000899,Oregon Freeze Dry,
+0000899,Oregon Freeze Dry,ofd foods
 0000207,Oros Fly Fishing,
 0000735,Osprey,
 0000828,"Osprey Packs, Inc",
@@ -205,7 +211,7 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000771,"Reef Lifestyle, LLC",
 0001025,Renzetti LLC,
 0000242,Rhythm,
-0001263,Richardson,
+0001263,Richardson,800-545-8686
 0000875,Rio Products,eosfarbankcom
 0000064,River Medlin,
 0000677,Roark,
@@ -220,11 +226,12 @@ Vendor No. (Sage),Vendor Name,Identifier
 0001063,Scotty Inc,
 0000291,Scout Curated Wears,
 0000800,Sea to Summit,
-0001267,Sea-lect Designs,
+0001267,Sea-lect Designs,sea dog
+0001267,Sea-lect Designs,seadog
 0000401,Seattle Silver,
 0000280,Seattle Sports,
 0000805,Secrid,wwwsecridcom
-0001019,Seirus Innovation,
+0001019,Seirus Innovation,seirus innovative
 0000407,"Sendero Provisions Co., LLC",
 0000455,Seneca Press,
 0000987,Sherpa,
@@ -251,10 +258,10 @@ Vendor No. (Sage),Vendor Name,Identifier
 0000132,The Strike Indicator Company,
 0000230,Thread Wallets,
 0000366,Tilley Endurables Corp,
-0001184,Tite Line Fishing Products LLC,
+0001184,Tite Line Fishing Products LLC,titeline products
 0000168,Toad & Co,
 0000995,"Toadfish, LLC",
-0000115,TOPO ATHLETIC,wwwtopoathleticcom
+0000115,TOPO ATHLETIC,grant street
 0001282,Topo Designs LLC,
 0000236,Trailex Inc.,
 0000653,Treadlabs,

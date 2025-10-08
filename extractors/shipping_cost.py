@@ -8,7 +8,7 @@ def extract_shipping_cost(words, vendor_name):
     """
     if not words:
         return ""
-    
+
     # Credit memos and credit notes never have shipping costs (they're refunds/adjustments)
     # Use the discount terms extractor to properly identify document type
     from extractors.discount_terms import extract_discount_terms
@@ -22,8 +22,8 @@ def extract_shipping_cost(words, vendor_name):
         if freight_fuel_result is not None:
             return freight_fuel_result
     
-    # Vendor-specific handling for Rio Products (shipping cost below label)
-    if vendor_name == "Rio Products":
+    # Vendor-specific handling for vendors with shipping cost below label
+    if vendor_name in ["Rio Products", "Seirus Innovation"]:
         rio_result = _extract_rio_shipping_cost(words, vendor_name)
         if rio_result is not None:
             return rio_result
@@ -58,20 +58,23 @@ def extract_shipping_cost(words, vendor_name):
     shipping_labels = [
         "shipping", "freight", "frt", "ship", "delivery", "handling", "additional", "postage"
     ]
+
+    if vendor_name == "Hestra Gloves, LLC":
+        shipping_labels.append("fedex")
     
     def find_shipping_labels_all_zones():
         """Find shipping label positions without zone restrictions"""
         shipping_label_positions = []
-        
+
         # Single word labels and slash-separated compound labels
         for word in normalized_words:
             word_text = word["text"].lower().rstrip(":")
-            
+
             # Check for exact single word match
             if word_text in shipping_labels and not _is_ship_to_label(word, normalized_words):
                 shipping_label_positions.append({
                     "x0": word["x0"],
-                    "x1": word["x1"], 
+                    "x1": word["x1"],
                     "top": word["top"],
                     "bottom": word["bottom"],
                     "label": word["text"],
@@ -116,29 +119,29 @@ def extract_shipping_cost(words, vendor_name):
         """Search for shipping values using exact Y-coordinate matching"""
         for label_pos in shipping_label_positions:
             candidates = []
-            
+
             # Get the page number directly from the label position
             label_page = label_pos.get("page_num", 0)
-            
+
             for word in normalized_words:
                 # Get the page number directly from the normalized word
                 word_page = word.get("page_num", 0)
-                
+
                 # Skip if they're on different pages
                 if label_page != word_page:
                     continue
-                
+
                 # Check if word is to the right of label with exact Y-coordinate alignment
                 horizontal_distance = word["x0"] - label_pos["x1"]
                 vertical_distance = abs(word["top"] - label_pos["top"])
-                
+
                 # Exact Y-coordinate matching with minimal tolerance
                 if (20 <= horizontal_distance <= 700 and  # Extended horizontal distance
                     vertical_distance <= 2 and           # Exact Y-alignment (±2px tolerance)
                     is_potential_shipping_cost(word["text"]) and
                     not _is_near_weight_text(word, normalized_words) and
                     not _is_near_insurance_text(word, normalized_words)):
-                    
+
                     candidates.append({
                         "word": word,
                         "h_dist": horizontal_distance,
@@ -177,10 +180,10 @@ def extract_shipping_cost(words, vendor_name):
     # Find shipping labels and search for values
     shipping_labels = find_shipping_labels_all_zones()
     result = search_for_shipping_values(shipping_labels)
-    
+
     if result:
         return result
-    
+
     # If no shipping cost found, default to 0.00
     return "0.00"
 

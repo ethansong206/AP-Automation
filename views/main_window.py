@@ -471,13 +471,13 @@ class InvoiceApp(QWidget):
                     vals = model.row_values(src_row)
                     # Defensive access with fallbacks
                     vendor = self._sanitize_filename(vals[0] if len(vals) > 0 else "") or "UNKNOWN"
-                    invoice_number = self._sanitize_filename(vals[1] if len(vals) > 1 else "") or "INV"
-                    po_number = self._sanitize_filename(vals[2] if len(vals) > 2 else "") or "PO"
+                    invoice_number = self._sanitize_po_invoice(vals[1] if len(vals) > 1 else "") or "INV"
+                    po_number = self._sanitize_po_invoice(vals[2] if len(vals) > 2 else "") or "PO"
                     date_str = vals[3] if len(vals) > 3 else ""
                 else:
                     vendor = self._sanitize_filename(self.table.get_cell_text(src_row, 1)) or "UNKNOWN"
-                    po_number = self._sanitize_filename(self.table.get_cell_text(src_row, 3)) or "PO"
-                    invoice_number = self._sanitize_filename(self.table.get_cell_text(src_row, 2)) or "INV"
+                    po_number = self._sanitize_po_invoice(self.table.get_cell_text(src_row, 3)) or "PO"
+                    invoice_number = self._sanitize_po_invoice(self.table.get_cell_text(src_row, 2)) or "INV"
                     date_str = self.table.get_cell_text(src_row, 4)
             except Exception as e:
                 failed_exports.append(f"Row {src_row + 1}: Error accessing row data: {str(e)}")
@@ -914,7 +914,26 @@ class InvoiceApp(QWidget):
 
     # ----------- small utils -----------
     def _sanitize_filename(self, s):
-        return re.sub(r'[\\/*?:"<>|.]+', "_", (s or "").strip())
+        """Sanitize vendor names - keep spaces, remove special chars."""
+        if not s:
+            return ""
+        s = s.strip()
+        # Remove special chars but keep spaces, letters, numbers, and hyphens
+        s = re.sub(r'[^a-zA-Z0-9 -]+', '', s)
+        # Collapse multiple spaces into one
+        s = re.sub(r'\s+', ' ', s)
+        return s.strip()
+
+    def _sanitize_po_invoice(self, s):
+        """Sanitize PO/Invoice numbers - remove spaces and special chars, keep hyphens."""
+        if not s:
+            return ""
+        s = s.strip()
+        # Remove all spaces
+        s = s.replace(' ', '')
+        # Remove special chars but keep letters, numbers, and hyphens
+        s = re.sub(r'[^a-zA-Z0-9-]+', '', s)
+        return s
 
     def _parse_invoice_date(self, text):
         try:

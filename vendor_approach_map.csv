@@ -52,7 +52,6 @@ Chums,bottom_most
 Eagle Creek,bottom_most
 Free Fly Apparel,bottom_most
 Gregory Mountain Products,bottom_most
-"Hobie Cat Company II, LLC",bottom_most
 Hydro Flask,bottom_most
 IceMule Company,bottom_most
 KATIN,bottom_most
@@ -62,7 +61,6 @@ Roxy,bottom_most
 Ruffwear,bottom_most
 Scout Curated Wears,bottom_most
 Secrid,bottom_most
-"Sendero Provisions Co., LLC",bottom_most
 Sterling Rope Company Inc,bottom_most
 Thread Wallets,bottom_most
 TOPO ATHLETIC,bottom_most
@@ -93,7 +91,7 @@ Waboba Inc,gross
 Wapsi Fly,gross
 Yak Attack,gross
 Badfish,label
-BIG Adventures LLC,label_calculated
+"BIG Adventures, LLC",label_calculated
 Accent & Cannon,label_minus_ship
 Cotopaxi,label_minus_ship
 Hoka,label_minus_ship
@@ -114,3 +112,27 @@ Solitude Fly Company Inc,bottom_calculated
 Umpqua Feather Merchants,bottom_calculated
 Rumpl,gross_calculated
 Simms,label
+Artilect,bottom_most
+Chaos Headwear,bottom_minus_ship
+Danner,bottom_minus_ship
+Dovetail,calculated
+Gentle Fawn,bottom_minus_ship
+GSI Sports Products Inc,calculated
+"Hobie Cat Company II, LLC",bottom_minus_ship
+Kuhl,calculated
+Lemon,bottom_minus_ship
+Long Leaf Services,bottom_minus_ship
+North Country Flies and Angling,bottom_minus_ship
+Owala,bottom_minus_ship
+Richardson,bottom_minus_ship
+Seirus Innovation,calculated
+"Sendero Provisions Co., LLC",bottom_minus_ship
+Sherpa,gross
+Sherpani LLC,bottom_minus_ship
+Tite Line Fishing Products LLC,calculated
+Yakima,bottom_minus_ship
+"Hestra Gloves, LLC",calculated
+Sea-lect Designs,bottom_calculated
+Kavu,bottom_calculated
+Camp USA,calculated
+Blundstone,bottom_calculated

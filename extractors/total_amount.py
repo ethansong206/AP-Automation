@@ -1158,4 +1158,12 @@ def preprocess_currency_text(text):
         if inner_text:  # Make sure there's content inside
             text = f"-{inner_text}"
 
+    # Handle suffix negative format for Angler's Book Supply: 51.11- -> -51.11
+    if text.endswith('-') and not text.startswith('-'):
+        # Check if it's a valid number before the minus
+        text_before_minus = text[:-1].strip()
+        # Only convert if it looks like a currency value (has digits and maybe $)
+        if any(c.isdigit() for c in text_before_minus):
+            text = '-' + text_before_minus
+
     return text

@@ -163,6 +163,76 @@ def extract_invoice_number(words, vendor_name):
         # If no INVOICE NO labels found or no results, return empty to avoid phone confusion
         return ""
     
+    # Soto-specific logic: invoice number is below but extends slightly to the right, add 10px buffer
+    if vendor_name == "Soto":
+        best_candidate = None
+        best_score = float("inf")
+
+        for label_idx, (label_x0, label_x1, label_y) in enumerate(label_positions):
+            for w in normalized_words:
+                mid_x = (w["x0"] + w["x1"]) / 2
+                vertical_distance = w["top"] - label_y
+
+                # Add 10px buffer to the right edge of label
+                if (
+                    label_x0 <= mid_x <= (label_x1 + 10) and
+                    0 < vertical_distance <= 50 and
+                    is_potential_invoice_number(w["text"], vendor_name)
+                ):
+                    if vertical_distance < best_score:
+                        best_score = vertical_distance
+                        best_candidate = w
+
+        if best_candidate:
+            return best_candidate["orig"].lstrip("#:").strip()
+        return ""
+
+    # Owala-specific logic: look for "Reference Nbr" pattern
+    if vendor_name == "Owala":
+        owala_positions = []
+        # Look for "Reference" followed by word containing "Nbr"
+        for i in range(len(normalized_words) - 1):
+            first = normalized_words[i]
+            second = normalized_words[i + 1]
+            if first["text"] == "reference" and "nbr" in second["text"]:
+                owala_positions.append((first["x0"], second["x1"], second["top"]))
+
+        # Search to the right of "Reference Nbr"
+        if owala_positions:
+            owala_result = find_value_to_right(
+                normalized_words,
+                owala_positions,
+                lambda text: is_potential_invoice_number(text, vendor_name),
+                strict=False
+            )
+            if owala_result:
+                return owala_result
+        return ""
+
+    # Oregon Freeze Dry-specific logic: look for "INVOICE NO" pattern and search below to avoid "Invoice address" confusion
+    if vendor_name == "Oregon Freeze Dry":
+        oregon_positions = []
+        # Look for "INVOICE" followed by "NO" pattern
+        for i in range(len(normalized_words) - 1):
+            first = normalized_words[i]
+            second = normalized_words[i + 1]
+            if first["text"] == "invoice" and second["text"] in ["no","no."]:
+                oregon_positions.append((first["x0"], second["x1"], first["top"]))
+
+        # If we found "INVOICE NO" labels, search below them
+        if oregon_positions:
+            oregon_result = find_value_below(
+                normalized_words,
+                oregon_positions,
+                lambda text: is_potential_invoice_number(text, vendor_name),
+                max_distance=150
+            )
+            if oregon_result:
+                return oregon_result
+
+        # If no INVOICE NO labels found or no results, return empty to avoid "Invoice address" confusion
+        return ""
+
     # Eagles Nest Outfitters-specific logic: check discount terms for credit memos
     if vendor_name == "Eagles Nest Outfitters, Inc.":
         from .discount_terms import extract_discount_terms
@@ -314,15 +384,15 @@ def extract_invoice_number(words, vendor_name):
     # Fishpond-specific logic: for email format, skip first invoice label and use second one
     if vendor_name == "Fishpond":
         from .email_detection import is_email_format
-        
+
         if is_email_format(words):
             # Find all invoice label positions
             fishpond_positions = find_label_positions(normalized_words, "invoice")
-            
+
             # If we have at least 2 labels, skip the first and use the second
             if len(fishpond_positions) >= 2:
                 second_label = fishpond_positions[1]  # Use second label (index 1)
-                
+
                 # Try to find value to the right of the second label
                 fishpond_result = find_value_to_right(
                     normalized_words,
@@ -332,6 +402,22 @@ def extract_invoice_number(words, vendor_name):
                 )
                 if fishpond_result:
                     return fishpond_result
+
+    # Sea-lect Designs-specific logic: use only the first invoice label and search below
+    if vendor_name == "Sea-lect Designs":
+        # Use only the first invoice label (the one at the top of the document)
+        if label_positions:
+            first_label = label_positions[0]
+
+            # Search below the first label
+            sealect_result = find_value_below(
+                normalized_words,
+                [first_label],
+                lambda text: is_potential_invoice_number(text, vendor_name),
+                max_distance=150
+            )
+            if sealect_result:
+                return sealect_result
 
     # Add credit memo/note labels
     for i in range(len(normalized_words) - 1):
@@ -603,13 +689,32 @@ def is_potential_invoice_number(text, vendor_name=None):
     # Katin: must start with "usa-i" followed by digits
     if vendor_name == "KATIN":
         return re.match(r"^usa-i\d+$", text.strip(), re.IGNORECASE) is not None
+    # Kavu: must start with "IPRES" followed by digits
+    if vendor_name == "Kavu":
+        return re.match(r"^ipres\d+$", text.strip(), re.IGNORECASE) is not None
     # General case:
     general_regex = (
         r"^#?(?:[a-zA-Z]{1,4}-?)?[0-9]{2,}[a-zA-Z0-9\-\/]*$"  # original pattern
         r"|^si\+\d{5,6}$"  # explicitly allow si-xxxxx or si-xxxxxx
     )
-    return re.match(
+    matches_general = re.match(
         general_regex,
         text.strip(),
         re.IGNORECASE
     )
+
+    # Additional global check: invoice numbers must be at least 4 characters long
+    if matches_general:
+        stripped = text.strip()
+        # If only digits, must be at least 4 digits
+        if re.match(r"^\d+$", stripped):
+            return len(stripped) >= 4
+        # If alphanumeric, must be at least 4 characters AND contain at least one digit
+        elif re.search(r"[a-zA-Z]", stripped):
+            has_digit = re.search(r"\d", stripped)
+            return len(stripped) >= 4 and has_digit is not None
+        # Other formats (with special chars, etc.) - apply length check
+        else:
+            return len(stripped) >= 4
+
+    return bool(matches_general)

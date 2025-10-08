@@ -4,10 +4,29 @@ Demo script showing how to use the invoice testing framework.
 from test_framework import InvoiceTestFramework
 
 def main():
-    # Initialize the test framework
-    tester = InvoiceTestFramework()
-    
     print("AP Automation Testing Framework")
+    print("=" * 50)
+
+    # Ask user which dataset to test
+    print("\nSelect dataset to test:")
+    print("1. Sorted (test_expectations_sorted.csv)")
+    print("2. September (test_expectations_september.csv)")
+
+    dataset_choice = input("\nEnter choice (1-2): ").strip()
+
+    if dataset_choice == "1":
+        csv_file = "test_expectations_sorted.csv"
+        print("\nUsing: test_expectations_sorted.csv")
+    elif dataset_choice == "2":
+        csv_file = "test_expectations_september.csv"
+        print("\nUsing: test_expectations_september.csv")
+    else:
+        print("Invalid choice. Defaulting to test_expectations_sorted.csv")
+        csv_file = "test_expectations_sorted.csv"
+
+    # Initialize the test framework with selected CSV
+    tester = InvoiceTestFramework(test_data_file=csv_file)
+
     print("=" * 50)
     
     while True:

@@ -212,7 +212,44 @@ def extract_invoice_date(words, vendor_name):
         
         # Replace words with converted versions for normal processing
         words = converted_words
-    
+
+    # Gentle Fawn-specific logic: handle month name dates that get missed by combined pattern
+    if vendor_name == "Gentle Fawn":
+        text_blob = " ".join([w["text"] for w in words])
+
+        # Look for Month DD, YYYY format specifically
+        month_pattern = r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4})\b'
+        month_match = re.search(month_pattern, text_blob, re.IGNORECASE)
+        if month_match:
+            month_abbr, day, year = month_match.groups()
+            # Convert month name to date and extract as MM/DD/YY
+            full_date_str = f"{month_abbr} {day}, {year}"
+            parsed_date = try_parse_date(full_date_str)
+
+            if parsed_date:
+                today = datetime.today().date()
+                MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
+                if MIN_VALID_DATE <= parsed_date <= today:
+                    return parsed_date.strftime("%m/%d/%y")
+
+    # GSI Sports Products Inc-specific logic: handle MM.DD.YY format
+    if vendor_name == "GSI Sports Products Inc":
+        text_blob = " ".join([w["text"] for w in words])
+
+        # Look for MM.DD.YY format specifically
+        dot_pattern = r'\b(\d{1,2})\.(\d{1,2})\.(\d{2})\b'
+        dot_match = re.search(dot_pattern, text_blob)
+        if dot_match:
+            month, day, year = dot_match.groups()
+            converted_date = f"{month.zfill(2)}/{day.zfill(2)}/{year}"
+            parsed_date = try_parse_date(converted_date)
+
+            if parsed_date:
+                today = datetime.today().date()
+                MIN_VALID_DATE = (today - timedelta(days=480)).replace(day=1)
+                if MIN_VALID_DATE <= parsed_date <= today:
+                    return converted_date
+
     text_blob = " ".join([w["text"] for w in words])
 
     MONTH_NAMES = [

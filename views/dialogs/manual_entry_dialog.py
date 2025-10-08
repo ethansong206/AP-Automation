@@ -547,6 +547,9 @@ class ManualEntryDialog(QDialog):
         self.file_list = QListWidget()
         self.file_list.setObjectName("FileListWidget")
         self.file_list.mousePressEvent = self._file_list_mouse_press
+        self.file_list.mouseMoveEvent = self._file_list_mouse_move
+        self.file_list.mouseReleaseEvent = self._file_list_mouse_release
+        self._last_press_in_flag_area = False  # Track if press was in flag/dead zone
         # Zebra striping and styling
         self.file_list.setStyleSheet(self.styles.get_file_list_style())
         left_card_layout.addWidget(self.file_list)
@@ -1333,24 +1336,40 @@ class ManualEntryDialog(QDialog):
 
     # ---------- Flag helpers ----------
     def _update_file_item(self, item, text, flagged, item_index=None):
-        icon = "🚩" if flagged else "⚑"
-        item.setText(f"{icon} {text}")
+        icon = "⚑"  # Always use same flag icon
+        item.setText(f"{icon}   {text}")  # Three spaces for better visual separation
+
+        # Set background color for flagged items
         if flagged:
             item.setBackground(QColor(COLORS['LIGHT_RED']))
         else:
             item.setBackground(QBrush())
-        
-        # Apply viewed state styling (gray text for viewed files)
-        if item_index is not None and item_index in self.viewed_files:
+
+        # Apply foreground color based on state priority: flagged > viewed > default
+        if flagged:
+            # Flagged items: red text
+            item.setForeground(QBrush(Qt.red))
+        elif item_index is not None and item_index in self.viewed_files:
+            # Viewed (but not flagged): gray text
             item.setForeground(QBrush(Qt.gray))
         else:
-            item.setForeground(QBrush())  # Reset to default color
+            # Default: black text
+            item.setForeground(QBrush())
 
     def _update_flag_button(self):
         if not self.flag_states:
             return
         flagged = self.flag_states[self.current_index]
-        self.flag_button.setText("🚩" if flagged else "⚑")
+        self.flag_button.setText("⚑")
+        # Color the button red when flagged
+        if flagged:
+            self.flag_button.setStyleSheet(
+                self.flag_button.styleSheet().replace('color: #f0f0f0', 'color: red')
+            )
+        else:
+            # Reset to default navigation button style
+            nav_css = self.styles.get_navigation_button_style()
+            self.flag_button.setStyleSheet(nav_css)
 
     def toggle_file_flag(self, idx):
         if idx < 0 or idx >= len(self.flag_states):
@@ -1369,9 +1388,48 @@ class ManualEntryDialog(QDialog):
         item = self.file_list.itemAt(event.pos())
         if item:
             rect = self.file_list.visualItemRect(item)
-            if event.pos().x() - rect.x() < 20:
+            # Calculate widths for flag and dead zone
+            font_metrics = self.file_list.fontMetrics()
+            flag_width = font_metrics.horizontalAdvance("⚑")  # Just the flag emoji
+            dead_zone_width = font_metrics.horizontalAdvance("⚑   ")  # Flag + three spaces
+
+            # Account for the 12px left padding defined in QSS
+            item_padding_left = 12
+            click_x = event.pos().x() - rect.x() - item_padding_left
+
+            # Click on flag itself -> toggle
+            if click_x < flag_width:
                 idx = self.file_list.row(item)
                 self.toggle_file_flag(idx)
+                self._last_press_in_flag_area = True
+                event.accept()  # Accept event to prevent propagation
+                return
+            # Click in dead zone (between flag and filename) -> do nothing
+            elif click_x < dead_zone_width:
+                self._last_press_in_flag_area = True
+                event.accept()  # Accept event to prevent propagation
+                return
+
+        # Click on filename -> allow navigation
+        self._last_press_in_flag_area = False
+        QListWidget.mousePressEvent(self.file_list, event)
+
+    def _file_list_mouse_move(self, event):
+        # If the press was in flag/dead zone, block all mouse moves to prevent drag selection
+        if self._last_press_in_flag_area:
+            event.accept()
+            return
+        # Otherwise allow normal move behavior
+        QListWidget.mouseMoveEvent(self.file_list, event)
+
+    def _file_list_mouse_release(self, event):
+        # If the press was in flag/dead zone, block the release to prevent navigation
+        if self._last_press_in_flag_area:
+            self._last_press_in_flag_area = False
+            event.accept()
+            return
+        # Otherwise allow normal release behavior
+        QListWidget.mouseReleaseEvent(self.file_list, event)
 
     def get_flag_states(self):
         return self.flag_states
