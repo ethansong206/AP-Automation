@@ -12,6 +12,7 @@ from collections import defaultdict
 from pdf_reader import extract_text_data_from_pdfs
 from extractor import extract_fields
 from extractors.total_amount import extract_bottom_most_currency, extract_bottom_most_minus_shipping, VENDOR_APPROACH_MAP
+from extractors.quantity import QUANTITY_APPROACH_MAP
 
 
 class InvoiceTestFramework:
@@ -46,7 +47,8 @@ class InvoiceTestFramework:
                     'discount_due_date': row['discount_due_date'],
                     'total_amount': row['total_amount'],
                     'shipping_cost': row['shipping_cost'],
-                    'grand_total': row['grand_total']
+                    'grand_total': row['grand_total'],
+                    'qty': row.get('qty', '')  # Optional field for quantity
                 }
         
         print(f"Loaded {len(self.test_expectations)} test expectations")
@@ -71,22 +73,29 @@ class InvoiceTestFramework:
             if not extracted_rows:
                 return {"error": "No data extracted"}
 
-            # Step 3: Also get enhanced total_amount data for testing
+            # Step 3: Also get enhanced total_amount data and quantity metadata for testing
             enhanced_total_data = None
+            quantity_metadata = None
             try:
                 from extractors.total_amount import extract_total_amount
+                from extractors.quantity import extract_quantity
                 words = documents[0]["words"]
                 vendor_name = extracted_rows[0][0]  # vendor_name from row
                 enhanced_total_data = extract_total_amount(words, vendor_name)
+
+                # Get quantity metadata
+                qty_result = extract_quantity(words, vendor_name)
+                if isinstance(qty_result, tuple):
+                    _, quantity_metadata = qty_result
             except Exception as e:
-                print(f"[TEST] Failed to extract enhanced total data: {e}")
+                print(f"[TEST] Failed to extract enhanced data: {e}")
 
             # Return the exact row data that would go to the invoice table
             # Format: [vendor_name, invoice_number, po_number, invoice_date,
             #         discount_terms, discount_due_date, total_amount, shipping_cost,
-            #         QC_subtotal, QC_disc_pct, QC_disc_amount, QC_shipping, QC_used_flag]
+            #         QC_subtotal, QC_disc_pct, QC_disc_amount, QC_shipping, QC_used_flag, qty]
             row = extracted_rows[0]  # First row (should only be one per PDF)
-            
+
             result = {
                 "vendor_name": row[0],
                 "invoice_number": row[1],
@@ -96,13 +105,18 @@ class InvoiceTestFramework:
                 "discount_due_date": row[5],
                 "total_amount": row[6],
                 "shipping_cost": row[7],
-                "grand_total": row[6]  # For testing, grand_total should match total_amount initially
+                "grand_total": row[6],  # For testing, grand_total should match total_amount initially
+                "qty": row[13] if len(row) > 13 else ""  # Quantity field
                 # QC fields (rows[8-12]) are not tested as they're user-entered
             }
 
             # Add enhanced total_amount data for testing
             if enhanced_total_data and isinstance(enhanced_total_data, dict):
                 result["_enhanced_total"] = enhanced_total_data
+
+            # Add quantity metadata for testing
+            if quantity_metadata and isinstance(quantity_metadata, dict):
+                result["_quantity_metadata"] = quantity_metadata
 
             return result
             
@@ -117,9 +131,9 @@ class InvoiceTestFramework:
             "field_results": {}
         }
         
-        all_fields = ['vendor_name', 'invoice_number', 'po_number', 
+        all_fields = ['vendor_name', 'invoice_number', 'po_number',
                      'invoice_date', 'discount_terms', 'discount_due_date',
-                     'total_amount', 'shipping_cost', 'grand_total']
+                     'total_amount', 'shipping_cost', 'grand_total', 'qty']
         
         # Use specific fields if provided, otherwise test all fields
         fields_to_check = fields_to_test if fields_to_test else all_fields
@@ -371,7 +385,7 @@ class InvoiceTestFramework:
         
         return results
     
-    def test_single_extractor_with_index(self, extractor_field, range_input="", vendor_filter=None, silent=False):
+    def test_single_extractor_with_index(self, extractor_field, range_input="", vendor_filter=None, silent=False, skip_negatives=False):
         """Test a single extractor across selected files using index-based selection."""
         if not self.load_test_expectations():
             return
@@ -379,14 +393,15 @@ class InvoiceTestFramework:
         # Define extractor field mapping
         extractor_fields = {
             'vendor_name': 'vendor_name',
-            'invoice_number': 'invoice_number', 
+            'invoice_number': 'invoice_number',
             'po_number': 'po_number',
             'invoice_date': 'invoice_date',
             'discount_terms': 'discount_terms',
             'discount_due_date': 'discount_due_date',
             'total_amount': 'total_amount',
             'shipping_cost': 'shipping_cost',
-            'grand_total': 'grand_total'
+            'grand_total': 'grand_total',
+            'qty': 'qty'
         }
         
         if extractor_field not in extractor_fields:
@@ -430,7 +445,7 @@ class InvoiceTestFramework:
                 vendor_name = actual.get('vendor_name', 'Unknown')
                 error_msg = actual.get('error', 'Unknown error')[:50]  # Truncate long errors
 
-                if extractor_field == 'total_amount':
+                if extractor_field in ['total_amount', 'qty']:
                     print(f"[{original_index:>3}] {vendor_name[:25]:<25} {'ERROR':<20} {'':<15} {'':<15} [X] ERROR: {error_msg}")
                 else:
                     # For other extractors, show in the standard format
@@ -446,7 +461,7 @@ class InvoiceTestFramework:
                     "error": actual["error"]
                 }
             else:
-                # Special handling for total_amount extractor: show vendor, approach, expected, actual, status
+                # Special handling for total_amount and qty extractors: show vendor, approach, expected, actual, status
                 if extractor_field == 'total_amount':
                     expected_amount = expected.get('total_amount', '')
                     actual_amount = actual.get('total_amount', '')
@@ -484,6 +499,69 @@ class InvoiceTestFramework:
                         "status": status,
                         "expected_amount": expected_amount,
                         "actual_amount": actual_amount,
+                        "is_match": is_pass
+                    }
+                elif extractor_field == 'qty':
+                    expected_qty = expected.get('qty', '')
+                    actual_qty = actual.get('qty', '')
+                    vendor_name = actual.get('vendor_name', 'Unknown')
+
+                    # Skip rows with negative expected values if requested
+                    if skip_negatives:
+                        try:
+                            if expected_qty and float(expected_qty) < 0:
+                                results["skipped"] += 1
+                                test_result = {
+                                    "file": file_key,
+                                    "original_index": original_index,
+                                    "vendor_name": vendor_name,
+                                    "approach_used": "N/A",
+                                    "status": "skipped",
+                                    "expected_qty": expected_qty,
+                                    "actual_qty": actual_qty,
+                                    "is_match": False
+                                }
+
+                                # Display skipped row
+                                print(f"[{original_index:>3}] {vendor_name[:25]:<25} {'N/A':<25} {expected_qty:<15} {actual_qty:<15} SKIP")
+                                results["test_results"].append(test_result)
+                                continue
+                        except (ValueError, TypeError):
+                            pass  # If conversion fails, proceed with normal testing
+
+                    # Determine which approach was used by the extractor
+                    approach_used = self._determine_quantity_approach(vendor_name, actual)
+
+                    # Check if result matches expected
+                    is_pass = (str(actual_qty) == str(expected_qty))
+                    status = "pass" if is_pass else "fail"
+
+                    if is_pass:
+                        results["passed"] += 1
+                    else:
+                        results["failed"] += 1
+
+                    # Status with X only for failures to make them stand out
+                    status_map = {
+                        'pass': 'PASS',
+                        'fail': '[X] FAIL',
+                        'skipped': 'SKIP',
+                        'error': '[X] ERROR'
+                    }
+                    visual_status = status_map.get(status, status)
+
+                    # Display with proper column alignment (truncate approach if needed)
+                    approach_display = approach_used[:24] if len(approach_used) > 24 else approach_used
+                    print(f"[{original_index:>3}] {vendor_name[:25]:<25} {approach_display:<25} {expected_qty:<15} {actual_qty:<15} {visual_status}")
+
+                    test_result = {
+                        "file": file_key,
+                        "original_index": original_index,
+                        "vendor_name": vendor_name,
+                        "approach_used": approach_used,
+                        "status": status,
+                        "expected_qty": expected_qty,
+                        "actual_qty": actual_qty,
                         "is_match": is_pass
                     }
                 else:
@@ -716,7 +794,7 @@ class InvoiceTestFramework:
     def _determine_approach_used(self, vendor_name, actual_amount, expected_amount, vendor_folder, filename):
         """Determine which approach was used by the total_amount extractor."""
         # Use the imported VENDOR_APPROACH_MAP from total_amount extractor
-        
+
         if vendor_name in VENDOR_APPROACH_MAP:
             return VENDOR_APPROACH_MAP[vendor_name]
         else:
@@ -726,6 +804,28 @@ class InvoiceTestFramework:
                 return "fallback_success"
             else:
                 return "fallback_fail"
+
+    def _determine_quantity_approach(self, vendor_name, actual_result):
+        """Determine which approach was used by the quantity extractor using actual metadata."""
+        # Try to get metadata from the actual extraction result
+        qty_metadata = actual_result.get('_quantity_metadata')
+
+        if qty_metadata and isinstance(qty_metadata, dict):
+            approach_used = qty_metadata.get('approach_used')
+            is_fallback = qty_metadata.get('is_fallback', False)
+
+            if approach_used:
+                # Format: "approach_name" or "approach_name [fallback]"
+                if is_fallback:
+                    return f"{approach_used} [fallback]"
+                else:
+                    return f"{approach_used} [primary]"
+
+        # Fallback: use the configured approach from CSV (old behavior)
+        if vendor_name in QUANTITY_APPROACH_MAP:
+            return f"{QUANTITY_APPROACH_MAP[vendor_name]} [configured]"
+        else:
+            return "column_sum [default]"
 
     def _calculate_adjusted_total_amount(self, actual_data):
         """
@@ -911,7 +1011,7 @@ class InvoiceTestFramework:
                 continue
                 
             # Extract vendor name from the test results
-            if extractor_field == 'total_amount':
+            if extractor_field in ['total_amount', 'qty']:
                 vendor = test.get('vendor_name', 'Unknown')
             else:
                 # For other extractors, need to get vendor from file path or extracted data
@@ -987,21 +1087,28 @@ class InvoiceTestFramework:
         print(f"\n{'='*80}")
         print(f"{extractor_field.upper()} EXTRACTOR TEST RESULTS")
         print(f"{'='*80}")
-        
-        # Summary stats with breakdown for total_amount
-        if extractor_field == 'total_amount':
-            # Count different approach matches
-            gross_matches = sum(1 for test in results['test_results'] if test.get('gross_match', False))
-            calculated_matches = sum(1 for test in results['test_results'] if test.get('calculated_match', False))
-            bottom_most_matches = sum(1 for test in results['test_results'] if test.get('bottom_most_match', False))
-            bottom_minus_ship_matches = sum(1 for test in results['test_results'] if test.get('bottom_minus_shipping_match', False))
-            
-            print(f"Total Tests: {results['total_tests']} | ", end="")
-            print(f"Passed: {results['passed']} | ", end="")
-            print(f"Failed: {results['failed']} | ", end="")
-            print(f"Errors: {results['errors']}")
-            print(f"Approach Performance: Gross={gross_matches}, Calculated={calculated_matches}, Bottom-most={bottom_most_matches}, Bottom-Ship={bottom_minus_ship_matches}")
-        else:
+
+        # Summary stats with breakdown for total_amount and qty
+        if extractor_field in ['total_amount', 'qty']:
+            # For total_amount, show approach performance
+            if extractor_field == 'total_amount':
+                # Count different approach matches
+                gross_matches = sum(1 for test in results['test_results'] if test.get('gross_match', False))
+                calculated_matches = sum(1 for test in results['test_results'] if test.get('calculated_match', False))
+                bottom_most_matches = sum(1 for test in results['test_results'] if test.get('bottom_most_match', False))
+                bottom_minus_ship_matches = sum(1 for test in results['test_results'] if test.get('bottom_minus_shipping_match', False))
+
+                print(f"Total Tests: {results['total_tests']} | ", end="")
+                print(f"Passed: {results['passed']} | ", end="")
+                print(f"Failed: {results['failed']} | ", end="")
+                print(f"Errors: {results['errors']}")
+                print(f"Approach Performance: Gross={gross_matches}, Calculated={calculated_matches}, Bottom-most={bottom_most_matches}, Bottom-Ship={bottom_minus_ship_matches}")
+            else:  # qty
+                print(f"Total Tests: {results['total_tests']} | ", end="")
+                print(f"Passed: {results['passed']} | ", end="")
+                print(f"Failed: {results['failed']} | ", end="")
+                print(f"Errors: {results['errors']}")
+        else:  # other extractors
             print(f"Total Tests: {results['total_tests']} | ", end="")
             print(f"Passed: {results['passed']} | ", end="")
             print(f"Failed: {results['failed']} | ", end="")
@@ -1015,10 +1122,10 @@ class InvoiceTestFramework:
             print(f"Accuracy: {accuracy:.1f}% ({results['passed']}/{testable} testable files)")
         
         # Side-by-side results display
-        if extractor_field == 'total_amount':
-            print(f"\n{'='*120}")
-            print(f"{'Idx':>5} {'Vendor':<25} {'Approach':<20} {'Expected':<15} {'Actual':<15} {'Status'}")
-            print('─' * 120)
+        if extractor_field in ['total_amount', 'qty']:
+            print(f"\n{'='*125}")
+            print(f"{'Idx':>5} {'Vendor':<25} {'Approach':<25} {'Expected':<15} {'Actual':<15} {'Status'}")
+            print('-' * 125)
 
             for test in results['test_results']:
                 if test['status'] == 'error':
@@ -1030,8 +1137,16 @@ class InvoiceTestFramework:
                     vendor = vendor[:22] + "..."
 
                 approach = test.get('approach_used', 'unknown')
-                expected = test.get('expected_amount', '')
-                actual = test.get('actual_amount', '')
+                # Truncate approach if too long
+                approach_display = approach[:24] if len(approach) > 24 else approach
+
+                if extractor_field == 'total_amount':
+                    expected = test.get('expected_amount', '')
+                    actual = test.get('actual_amount', '')
+                else:  # qty
+                    expected = test.get('expected_qty', '')
+                    actual = test.get('actual_qty', '')
+
                 status = test.get('status', '')
 
                 # Status with X only for failures to make them stand out
@@ -1043,7 +1158,7 @@ class InvoiceTestFramework:
                 }
                 visual_status = status_map.get(status, status)
 
-                print(f"[{idx:>3}] {vendor:<25} {approach:<20} {expected:<15} {actual:<15} {visual_status}")
+                print(f"[{idx:>3}] {vendor:<25} {approach_display:<25} {expected:<15} {actual:<15} {visual_status}")
         else:
             print(f"\n{'='*120}")
             print(f"{'Idx':>5} {'File':<50} {'Expected':<20} {'Actual':<20} {'Status'}")

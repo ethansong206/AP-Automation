@@ -40,10 +40,41 @@ def find_label_positions(normalized_words, label_type="invoice", custom_label=No
         return "".join(c for c in text.lower() if c not in string.punctuation).strip()
 
     if custom_label:
-        custom_label_norm = normalize_label(custom_label)
-        for w in normalized_words:
-            if normalize_label(w["orig"]) == custom_label_norm:
-                label_positions.append((w["x0"], w["x1"], w["top"], w["bottom"]))
+        # Split custom label into words for multi-word matching
+        custom_label_words = [normalize_label(word) for word in custom_label.split()]
+
+        if len(custom_label_words) == 1:
+            # Single-word label - original behavior
+            custom_label_norm = custom_label_words[0]
+            for w in normalized_words:
+                if normalize_label(w["orig"]) == custom_label_norm:
+                    label_positions.append((w["x0"], w["x1"], w["top"], w["bottom"]))
+        else:
+            # Multi-word label - find consecutive words on same line
+            pattern_length = len(custom_label_words)
+            for i in range(len(normalized_words) - pattern_length + 1):
+                # Check if consecutive words match the pattern
+                matches = True
+                matched_words = []
+
+                for j, pattern_word in enumerate(custom_label_words):
+                    word = normalized_words[i + j]
+                    if normalize_label(word["orig"]) != pattern_word:
+                        matches = False
+                        break
+                    matched_words.append(word)
+
+                if matches:
+                    # Verify all words are on the same line (within 5px Y tolerance)
+                    first_y = matched_words[0]["top"]
+                    if all(abs(w["top"] - first_y) < 5 for w in matched_words):
+                        # Found matching pattern - return combined x-range
+                        combined_x0 = matched_words[0]["x0"]
+                        combined_x1 = matched_words[-1]["x1"]
+                        combined_y = first_y
+                        combined_bottom = matched_words[0].get("bottom", first_y)
+                        label_positions.append((combined_x0, combined_x1, combined_y, combined_bottom))
+
         return label_positions
 
     # Two-word labels (e.g., "invoice #", "po number")

@@ -1,0 +1,68 @@
+vendor_name,approach
+Accent & Cannon,column_sum
+Altra,label_inline
+Angler's Book Supply,label_right
+Antigravity Gear LLC,column_sum
+Arcade Belts Inc,label_inline
+Arc'teryx,column_sum
+Artilect,label_right:total quantity
+Backpacker's Pantry,column_sum:shipped
+Badfish,column_sum
+"BIG Adventures, LLC",column_sum
+Big Agnes Inc,column_sum
+BioLite,column_sum
+Birkenstock USA,label_below
+Black Diamond Equipment,column_sum
+Carve Designs,column_sum
+Chaos Headwear,label_right:quantity
+Chubbies Inc,label_below
+Chums,label_right
+Columbia River,label_right
+Columbia Sportswear,label_right
+Cotopaxi,label_right:total quantity
+Danner,column_sum:qty
+Dapper Ink LLC,column_sum:items
+Darn Tough,label_right
+Fox River Mills Inc,label_right:total quantity
+Gentle Fawn,label_inline
+Goorin Bros,label_left
+Gregory Mountain Products,label_right
+GSI Sports Products Inc,column_sum:ship
+Hoka,label_right:qty total
+Hydro Flask,label_right
+johnnie-O,label_right
+KATIN,label_right
+Keen Inc,label_right
+Kingfisher Maps Inc,column_sum:qty
+Kuhl,label_right:mdse total
+Lemon,label_right:total quantity
+Marine Layer,label_below
+Merrell,label_right
+Mountain Khakis,label_right:mdse total
+Olukai LLC,label_right
+O'Neill,label_right
+Oregon Freeze Dry,column_sum:qty
+Outdoor Research,label_right
+Prana Living LLC,label_right
+Rab,label_left
+Saxx Underwear,label_right:sum of quantity
+Secrid,label_left
+Sherpa,label_right:total quantity
+Loksak,column_sum:qty
+Malone,column_sum:ship
+Patagonia,label_inline
+Rajeff Sports LLC,column_sum:qty
+Roark,label_right:mdse total
+"Sendero Provisions Co., LLC",column_sum:qty
+Simms,column_sum:shpd.
+Smartwool,label_inline
+Smith Sport Optics,label_inline
+Sunday Afternoons,column_sum:shipd
+Temple Fork Outfitters,column_sum:quantity
+The North Face,label_inline
+Toad & Co,label_inline
+TOPO ATHLETIC,column_sum:shipped
+"Victorinox Swiss Army, Inc.",label_right
+Vuori,label_below
+Werner Paddles,column_sum:invoiced
+Yeti Coolers,column_sum:qty

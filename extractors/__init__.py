@@ -5,3 +5,4 @@ from .vendor_name import extract_vendor_name
 from .discount_terms import extract_discount_terms
 from .po_number import extract_po_number
 from .shipping_cost import extract_shipping_cost
+from .quantity import extract_quantity

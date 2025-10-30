@@ -63,8 +63,8 @@ def main():
             
         elif choice == "3":
             print("\nAvailable extractors:")
-            extractors = ['vendor_name', 'invoice_number', 'po_number', 'invoice_date', 
-                         'discount_terms', 'discount_due_date', 'total_amount', 'shipping_cost']
+            extractors = ['vendor_name', 'invoice_number', 'po_number', 'invoice_date',
+                         'discount_terms', 'discount_due_date', 'total_amount', 'shipping_cost', 'qty']
             for i, ext in enumerate(extractors, 1):
                 print(f"  {i}. {ext}")
                 
@@ -96,8 +96,17 @@ def main():
             else:
                 range_input = ""
                 vendor_filter = None
-            
-            results = tester.test_single_extractor_with_index(extractor_choice, range_input, vendor_filter)
+
+            # Ask about skipping negative values (only for qty extractor)
+            skip_negatives = False
+            if extractor_choice == 'qty':
+                print("\nInclude negative expected values?")
+                print("1. Yes")
+                print("2. No")
+                neg_choice = input("Enter choice (1-2): ").strip()
+                skip_negatives = (neg_choice == "2")
+
+            results = tester.test_single_extractor_with_index(extractor_choice, range_input, vendor_filter, skip_negatives=skip_negatives)
             
             if results:
                 print(f"\nExtractor test complete!")

@@ -28,7 +28,7 @@ SPECIAL_VENDOR_LABELS = {
 def _load_vendor_approach_map():
     """Load vendor approach mapping from CSV file."""
     vendor_map = {}
-    csv_path = os.path.join(os.path.dirname(__file__), '..', 'vendor_approach_map.csv')
+    csv_path = os.path.join(os.path.dirname(__file__), '..', 'total_amount_approach_map.csv')
 
     try:
         with open(csv_path, 'r', encoding='utf-8') as f:

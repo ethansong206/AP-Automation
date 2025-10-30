@@ -5,7 +5,8 @@ from extractors import (
     extract_vendor_name,
     extract_discount_terms,
     extract_po_number,
-    extract_shipping_cost
+    extract_shipping_cost,
+    extract_quantity
 )
 from extractors.utils import calculate_discount_due_date, calculate_discounted_total, check_negative_total
 from logging_config import get_logger, set_performance_mode, restore_normal_mode
@@ -46,6 +47,15 @@ def extract_fields(documents):
         # Extract enhanced total amount data
         total_amount_data = extract_total_amount(words, vendor_name)
 
+        # Extract quantity with metadata
+        quantity_result = extract_quantity(words, vendor_name)
+        if isinstance(quantity_result, tuple):
+            quantity_value, quantity_metadata = quantity_result
+        else:
+            # Fallback for backward compatibility (shouldn't happen with new code)
+            quantity_value = quantity_result
+            quantity_metadata = {}
+
         row = {
             "Vendor Name": vendor_name,
             "Invoice Number": extract_invoice_number(words, vendor_name),
@@ -55,7 +65,9 @@ def extract_fields(documents):
             "Discount Due Date": "",
             "Shipping Cost": extract_shipping_cost(words, vendor_name),
             "Total Amount": total_amount_data.get('total_amount', '') if isinstance(total_amount_data, dict) else (str(total_amount_data) if total_amount_data is not None else ''),
-            "_total_amount_enhanced": total_amount_data  # Store enhanced data for QC
+            "Quantity": quantity_value,
+            "_total_amount_enhanced": total_amount_data,  # Store enhanced data for QC
+            "_quantity_metadata": quantity_metadata  # Store quantity extraction metadata
         }
 
         if row["Discount Terms"] and row["Invoice Date"]:
@@ -88,7 +100,8 @@ def extract_fields(documents):
             row["Discount Terms"], row["Discount Due Date"],
             row["Total Amount"], row["Shipping Cost"],
             "", "", "", "",  # QC values (Subtotal, Disc%, Disc$, Shipping)
-            "false"  # QC used flag
+            "false",  # QC used flag
+            row["Quantity"]
         ])
 
     # Restore normal logging
