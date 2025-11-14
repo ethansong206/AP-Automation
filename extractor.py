@@ -99,9 +99,10 @@ def extract_fields(documents):
             row["Vendor Name"], row["Invoice Number"], row["PO Number"], row["Invoice Date"],
             row["Discount Terms"], row["Discount Due Date"],
             row["Total Amount"], row["Shipping Cost"],
-            "", "", "", "",  # QC values (Subtotal, Disc%, Disc$, Shipping)
-            "false",  # QC used flag
-            row["Quantity"]
+            row["Quantity"],  # Quantity at position 8 (9th element)
+            "", "", "", "",   # QC values (Subtotal, Disc%, Disc$, Shipping) now at 9-12
+            "false",          # QC used flag now at position 13
+            "", ""            # QC save_state and original_subtotal at 14-15 (empty for new extractions)
         ])
 
     # Restore normal logging

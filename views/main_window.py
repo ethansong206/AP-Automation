@@ -266,7 +266,7 @@ class InvoiceApp(QWidget):
         file_paths, values_list, flag_states = [], [], []
         for r in range(self.table.rowCount()):
             file_paths.append(self.table.get_file_path_for_row(r))
-            row_values = self.table.get_row_values(r)  # Get all 13 values including QC
+            row_values = self.table.get_row_values(r)  # Get all 17 values including QC
             logger.debug(f"QC DEBUG - Loading row {r} values for dialog: {row_values}")
             values_list.append(row_values)
             flag_states.append(self.table.is_row_flagged(r))
@@ -841,7 +841,7 @@ class InvoiceApp(QWidget):
             return
         rows = []
         for row in range(self.table.rowCount()):
-            # Get all 13 values including QC data (not just the first 8 visible columns)
+            # Get all 17 values including QC data (9 main + 8 QC values)
             values = self.table.get_row_values(row)  
             rows.append({
                 "values": values,
@@ -901,7 +901,17 @@ class InvoiceApp(QWidget):
         self.table.clear_tracking_data() if hasattr(self.table, "clear_tracking_data") else None
 
         for row in rows:
-            values = row.get("values", [""] * 13)  # Default to 13 values including QC data
+            values = row.get("values", [""] * 17)  # Default to 17 values (9 main + 8 QC)
+
+            # Migration: Handle old 16-value format (before quantity column was added)
+            if len(values) == 16:
+                # Old format: [vendor, invoice, po, date, terms, due, total, shipping,
+                #              qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping, qc_used,
+                #              qc_save_state, qc_original_subtotal, qc_inventory]
+                # New format: Insert quantity="" at position 8
+                values = values[:8] + [""] + values[8:]
+                logger.debug("Migrated old session format (16 values) to new format (17 values)")
+
             file_path = row.get("file_path", "")
             flagged = row.get("flagged", False)
             self.table.add_row(values, file_path)

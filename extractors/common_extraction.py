@@ -91,6 +91,7 @@ def find_label_positions(normalized_words, label_type="invoice", custom_label=No
                 # Skip if "original" is directly before "invoice"
                 if idx > 0 and normalized_words[idx - 1]["text"] == "original":
                     continue
+
                 # Skip if "date" or "date:" is directly after "invoice" and "invoice" is not "invoice:"
                 if (
                     idx < len(normalized_words) - 1 and

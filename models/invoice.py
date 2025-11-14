@@ -3,15 +3,16 @@
 class Invoice:
     """Data model for an invoice."""
     
-    def __init__(self, 
-                 vendor_name="", 
-                 invoice_number="", 
-                 po_number="", 
-                 invoice_date="", 
+    def __init__(self,
+                 vendor_name="",
+                 invoice_number="",
+                 po_number="",
+                 invoice_date="",
                  discount_terms="",
                  due_date="",
                  shipping_cost="",
                  total_amount="",
+                 quantity="",
                  source_file=""):
         """Initialize with invoice data."""
         self.vendor_name = vendor_name
@@ -22,6 +23,7 @@ class Invoice:
         self.due_date = due_date
         self.shipping_cost = shipping_cost
         self.total_amount = total_amount
+        self.quantity = quantity
         self.source_file = source_file
         self.is_no_ocr = self._check_is_no_ocr()
         
@@ -44,16 +46,17 @@ class Invoice:
             self.discount_terms,
             self.due_date,
             self.shipping_cost,
-            self.total_amount
+            self.total_amount,
+            self.quantity
         ]
         
     @classmethod
     def from_extracted_data(cls, data, file_path):
         """Create an Invoice from extracted data and file path."""
-        # Ensure data has at least 8 elements
-        while len(data) < 8:
+        # Ensure data has at least 14 elements (8 core + 4 QC + 1 flag + 1 quantity)
+        while len(data) < 14:
             data.append("")
-            
+
         return cls(
             vendor_name=data[0],
             invoice_number=data[1],
@@ -63,5 +66,6 @@ class Invoice:
             due_date=data[5],
             shipping_cost=data[6],
             total_amount=data[7],
+            quantity=data[8],
             source_file=file_path
         )

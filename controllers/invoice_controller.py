@@ -106,6 +106,7 @@ class InvoiceController:
                 due_date = ' '.join((vals[5] or '').strip().split())
                 total_amount = ' '.join((vals[6] or '').strip().split())
                 shipping_cost = ' '.join((vals[7] or '').strip().split())
+                quantity = ' '.join((vals[8] or '').strip().split())
             else:
                 # Fallback to view-access methods
                 raw_vendor_name = table.get_cell_text(src_row, 1)
@@ -116,6 +117,7 @@ class InvoiceController:
                 due_date = ' '.join(table.get_cell_text(src_row, 6).strip().split())
                 total_amount = ' '.join(table.get_cell_text(src_row, 7).strip().split())
                 shipping_cost = ' '.join(table.get_cell_text(src_row, 8).strip().split())
+                quantity = ' '.join(table.get_cell_text(src_row, 9).strip().split())
 
             vendor_name = ' '.join((raw_vendor_name or '').strip().split())
             
@@ -140,6 +142,7 @@ class InvoiceController:
                 "due_date": self.format_date(due_date),
                 "total_amount": total_amount,
                 "shipping_cost": shipping_cost,
+                "quantity": quantity,
                 "vendor_name": vendor_name,
             }
             

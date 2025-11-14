@@ -493,12 +493,12 @@ class ManualEntryDialog(QDialog):
         self.pdf_paths = list(pdf_paths or [])
         # Initialize Quick Calculator Manager
         self.qc_manager = QuickCalculatorManager(self)
-        
-        self.values_list = values_list or [[""] * 13 for _ in self.pdf_paths]
+
+        self.values_list = values_list or [[""] * 17 for _ in self.pdf_paths]
         # Ensure existing data is expanded to new format
         for values in self.values_list:
-            if len(values) < 13:
-                values.extend([""] * (13 - len(values)))
+            if len(values) < 17:
+                values.extend([""] * (17 - len(values)))
         self.flag_states = list(flag_states or [False] * len(self.pdf_paths))
         self.saved_flag_states = list(self.flag_states)
         self.saved_values_list = deepcopy(self.values_list)
@@ -644,6 +644,11 @@ class ManualEntryDialog(QDialog):
         self.due_calc_btn.clicked.connect(self._on_calculate_due_date)
         due_row.addWidget(self.due_calc_btn)
         form_layout.addRow(QLabel("Due Date:"), due_row)
+
+        # Quantity field
+        self.fields["Quantity"] = QLineEdit()
+        self.fields["Quantity"].setPlaceholderText("Enter quantity")
+        form_layout.addRow(QLabel("Quantity:"), self.fields["Quantity"])
 
         # Currency fields removed - now handled by QC inline editing
 
@@ -1035,7 +1040,7 @@ class ManualEntryDialog(QDialog):
         self._loading = True
         try:
             # Ensure all values are strings, not None
-            vals = [(str(v) if v is not None else "") for v in values] + [""] * (13 - len(values))
+            vals = [(str(v) if v is not None else "") for v in values] + [""] * (17 - len(values))
 
             self.vendor_combo.setCurrentText(vals[0])
             self.fields["Invoice Number"].setText(vals[1])
@@ -1058,6 +1063,9 @@ class ManualEntryDialog(QDialog):
                 d2 = self._parse_mmddyy(due)
                 if d2.isValid():
                     self.fields["Due Date"].setDate(d2)
+
+            # Quantity field
+            self.fields["Quantity"].setText(vals[8] if len(vals) > 8 else "")
 
             # Currency fields now handled by QC manager
             # Store original values for QC auto-population
@@ -1645,12 +1653,15 @@ class ManualEntryDialog(QDialog):
                 txt = w.text().strip()
                 value = self._money_plain(txt) if label in getattr(self, "_currency_labels", set()) else txt
             data.append(value)
-        
+
         # Get financial data from QC manager (Total Amount, Shipping Cost at indices 6,7)
         qc_financial_data = self.qc_manager.get_financial_data_for_form()
         data.extend(qc_financial_data)  # Adds Total Amount, Shipping Cost
-        
-        # Add QC values (indices 8-11) and flag (index 12) 
+
+        # Add Quantity at position 8
+        data.append(self.fields["Quantity"].text().strip())
+
+        # Add QC values (indices 9-16: subtotal, disc%, disc$, shipping, used, save_state, original_subtotal, inventory)
         qc_data = self.qc_manager.get_data_for_persistence()
         data.extend(qc_data)
         

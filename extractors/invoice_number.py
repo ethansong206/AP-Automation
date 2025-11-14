@@ -138,7 +138,17 @@ def extract_invoice_number(words, vendor_name):
         
         # If no Invoice # labels found or no results, return empty to avoid date confusion
         return ""
-    
+
+    # Patagonia-specific logic: look for text starting with "#" followed by numbers
+    if vendor_name == "Patagonia":
+        # Use original words since # gets stripped in normalization
+        for word in words:
+            text = word["text"].strip()
+            # Look for pattern: # followed by digits (e.g., "#49514863")
+            if re.match(r'^#\d+$', text):
+                # Found it! Return the invoice number (strip the # symbol)
+                return text.lstrip('#')
+
     # Hydro Flask-specific logic: look for "INVOICE NO" pattern and search below to avoid phone numbers
     if vendor_name == "Hydro Flask":
         hydro_flask_positions = []
@@ -648,6 +658,18 @@ def extract_invoice_number(words, vendor_name):
 
 def is_potential_invoice_number(text, vendor_name=None):
     logger.debug(f"Testing invoice candidate: '{text}' for vendor '{vendor_name}'")
+
+    # Global exclusion: reject date patterns (e.g., 10/9/25, 10/9/2025, 2025-10-09)
+    date_patterns = [
+        r"^\d{1,2}/\d{1,2}/\d{2,4}$",  # MM/DD/YY or MM/DD/YYYY
+        r"^\d{4}-\d{1,2}-\d{1,2}$",    # YYYY-MM-DD
+        r"^\d{1,2}-\d{1,2}-\d{2,4}$",  # MM-DD-YY or MM-DD-YYYY
+    ]
+    for pattern in date_patterns:
+        if re.match(pattern, text.strip()):
+            logger.debug(f"Rejected date pattern: {text}")
+            return False
+
     # Hydro Flask: accept digit sequences but exclude phone patterns
     if vendor_name == "Hydro Flask":
         # Exclude phone number patterns

@@ -105,9 +105,9 @@ class InvoiceTestFramework:
                 "discount_due_date": row[5],
                 "total_amount": row[6],
                 "shipping_cost": row[7],
+                "qty": row[8] if len(row) > 8 else "",  # Quantity field at position 8
                 "grand_total": row[6],  # For testing, grand_total should match total_amount initially
-                "qty": row[13] if len(row) > 13 else ""  # Quantity field
-                # QC fields (rows[8-12]) are not tested as they're user-entered
+                # QC fields (rows[9-13]) are not tested as they're user-entered
             }
 
             # Add enhanced total_amount data for testing

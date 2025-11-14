@@ -26,17 +26,18 @@ C_TERMS = 5
 C_DUE = 6
 C_TOTAL = 7
 C_SHIPPING = 8
-C_GRAND_TOTAL = 9
-C_ACTIONS = 10
+C_QUANTITY = 9
+C_GRAND_TOTAL = 10
+C_ACTIONS = 11
 
 HEADERS = [
     "", "Vendor Name", "Invoice Number", "PO Number", "Invoice Date",
     "Discount Terms", "Due Date", "Total", "Shipping",
-    "Grand Total", "Actions",
+    "Quantity", "Grand Total", "Actions",
 ]
 
 # Body columns used for export/save (no select/actions, no grand total)
-BODY_COLS = range(1, 9)
+BODY_COLS = range(1, 10)
 
 
 # =============================================================
@@ -44,16 +45,16 @@ BODY_COLS = range(1, 9)
 # =============================================================
 class InvoiceRow:
     __slots__ = ("selected", "flag", "vendor", "invoice", "po", "inv_date", "terms", "due",
-                 "total", "shipping", "grand_total", "file_path", "edited_cells",
+                 "total", "shipping", "quantity", "grand_total", "file_path", "edited_cells",
                  "qc_subtotal", "qc_disc_pct", "qc_disc_amt", "qc_shipping", "qc_used",
                  "qc_save_state", "qc_original_subtotal", "qc_inventory")
 
     def __init__(self, values: List[str], file_path: str):
-        # values: [vendor, invoice, po, inv_date, terms, due, total, shipping, qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping, qc_used, qc_save_state, qc_original_subtotal, qc_inventory]
-        extended_values = (values + [""] * 16)[:16]  # Ensure we have all 16 values
+        # values: [vendor, invoice, po, inv_date, terms, due, total, shipping, quantity, qc_subtotal, qc_disc_pct, qc_disc_amt, qc_shipping, qc_used, qc_save_state, qc_original_subtotal, qc_inventory]
+        extended_values = (values + [""] * 17)[:17]  # Ensure we have all 17 values
         (self.vendor, self.invoice, self.po, self.inv_date, self.terms,
-         self.due, self.total, self.shipping, self.qc_subtotal, self.qc_disc_pct,
-         self.qc_disc_amt, self.qc_shipping, self.qc_used, self.qc_save_state, 
+         self.due, self.total, self.shipping, self.quantity, self.qc_subtotal, self.qc_disc_pct,
+         self.qc_disc_amt, self.qc_shipping, self.qc_used, self.qc_save_state,
          self.qc_original_subtotal, self.qc_inventory) = extended_values
         self.file_path = file_path or ""
         self.selected = False         # NEW: user 'Select' checkbox state
@@ -86,14 +87,14 @@ class InvoiceTableModel(QAbstractTableModel):
 
     # --- Data access methods ---
     def row_values_for_session(self, row: int) -> List[str]:
-        """Return all 16 values for a row (8 main + 8 QC values) for session persistence."""
+        """Return all 17 values for a row (9 main + 8 QC values) for session persistence."""
         if row < 0 or row >= len(self._rows):
-            return [""] * 16
+            return [""] * 17
 
         r = self._rows[row]
         return [
             r.vendor, r.invoice, r.po, r.inv_date, r.terms,
-            r.due, r.total, r.shipping, r.qc_subtotal, r.qc_disc_pct,
+            r.due, r.total, r.shipping, r.quantity, r.qc_subtotal, r.qc_disc_pct,
             r.qc_disc_amt, r.qc_shipping, r.qc_used, r.qc_save_state,
             r.qc_original_subtotal, r.qc_inventory
         ]
@@ -195,6 +196,8 @@ class InvoiceTableModel(QAbstractTableModel):
                 return row.total
             if c == C_SHIPPING:
                 return row.shipping
+            if c == C_QUANTITY:
+                return row.quantity
             if c == C_GRAND_TOTAL:
                 return row.grand_total
             if c == C_ACTIONS:
@@ -247,6 +250,8 @@ class InvoiceTableModel(QAbstractTableModel):
                 row.shipping = val
                 # Recalculate grand total when shipping changes
                 row._update_grand_total()
+            elif c == C_QUANTITY:
+                row.quantity = val
             elif c == C_GRAND_TOTAL:
                 # Grand total is calculated, not directly editable
                 return False
@@ -284,6 +289,7 @@ class InvoiceTableModel(QAbstractTableModel):
             C_DUE: r.due,
             C_TOTAL: r.total,
             C_SHIPPING: r.shipping,
+            C_QUANTITY: r.quantity,
             C_GRAND_TOTAL: r.grand_total,
         }.get(col, "")
 
@@ -335,9 +341,9 @@ class InvoiceTableModel(QAbstractTableModel):
         self._dup_groups.clear()
 
     def row_values(self, src_row: int) -> List[str]:
-        """Return core 16 values for a row (8 main + 8 QC values) - safe for export operations."""
+        """Return core 17 values for a row (9 main + 8 QC values) - safe for export operations."""
         if src_row < 0 or src_row >= len(self._rows):
-            return [""] * 16
+            return [""] * 17
 
         r = self._rows[src_row]
         # Ensure all values are strings and handle None safely
@@ -350,14 +356,15 @@ class InvoiceTableModel(QAbstractTableModel):
             str(r.due or ""),                 # 5
             str(r.total or ""),               # 6
             str(r.shipping or ""),            # 7
-            str(r.qc_subtotal or ""),         # 8
-            str(r.qc_disc_pct or ""),         # 9
-            str(r.qc_disc_amt or ""),         # 10
-            str(r.qc_shipping or ""),         # 11
-            str(r.qc_used or ""),             # 12
-            str(r.qc_save_state or ""),       # 13 - QC save state JSON
-            str(r.qc_original_subtotal or ""), # 14 - QC original subtotal
-            str(r.qc_inventory or "")         # 15 - QC inventory value
+            str(r.quantity or ""),            # 8 - Quantity
+            str(r.qc_subtotal or ""),         # 9
+            str(r.qc_disc_pct or ""),         # 10
+            str(r.qc_disc_amt or ""),         # 11
+            str(r.qc_shipping or ""),         # 12
+            str(r.qc_used or ""),             # 13
+            str(r.qc_save_state or ""),       # 14 - QC save state JSON
+            str(r.qc_original_subtotal or ""), # 15 - QC original subtotal
+            str(r.qc_inventory or "")         # 16 - QC inventory value
         ]
         return values
 
@@ -409,18 +416,20 @@ class InvoiceTableModel(QAbstractTableModel):
         abs_target = os.path.abspath(file_path or "")
         for i, r in enumerate(self._rows):
             if os.path.abspath(r.file_path or "") == abs_target:
-                # Update the first 8 visible columns
-                for c, val in zip(BODY_COLS, (row_values + [""] * 8)[:8]):
+                # Update the first 9 visible columns (vendor through quantity)
+                for c, val in zip(BODY_COLS, (row_values + [""] * 9)[:9]):
                     self.setData(self.index(i, c), val, Qt.EditRole)
 
                 # Update QC values directly on the row object (not visible in table)
-                extended_values = (row_values + [""] * 13)[:13]
-                r.qc_subtotal = extended_values[8] if len(extended_values) > 8 else ""
-                r.qc_disc_pct = extended_values[9] if len(extended_values) > 9 else ""
-                r.qc_disc_amt = extended_values[10] if len(extended_values) > 10 else ""
-                r.qc_shipping = extended_values[11] if len(extended_values) > 11 else ""
-                r.qc_used = extended_values[12] if len(extended_values) > 12 else "false"
-
+                extended_values = (row_values + [""] * 17)[:17]
+                r.qc_subtotal = extended_values[9] if len(extended_values) > 9 else ""
+                r.qc_disc_pct = extended_values[10] if len(extended_values) > 10 else ""
+                r.qc_disc_amt = extended_values[11] if len(extended_values) > 11 else ""
+                r.qc_shipping = extended_values[12] if len(extended_values) > 12 else ""
+                r.qc_used = extended_values[13] if len(extended_values) > 13 else "false"
+                r.qc_save_state = extended_values[14] if len(extended_values) > 14 else ""
+                r.qc_original_subtotal = extended_values[15] if len(extended_values) > 15 else ""
+                r.qc_inventory = extended_values[16] if len(extended_values) > 16 else ""
 
                 # Recalculate grand total after updating
                 r._update_grand_total()

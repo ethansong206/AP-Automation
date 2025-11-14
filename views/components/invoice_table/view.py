@@ -25,6 +25,7 @@ from .model import (
     C_DUE,
     C_TOTAL,
     C_SHIPPING,
+    C_QUANTITY,
     C_GRAND_TOTAL,
 )
 from .delegates import BodyEditDelegate, ActionsDelegate, SelectCheckboxDelegate
@@ -338,6 +339,10 @@ class InvoiceTable(QWidget):
         hdr.setSectionResizeMode(C_SELECT, QHeaderView.Fixed)
         hdr.resizeSection(C_SELECT, 36)
 
+        # Quantity column
+        hdr.setSectionResizeMode(C_QUANTITY, QHeaderView.Interactive)
+        hdr.resizeSection(C_QUANTITY, 80)
+
         # Grand Total column - fixed size, not editable
         hdr.setSectionResizeMode(C_GRAND_TOTAL, QHeaderView.Interactive)
         hdr.resizeSection(C_GRAND_TOTAL, 120)
@@ -437,7 +442,7 @@ class InvoiceTable(QWidget):
         vals = self._model.row_values(src)
         mapping = {
             C_VENDOR: 0, C_INVOICE: 1, C_PO: 2, C_INV_DATE: 3,
-            C_TERMS: 4, C_DUE: 5, C_TOTAL: 6, C_SHIPPING: 7
+            C_TERMS: 4, C_DUE: 5, C_TOTAL: 6, C_SHIPPING: 7, C_QUANTITY: 8
         }
         if col in mapping:
             return vals[mapping[col]] or ""
@@ -446,10 +451,10 @@ class InvoiceTable(QWidget):
         return ""
     
     def get_row_values(self, view_row: int) -> List[str]:
-        """Get all 16 values for a row (8 main + 8 QC values including new tracking data)."""
+        """Get all 17 values for a row (9 main + 8 QC values including new tracking data)."""
         src = self._view_to_source_row(view_row)
         if src < 0:
-            return [""] * 16
+            return [""] * 17
         return self._model.row_values_for_session(src)
     
     def update_calculated_field(self, view_row: int, col: int, value: str, emit_change: bool = True):

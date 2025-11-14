@@ -39,6 +39,16 @@ def extract_discount_terms(words, vendor_name):
             logger.debug(f"Found Blundstone discount terms: {result}")
             return result
 
+    # Darn Tough-specific: Handle "N60" format (without "ET")
+    if vendor_name == "Darn Tough":
+        darn_tough_pattern = r'\bN(\d{1,3})\b'
+        darn_tough_match = re.search(darn_tough_pattern, all_text)
+        if darn_tough_match:
+            days = darn_tough_match.group(1)
+            result = f"NET {days}"
+            logger.debug(f"Found Darn Tough discount terms: {result}")
+            return result
+
     # Patagonia and Soto-specific: Calculate NET terms from Due Date - Invoice Date
     if vendor_name in ["Patagonia", "Soto"]:
         from .invoice_date import extract_invoice_date

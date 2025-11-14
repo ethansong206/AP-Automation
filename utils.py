@@ -49,8 +49,8 @@ def _scan_existing_voucher_rows(filename: str) -> set[tuple]:
 # These headers mirror the example provided by the accounting team. Each
 # header line contains 48 columns.
 VCHR_HEADER = [
-    "1-AI_VCHR", "VendorNo", "InvoiceNo", "InvoiceDate", 
-    "InvoiceDueDate", "Comment(PO)", "VendorName"
+    "1-AI_VCHR", "VendorNo", "InvoiceNo", "InvoiceDate",
+    "InvoiceDueDate", "Comment(PO)", "VendorName", "Quantity"
 ]
 
 DIST_HEADER = [
@@ -530,10 +530,11 @@ def format_and_write_csv(filename, invoice_data_list):
                 if comment_po:
                     comment_po = f"PO# {comment_po}"
                 vendor_name = invoice["vendor_name"]
+                quantity = invoice.get("quantity", "")
 
                 # Voucher row
                 vchr_row = [
-                    "1-AI_VCHR", vendor_id, invoice_no, invoice_date, due_date, comment_po, vendor_name
+                    "1-AI_VCHR", vendor_id, invoice_no, invoice_date, due_date, comment_po, vendor_name, quantity
                 ]
                 vchr_tuple = tuple(vchr_row)
                 if vchr_tuple in existing_vouchers:
